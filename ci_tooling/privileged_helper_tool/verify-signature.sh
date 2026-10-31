@@ -19,7 +19,7 @@
 # ------------------------------------------------------
 
 CERT_NAME="${OCLP_CERT_NAME:-OCLP Self Signed}"
-CLIENT_ID="${OCLP_CLIENT_ID:-io.github.bridgepatcher.bridgepatcher}"
+CLIENT_ID="${OCLP_CLIENT_ID:-com.bridgepatcher.bridgepatcher}"
 SIGNING_KEYCHAIN="${HOME}/Library/Keychains/oclp-signing.keychain-db"
 
 appPath="${1:-/Library/Application Support/albert-mueller/OpenCore-Patcher-T2/BridgePatcher.app}"
