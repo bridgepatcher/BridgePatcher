@@ -9,6 +9,8 @@
 #       PR gets a warning comment, a push opens an issue (nothing is closed)
 #   - Intended removals (contribution reverted/replaced, or at the contributor's request)
 #       are listed in .github/retired-credits.txt and not reported.
+#   - Bots and AI coding agents (e.g. commits by Claude Code or Cursor's agent, GitHub Apps
+#       such as the Copilot coding agent) are never asked to be credited.
 # Code is only read through the API, never checked out or executed.
 
 name: Credit guard
@@ -93,12 +95,35 @@ jobs:
             const isCredited = (login, set) => set.has(login.toLowerCase());
             const relevant = l => l && !IGNORE.has(l.toLowerCase()) && !l.endsWith('[bot]');
 
+            // AI coding agents are not contributors to credit. Matched on the commit's author
+            // email, not the login: agents commit under their vendor's no-reply address, which
+            // GitHub links to whatever account registered it (noreply@anthropic.com resolves
+            // to the unrelated user @claude) - while a real person who happens to use such a
+            // login still commits under their own address and is still credited. Agents that
+            // run as GitHub Apps (Copilot coding agent, Devin, ...) are accounts of type "Bot".
+            const AI_AGENT_EMAILS = new Set([
+              'noreply@anthropic.com',   // Claude Code
+              'cursoragent@cursor.com',  // Cursor background agent
+            ]);
+            const isBotAccount = user => !!user && user.type === 'Bot';
+            const isAiAgentCommit = c =>
+              isBotAccount(c.author) ||
+              AI_AGENT_EMAILS.has(((c.commit && c.commit.author && c.commit.author.email) || '').toLowerCase());
+
             async function prContributors(pr) {
-              const people = new Set([pr.user.login]);
+              const people = new Set();
+              if (!isBotAccount(pr.user)) people.add(pr.user.login);
               const commits = await github.paginate(github.rest.pulls.listCommits, {
                 owner, repo, pull_number: pr.number, per_page: 100,
               });
-              for (const c of commits) if (c.author && c.author.login) people.add(c.author.login);
+              for (const c of commits) {
+                if (!c.author || !c.author.login) continue;
+                if (isAiAgentCommit(c)) {
+                  core.info(`Not asking for credit: commit ${c.sha.slice(0, 7)} is by an AI agent (${c.commit.author.email}, @${c.author.login})`);
+                  continue;
+                }
+                people.add(c.author.login);
+              }
               return [...people].filter(relevant);
             }
 

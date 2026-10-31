@@ -9,7 +9,7 @@
 	<key>CFBundleIconFile</key>
 	<string>OC-Patcher.icns</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.bridgepatcher.bridgepatcher</string>
+	<string>com.bridgepatcher.bridgepatcher</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>

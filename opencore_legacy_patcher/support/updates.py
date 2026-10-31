@@ -254,7 +254,7 @@ class CheckBinaryUpdates:
 
         return first_version > second_version
 
-    def check_binary_updates(self, manual: bool = False, include_prerelease: bool = False) -> Optional[dict]:
+    def check_binary_updates(self, manual: bool = False, include_prerelease: Optional[bool] = None) -> Optional[dict]:
         """
         Check if any updates are available for the OpenCore Legacy Patcher binary.
         Automatic checks respect the snooze window; manual checks bypass it so
@@ -271,6 +271,12 @@ class CheckBinaryUpdates:
         has_checked_updates is reset) offered that channel's newest pre-release
         instead of its newest stable build. A channel that only publishes
         pre-releases can still be switched to via "Include pre-releases" + "Check for updates".
+
+        include_prerelease=None (every automatic check: app launch, update
+        daemon, auto patcher) follows the stored "Include pre-releases" setting.
+        Previously automatic checks were always stable-only, so a user who opted
+        into pre-releases (and installed one) never got the next pre-release
+        automatically - only through the manual button.
 
         constants.auto_update is deliberately NOT checked here. It only decides
         whether a found update is installed silently or offered through the
@@ -320,6 +326,9 @@ class CheckBinaryUpdates:
                     logging.error("NextUpdateCheck value is invalid and will be ignored: %r", next_update_check)
                 except Exception as e: # behebt eine Sicherheitslücke, indem einen Angreifer könnte Fehler außerhalb ValueError verursachen, um beliebiges Code auszuführen
                     logging.error("NextUpdateCheck value is invalid and will be ignored: %r", next_update_check)
+
+        if include_prerelease is None:
+            include_prerelease = global_settings.GlobalEnviromentSettings().read_property("IncludePrereleases") is True
 
         # Self-heal the Privileged Helper Tool's permissions before doing anything
         # network-related below. No-op (no prompt) unless a repair is actually needed.
@@ -379,6 +388,19 @@ class CheckBinaryUpdates:
 
         if not releases or not isinstance(releases, list):
             return None
+
+        if channel_switch and self._running_build_is_in(releases):
+            # The running build is one of this channel's releases, so it already
+            # came from it - the switch happened, it just was never recorded.
+            # That is the case whenever the update was finished by the macOS
+            # Installer hand-off (gui_update.py only records the channel after a
+            # silent install), or when the build is a pre-release that a
+            # stable-only check skips below. Left pending, every automatic check
+            # kept treating it as a channel switch, which always asks first, so
+            # automatic updates never happened again on that channel.
+            logging.info("Running build belongs to the selected channel, marking channel as installed")
+            self._mark_channel_installed()
+            channel_switch = False
 
         # GitHub's /releases API returns items sorted by creation date, not by version number.
         # To avoid fetching an older version that was published more recently, we must find the highest version.
@@ -494,6 +516,21 @@ class CheckBinaryUpdates:
         if channel_switch:
             self.last_error = f"The newest release of the {self.constants.update_channel_label} channel has no {constants.INSTALLER_PKG_NAME} asset."
         return None
+
+    def _running_build_is_in(self, releases: list) -> bool:
+        """
+        Whether one of the given GitHub releases (pre-releases included) has the
+        running build's version
+        """
+        for release in releases:
+            if not isinstance(release, dict) or "tag_name" not in release:
+                continue
+            try:
+                if version.parse(str(release["tag_name"])) == self.binary_version:
+                    return True
+            except version.InvalidVersion:
+                continue
+        return False
 
     def _mark_channel_installed(self) -> None:
         """

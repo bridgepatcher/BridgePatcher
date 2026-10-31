@@ -257,7 +257,7 @@ status = f"[0/{TOTAL_STEPS}] Starting"
 # Do NOT replace this with a module level flag assigned inside main(): an assignment
 # there creates a function local unless 'global' is declared, and the module level
 # value stays False forever - the failure mode this structure exists to prevent.
-build_result = {"exit_code": 0, "completed": False}
+build_result = {"exit_code": 0, "completed": False, "cancelled": False}
 
 
 def check_file_exists(path: Path) -> None:
@@ -471,7 +471,9 @@ def main() -> None:
 
         # 3. Packages
         if (args.run_as_individual_steps is False) or (args.run_as_individual_steps and args.prepare_package):
-            status = f"[5/{TOTAL_STEPS}] Building packages"
+            # Compressing the app with its disk images (well over 1 GB) into the installer
+            # takes several minutes with no output, which reads as a hang otherwise.
+            status = f"[5/{TOTAL_STEPS}] Building packages - this can take several minutes"
             package_generator = package.GeneratePackage(legacy_installer=args.legacy_installer)
             package_generator.generate()
 
@@ -494,6 +496,11 @@ def main() -> None:
             status = f"[{TOTAL_STEPS}/{TOTAL_STEPS}] Generating hashes"
             hash_pkg.GenerateHash()
     except Exception as e:
+        if build_result["cancelled"]:
+            # Ctrl+C reaches the running tool (pkgbuild, productbuild, ...) too, which
+            # then fails - that failure is the cancellation, not a build error.
+            rich.print("\n[yellow]Build cancelled (Ctrl+C), the current step was stopped.[/yellow]")
+            sys.exit(130)
         # Closing tag must match the opening one - rich raises MarkupError on a mismatch,
         # which would replace the real build error with a markup error.
         rich.print(f"\n[red] Building the app stopped because of some error: {e}[/red]")
@@ -530,12 +537,29 @@ if __name__ == '__main__':
     thread = threading.Thread(target=_run_build)
     thread.start()
 
+    def _with_elapsed(text: str, since: float) -> str:
+        # Show how long the current step has been running, so a long step without
+        # output (e.g. compressing the installer) doesn't look like a hang.
+        minutes, seconds = divmod(int(time.time() - since), 60)
+        return f"{text} ({minutes}:{seconds:02d})"
+
     spinner = Spinner("dots", text=status)
-    with Live(spinner, refresh_per_second=10):
-        while thread.is_alive():
+    try:
+        with Live(spinner, refresh_per_second=10):
+            shown_status, step_start = status, time.time()
+            while thread.is_alive():
+                if status != shown_status:
+                    shown_status, step_start = status, time.time()
+                spinner.update(text=_with_elapsed(shown_status, step_start))
+                time.sleep(0.1)
             spinner.update(text=status)
-            time.sleep(0.1)
-        spinner.update(text=status)
+    except KeyboardInterrupt:
+        # Set before the build thread reports the failure Ctrl+C causes in the tool it
+        # is running, so main() reports a cancellation instead of a build error.
+        build_result["cancelled"] = True
+        rich.print("\n[yellow]Cancelling the build (Ctrl+C), waiting for the current step to stop...[/yellow]")
+        thread.join()
+        sys.exit(130)
 
     thread.join()
 
