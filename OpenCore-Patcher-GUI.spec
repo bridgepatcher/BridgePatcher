@@ -61,7 +61,9 @@ exe = EXE(pyz,
           upx=True,
           console=False,
           disable_windowed_traceback=False,
-          target_arch=x86,
+          # Always build an Intel app, also on Apple Silicon. Must be a string, and one
+          # of PyInstaller's macOS names: "x86_64", "arm64" or "universal2" ("x86" is not).
+          target_arch="x86_64",
           codesign_identity=None,
           entitlements_file=None)
 
