@@ -5,9 +5,12 @@ Call check_binary_updates() to determine if any updates are available
 Returns dict with Link and Version of the latest binary update if available
 """
 
+import re
+import hashlib
 import logging
 
-from urllib.parse import quote
+from pathlib import Path
+from urllib.parse import quote, unquote
 
 from typing import Optional, Union
 from packaging import version
@@ -25,6 +28,98 @@ from .. import constants
 
 # The releases URL is generated from constants.update_repo_link, i.e. from the
 # update channel selected in Settings (official T2 repository or a fork).
+
+
+# SHA256 checksum files published on a release, next to the installer package:
+# - SHA256SUMS: written by .github/workflows/sha256sums.yml, "<sha256>  <file>" per line
+# - certificates.txt: written at build time by ci_tooling/build_modules/hash.py,
+#   "Resource certificates:" followed by "<file>: <sha256>" lines
+# The package's own preinstall script checks the same two files (see
+# ci_tooling/build_modules/package_scripts.py, generate_verify_package()).
+CHECKSUM_FILE_NAMES = ("SHA256SUMS", "certificates.txt")
+_CHECKSUM_TIMEOUT = 20
+_SHA256SUMS_LINE = re.compile(r"^([0-9a-fA-F]{64})\s+\*?(.+?)\s*$")
+_CERTIFICATES_LINE = re.compile(r"^(.+?):\s*([0-9a-fA-F]{64})\s*$")
+
+
+def _parse_checksum_file(text: str) -> dict:
+    """
+    Map file name -> lowercase SHA256 for both checksum file formats
+    """
+    checksums = {}
+    for line in text.splitlines():
+        line = line.strip()
+        match = _SHA256SUMS_LINE.match(line)
+        if match:
+            digest, name = match.group(1), match.group(2)
+        else:
+            match = _CERTIFICATES_LINE.match(line)
+            if not match:
+                continue
+            name, digest = match.group(1), match.group(2)
+        name = name.strip()
+        name = name.removeprefix("./")
+        checksums.setdefault(name, set()).add(digest.lower())
+    return checksums
+
+
+def published_sha256(download_url: str) -> tuple[Optional[str], str]:
+    """
+    Look up the SHA256 published for a release asset
+
+    The checksum files are fetched from the same release as the asset
+    (".../releases/download/<tag>/<file>"), so they always describe exactly the
+    package that will be downloaded.
+
+    Parameters:
+        download_url (str): browser_download_url of the installer package
+
+    Returns:
+        (sha256, "") if the release publishes exactly one SHA256 for the asset,
+        (None, reason) otherwise - no checksum files, the asset isn't listed in
+        them, or they disagree with each other.
+    """
+    base_url, _, asset_name = str(download_url).rpartition("/")
+    asset_name = unquote(asset_name)
+    if not base_url or not asset_name:
+        return None, f"Invalid download link: {download_url}"
+
+    found_files = []
+    digests = set()
+    for file_name in CHECKSUM_FILE_NAMES:
+        url = f"{base_url}/{file_name}"
+        try:
+            response = network_handler.NetworkUtilities().get(url, timeout=_CHECKSUM_TIMEOUT)
+        except Exception as error:
+            logging.warning(f"Failed to fetch {url}: {error}")
+            continue
+        if getattr(response, "status_code", None) != 200:
+            logging.info(f"No {file_name} on this release ({getattr(response, 'status_code', None)})")
+            continue
+        found_files.append(file_name)
+        listed = _parse_checksum_file(response.text).get(asset_name, set())
+        if listed:
+            logging.info(f"{file_name} lists {asset_name}: {', '.join(sorted(listed))}")
+        digests |= listed
+
+    if not found_files:
+        return None, f"The release publishes no SHA256 checksums ({' or '.join(CHECKSUM_FILE_NAMES)}) for {asset_name}."
+    if not digests:
+        return None, f"The release's checksum files ({', '.join(found_files)}) don't list {asset_name}."
+    if len(digests) > 1:
+        return None, f"The release's checksum files ({', '.join(found_files)}) publish different SHA256 checksums for {asset_name}."
+    return digests.pop(), ""
+
+
+def sha256_of_file(path: Union[str, Path]) -> str:
+    """
+    SHA256 of a local file, lowercase hex
+    """
+    digest = hashlib.sha256()
+    with open(path, "rb") as file:
+        while chunk := file.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def snooze_has_expired() -> bool:
@@ -370,7 +465,21 @@ class CheckBinaryUpdates:
         for pkg_name in (constants.INSTALLER_PKG_NAME, constants.LEGACY_INSTALLER_PKG_NAME):
             asset = assets_by_name.get(pkg_name)
             if asset is not None:
+                # Only offer an update whose package has a published SHA256 checksum:
+                # without one the download can't be verified before it's installed.
+                # SHA256SUMS is attached by CI a few minutes after the release goes
+                # live, so a brand-new release is simply offered a little later.
+                expected_sha256, checksum_error = published_sha256(asset["browser_download_url"])
+                if expected_sha256 is None:
+                    logging.warning(f"Not offering {data_set['tag_name']}: {checksum_error}")
+                    self.last_error = (
+                        f"{constants.APP_NAME} {latest_remote_version} is available, but it can't be verified yet: "
+                        f"{checksum_error} The update will be offered once its checksums are published."
+                    )
+                    return None
+                logging.info(f"Published SHA256 of {asset['name']}: {expected_sha256}")
                 self.latest_details = {
+                    "SHA256": expected_sha256,
                     "Name": asset["name"],
                     "Version": latest_remote_version,
                     "Link": asset["browser_download_url"],
