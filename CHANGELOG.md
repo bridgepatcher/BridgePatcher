@@ -20,6 +20,8 @@ This version:
 - the installer, uninstaller and AutoPkg-Assets packages now show BridgePatcher's own icon in their background (in the box, in the trash can and behind the badge) instead of Dortania's OpenCore Legacy Patcher icon
 - the uninstaller package is now called BridgePatcher-Uninstaller.pkg (previously OpenCore-Patcher-Uninstaller.pkg)
 - on T2 Macs, updates T2TahoeFixup.kext to 1.0.19, which additionally hooks `_namei` so that `open`, `stat` and `mmap` calls from UpdateBrainService are redirected to the shadow BuildManifest in /private/tmp, aliases the dropped models' manifests (j132ap, j174ap, j680ap and others) to j214kap in memory, and lets `image4_trust_evaluate` succeed during Stage 2 to address the MobileSoftwareUpdate Error 81 on MacBookPro15,2 and Mac mini (#639). Not yet confirmed by testers. The kext's Info.plist still reports version 1.0.18, as its version wasn't bumped in this build. Thanks @matteoiacca
+- removes the stickers in the OpenCore Build completely, not just in Settings
+- fixes a bug where in validation.py it unmounts the volume twice (the second time it would fail) because in except Exception as e it unmounted once, then a second time it unmounted again in the finally block
 
 In the repository:
 - License Guard now also finds Dortania's icon when it is only part of a larger image (scaled, rotated, placed in a box or partly covered by a badge, as in the old package backgrounds), and checks the images stored inside design files such as .afdesign, .psd and .pdf. The reference icon is read from Dortania's repository during the check, so no copy of it is stored here
