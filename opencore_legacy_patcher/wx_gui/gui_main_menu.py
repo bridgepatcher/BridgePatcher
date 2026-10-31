@@ -438,7 +438,9 @@ class MainFrame(wx.Frame):
         # navigates), but constants persists for the whole process lifetime.
         self.constants.update_thread = self.update_thread
 
-    def _check_for_updates(self, manual: bool = False, include_prerelease: bool = False):
+    def _check_for_updates(self, manual: bool = False, include_prerelease: "bool | None" = None):
+        # include_prerelease None (the automatic startup check) follows the
+        # stored "Include pre-releases" setting, see check_binary_updates()
         if manual is False and self.constants.has_checked_updates is True:
             logging.info("We have already checked for updates.")
             return
