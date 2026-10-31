@@ -3,12 +3,14 @@ disk_images.py: Fetch and generate disk images (Universal-Binaries.dmg, payloads
 """
 
 import os
+import hashlib
 import subprocess
 import rich
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
 from pathlib import Path
 
 from opencore_legacy_patcher import constants
+from opencore_legacy_patcher.datasets import patcher_support_pkg_data
 from opencore_legacy_patcher.support import subprocess_wrapper
 
 class GenerateDiskImages:
@@ -158,6 +160,20 @@ class GenerateDiskImages:
             "Universal-Binaries.dmg"
         ]
 
+        # The image ends up inside the app bundle and on users' root volumes, and the
+        # size check below only catches error pages and aborted transfers. Pinned in
+        # the repository, see datasets/patcher_support_pkg_data.py for why the release's
+        # own sha256sum.txt is not used.
+        expected_sha256 = {
+            "Universal-Binaries.dmg": patcher_support_pkg_data.expected_universal_binaries_sha256(patcher_support_pkg_version),
+        }
+        for resource, digest in expected_sha256.items():
+            if digest is None:
+                raise Exception(
+                    f"No SHA256 is pinned for {resource} of PatcherSupportPkg {patcher_support_pkg_version}.\n"
+                    "Add it to opencore_legacy_patcher/datasets/patcher_support_pkg_data.py."
+                )
+
         rich.print("Downloading required resources...")
         for resource in required_resources:
             resource_path = Path(f"./{resource}")
@@ -176,8 +192,13 @@ class GenerateDiskImages:
                     # Never trust such a file, redownload instead of skipping.
                     rich.print(f"  - Existing {resource} is only {resource_path.stat().st_size} bytes, discarding and redownloading")
                     resource_path.unlink()
+                elif self._sha256_of_file(resource_path) != expected_sha256[resource]:
+                    # A cached image from an older PatcherSupportPkg, or a damaged one,
+                    # must not be packaged.
+                    rich.print(f"  - Existing {resource} doesn't match the pinned SHA256 for {patcher_support_pkg_version}, discarding and redownloading")
+                    resource_path.unlink()
                 else:
-                    rich.print(f"- {resource} already exists, skipping download")
+                    rich.print(f"- {resource} already exists and matches the pinned SHA256, skipping download")
                     continue
 
             url = f"{base_url}/{patcher_support_pkg_version}/{resource}"
@@ -252,7 +273,24 @@ class GenerateDiskImages:
                     f"Verify that release tag '{patcher_support_pkg_version}' exists and publishes {resource}."
                 )
 
-            rich.print(f"[green]- Downloaded {resource} ({resource_size / (1024 * 1024):.1f} MB)[/green]")
+            actual_sha256 = self._sha256_of_file(resource_path)
+            if actual_sha256 != expected_sha256[resource]:
+                resource_path.unlink(missing_ok=True)
+                raise Exception(
+                    f"{resource} downloaded from {url} doesn't match the pinned SHA256.\n"
+                    f"Expected: {expected_sha256[resource]}\n"
+                    f"Got:      {actual_sha256}"
+                )
+
+            rich.print(f"[green]- Downloaded {resource} ({resource_size / (1024 * 1024):.1f} MB, SHA256 verified)[/green]")
+
+    @staticmethod
+    def _sha256_of_file(path: Path) -> str:
+        digest = hashlib.sha256()
+        with open(path, "rb") as file:
+            while chunk := file.read(1024 * 1024):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def generate(self) -> None:
         """

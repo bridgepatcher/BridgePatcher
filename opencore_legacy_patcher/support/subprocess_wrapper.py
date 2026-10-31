@@ -686,6 +686,60 @@ def _sudo_will_prompt() -> bool:
     return result.returncode != 0
 
 
+# How long a single 'hdiutil attach' may take before it is treated as hung. Attaching
+# with -noverify does not read the whole image, so even the ~1 GB Universal-Binaries.dmg
+# attaches in seconds; without a limit a stuck attach blocked root patching forever
+# without logging anything.
+HDIUTIL_ATTACH_TIMEOUT = 300
+
+
+def _has_quarantine(path: Path) -> bool:
+    """Whether 'path' carries com.apple.quarantine (readable without privileges)."""
+    try:
+        result = subprocess.run(
+            ["/usr/bin/xattr", "-p", "com.apple.quarantine", str(path)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15
+        )
+    except Exception:
+        return False
+    return result.returncode == 0
+
+
+def _clear_quarantine_unprivileged(path: Path) -> None:
+    """
+    Remove com.apple.quarantine from a disk image we are about to attach, if we can.
+
+    Works for images the user owns (source checkouts, on-demand downloads). The copy
+    inside the installed app bundle is root-owned, so this fails there and the
+    elevated retry in mount_dmg() removes it instead. The attribute is not part of
+    the bundle's code signature, so removing it does not invalidate the signature.
+    """
+    if not _has_quarantine(path):
+        return
+    logging.info(f"- {path.name} carries com.apple.quarantine, removing it before attaching")
+    try:
+        result = subprocess.run(
+            ["/usr/bin/xattr", "-d", "com.apple.quarantine", str(path)],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15
+        )
+    except Exception as error:
+        logging.info(f"- Could not remove com.apple.quarantine without privileges: {error}")
+        return
+    if result.returncode != 0:
+        logging.info("- Could not remove com.apple.quarantine without privileges, the elevated retry will")
+
+
+def _log_attached_images() -> None:
+    """Log 'hdiutil info' - which images are attached, and where - for failed mounts."""
+    try:
+        result = subprocess.run(["/usr/bin/hdiutil", "info"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+        logging.info("- Attached disk images ('hdiutil info'):")
+        for line in result.stdout.decode(errors="replace").splitlines():
+            logging.info(f"    {line}")
+    except Exception as error:
+        logging.info(f"- Could not run 'hdiutil info': {error}")
+
+
 def mount_dmg(
     dmg_path: Path,
     mount_point: Path,
@@ -701,26 +755,41 @@ def mount_dmg(
     Some systems (observed starting with macOS 26.4) require elevated
     privileges to mount disk images, a regression from prior unprivileged
     mounts succeeding, which manifests as "Permission denied". If
-    'admin_password_prompt' is supplied and the unprivileged attempt fails
-    with "Permission denied", this clears com.apple.quarantine (which can
-    independently trip hdiutil's own Gatekeeper-style authentication gate)
-    and retries once, elevated via 'sudo'.
+    'admin_password_prompt' is supplied and the unprivileged attempt fails,
+    this retries once elevated via sudo. com.apple.quarantine, which can
+    independently trip hdiutil's own Gatekeeper-style authentication gate, is
+    removed before both attempts: unprivileged where we own the image, and in
+    the elevated shell for the root-owned copy inside the app bundle.
 
-    'retry_on_auth_error' additionally treats "Authentication error" as a
-    retry trigger. Only pass this for a fixed, known-correct 'password' (e.g.
-    PatcherSupportPkg's convention of a hardcoded passphrase): with a
-    user-supplied password, "Authentication error" more likely means a wrong
-    password than a privilege gate, and would otherwise wrongly prompt for an
-    administrator password on every incorrect attempt.
+    When to retry elevated: on a privilege error ("Permission denied",
+    "Operation not permitted"), and - with 'retry_on_auth_error' or a
+    'password' - on ANY failure. hdiutil's messages come from the DiskImages
+    framework, which localises them regardless of LC_ALL (Issue #553 shows
+    "attach failed - 权限被拒绝"), so matching the English text alone would never
+    elevate on a non-English system. 'retry_on_auth_error' is only meant for a
+    fixed, known-correct passphrase (PatcherSupportPkg's): with a user-supplied
+    one, a failure more likely means a wrong password than a privilege gate.
 
     Deliberately not routed through "do shell script ... with administrator
     privileges" (security_authtrampoline): that mechanism runs detached from
     the current login/Aqua session, and hdiutil's own internal authentication
     appears to depend on that session being present. 'admin_password_prompt'
     is expected to only collect a password (e.g. via a plain AppleScript
-    "display dialog"), not to perform the elevation itself.
+    "display dialog"), not to perform the elevation itself. Only when sudo
+    can't be used at all (see _run_elevated_without_helper()) does the retry
+    fall back to osascript, as the last option left.
+
+    Each attach is limited to HDIUTIL_ATTACH_TIMEOUT seconds. The returned
+    CompletedProcess always reports the unprivileged command line, which never
+    contains the passphrase - callers log it.
     """
+    if not Path(dmg_path).is_file():
+        # Nothing an administrator password could fix - don't ask for one.
+        logging.error(f"- Disk image not found: {dmg_path}")
+        return subprocess.CompletedProcess(args=["/usr/bin/hdiutil", "attach", str(dmg_path)], returncode=1, stdout=b"", stderr=f"Disk image not found: {dmg_path}".encode())
+
     mount_point.parent.mkdir(parents=True, exist_ok=True)
+    _clear_quarantine_unprivileged(Path(dmg_path))
 
     cmd = ["/usr/bin/hdiutil", "attach", "-noverify", str(dmg_path), "-mountpoint", str(mount_point), "-nobrowse"]
     if shadow_path:
@@ -739,7 +808,18 @@ def mount_dmg(
     env["AppleLanguages"] = '("en")'
 
     process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
-    stdout, _ = process.communicate(input=password.encode() if password else None)
+    try:
+        stdout, _ = process.communicate(input=password.encode() if password else None, timeout=HDIUTIL_ATTACH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        stdout, _ = process.communicate()
+        logging.error(f"- hdiutil attach did not finish within {HDIUTIL_ATTACH_TIMEOUT} seconds, stopped it")
+        _log_attached_images()
+        # A hang is not a privilege problem, so don't escalate it into an elevated retry.
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=1, stdout=stdout or b"",
+            stderr=f"hdiutil attach timed out after {HDIUTIL_ATTACH_TIMEOUT} seconds".encode(),
+        )
 
     if process.returncode == 0 or admin_password_prompt is None:
         return subprocess.CompletedProcess(args=cmd, returncode=process.returncode, stdout=stdout)
@@ -760,44 +840,80 @@ def mount_dmg(
         return subprocess.CompletedProcess(args=cmd, returncode=process.returncode, stdout=stdout)
 
     logging.info("- Unprivileged hdiutil attach failed, retrying with administrator privileges")
+    logging.info(f"- Unprivileged attempt returned {process.returncode}: {stdout.decode(errors='replace').strip()}")
+
+    # One elevated shell, so the quarantine removal (re-added: it was lost when the
+    # elevation was reworked, though this docstring kept promising it) runs with the
+    # rights to modify the root-owned image in the app bundle. The passphrase travels
+    # as a positional argument, never as part of the script text. LC_ALL is set again
+    # because sudo's env_reset drops it.
+    attach = '/usr/bin/hdiutil attach -noverify "$2" -mountpoint "$3" -nobrowse'
+    if shadow_path:
+        attach += ' -shadow "$4"'
     if password:
-        if shadow_path:
-            sh_cmd = 'printf "%s" "$1" | /usr/bin/hdiutil attach -noverify "$2" -mountpoint "$3" -nobrowse -shadow "$4" -stdinpass'
-            elevated_cmd = ["/bin/sh", "-c", sh_cmd, "--", password, str(dmg_path), str(mount_point), str(shadow_path)]
-        else:
-            sh_cmd = 'printf "%s" "$1" | /usr/bin/hdiutil attach -noverify "$2" -mountpoint "$3" -nobrowse -stdinpass'
-            elevated_cmd = ["/bin/sh", "-c", sh_cmd, "--", password, str(dmg_path), str(mount_point)]
-    else:
-        elevated_cmd = ["/usr/bin/hdiutil", "attach", "-noverify", str(dmg_path), "-mountpoint", str(mount_point), "-nobrowse"]
-        if shadow_path:
-            elevated_cmd.extend(["-shadow", str(shadow_path)])
+        attach = 'printf "%s" "$1" | ' + attach + ' -stdinpass'
+    sh_cmd = 'export LC_ALL=C; /usr/bin/xattr -d com.apple.quarantine "$2" 2>/dev/null; ' + attach
+    elevated_cmd = ["/bin/sh", "-c", sh_cmd, "--", password or "", str(dmg_path), str(mount_point), str(shadow_path) if shadow_path else ""]
 
-    result = _run_elevated_without_helper(
-        elevated_cmd,
-        capture_output=True,
-    )
+    def _combined_output(elevated_stdout, elevated_stderr) -> tuple:
+        """Keep both attempts in the result: the unprivileged error alone hid what the elevated one said."""
+        out = b"Unprivileged attempt:\n" + (stdout or b"(no output)") + b"\nElevated attempt:\n" + (_to_bytes(elevated_stdout) or b"(no output)")
+        return out, _to_bytes(elevated_stderr)
 
-    if result.returncode == 0:
-        is_mounted = False
-        resolved_mount = mount_point.resolve()
-        for _ in range(10):
-            if os.path.ismount(mount_point) or os.path.ismount(resolved_mount):
+    try:
+        result = _run_elevated_without_helper(
+            elevated_cmd,
+            capture_output=True,
+            timeout=HDIUTIL_ATTACH_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as error:
+        logging.error(f"- Elevated hdiutil attach did not finish within {HDIUTIL_ATTACH_TIMEOUT} seconds")
+        _log_attached_images()
+        out, err = _combined_output(error.stdout, error.stderr)
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=1, stdout=out,
+            stderr=err + f"\nElevated hdiutil attach timed out after {HDIUTIL_ATTACH_TIMEOUT} seconds".encode(),
+        )
+
+    if result.returncode != 0:
+        out, err = _combined_output(result.stdout, result.stderr)
+        # args=cmd: elevated_cmd carries the passphrase, and callers log the result
+        return subprocess.CompletedProcess(args=cmd, returncode=result.returncode, stdout=out, stderr=err)
+
+    is_mounted = False
+    resolved_mount = mount_point.resolve()
+    for _ in range(10):
+        if os.path.ismount(mount_point) or os.path.ismount(resolved_mount):
+            is_mounted = True
+            break
+        try:
+            if any(not item.name.startswith(".") for item in mount_point.iterdir()):
                 is_mounted = True
                 break
-            try:
-                if any(not item.name.startswith(".") for item in mount_point.iterdir()):
-                    is_mounted = True
-                    break
-            except (OSError, PermissionError):
-                pass
-            time.sleep(0.2)
+        except (OSError, PermissionError):
+            pass
+        time.sleep(0.2)
 
-        if not is_mounted:
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=1, stdout=result.stdout or stdout,
-                stderr=b"Elevated hdiutil attach did not mount the image",
-            )
-    return result
+    if not is_mounted:
+        # hdiutil reported success, yet nothing is mounted where we asked (Issue #553).
+        # Record where the image actually ended up, if anywhere.
+        logging.error("- Elevated hdiutil attach reported success, but the mount point is not mounted")
+        _log_attached_images()
+        out, err = _combined_output(result.stdout, result.stderr)
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=1, stdout=out,
+            stderr=err + b"\nElevated hdiutil attach did not mount the image",
+        )
+    return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=_to_bytes(result.stdout), stderr=_to_bytes(result.stderr))
+
+
+def _to_bytes(value) -> bytes:
+    """Elevation paths can return bytes, str or None."""
+    if value is None:
+        return b""
+    if isinstance(value, bytes):
+        return value
+    return str(value).encode()
 
 
 def verify(process_result: subprocess.CompletedProcess) -> None:
