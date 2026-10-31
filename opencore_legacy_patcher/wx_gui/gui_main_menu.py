@@ -514,7 +514,7 @@ class MainFrame(wx.Frame):
             mandatory = not ask_first and (updates.snooze_has_expired() or forced)
             if mandatory:
                 logging.info("Snooze period has ended or a required service is gone, this update is mandatory")
-            wx.CallAfter(self.on_update, update_dict["Link"], remote_version_str, update_dict["Github Link"], changelog, ask_first, channel_switch, mandatory)
+            wx.CallAfter(self.on_update, update_dict["Link"], remote_version_str, update_dict["Github Link"], changelog, ask_first, channel_switch, mandatory, update_dict.get("SHA256") or "")
 
     def _report_manual_check(self, manual: bool, new_version, error, include_prerelease: bool = False) -> None:
         """
@@ -561,7 +561,7 @@ class MainFrame(wx.Frame):
             wx.OK | wx.ICON_INFORMATION, self
         )
 
-    def on_update(self, oclp_url: str, oclp_version: str, oclp_github_url: str, changelog_text: str, manual: bool = False, channel_switch: bool = False, mandatory: bool = False):
+    def on_update(self, oclp_url: str, oclp_version: str, oclp_github_url: str, changelog_text: str, manual: bool = False, channel_switch: bool = False, mandatory: bool = False, sha256: str = ""):
         if not self or gui_support.is_app_exiting():
             return
         host_space = utilities.get_free_space()
@@ -581,7 +581,8 @@ class MainFrame(wx.Frame):
                 url=oclp_url,
                 version_label=oclp_version,
                 changelog=changelog_text,
-                mandatory=mandatory
+                mandatory=mandatory,
+                sha256=sha256
             )
             return
 
@@ -662,7 +663,8 @@ class MainFrame(wx.Frame):
                 screen_location=self.GetPosition(),
                 url=oclp_url,
                 version_label=oclp_version,
-                changelog=changelog_text
+                changelog=changelog_text,
+                sha256=sha256
             )
 
         frame.Destroy()
@@ -791,4 +793,3 @@ class MainFrame(wx.Frame):
             logging.error(f"We failed to open up Help: {e}")
             logging.exception("Stack Trace:")
             return # <- da fehlte das return-Funktion, also der App könnte trotzdem der fehlerhafte Code auszuführen, auch wenn es schlug fehl. Angreifern könnten davon ausnutzen, um die Anwendung zum Absturz zu bringen oder beliebiges Code auszuführen
-

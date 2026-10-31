@@ -33,7 +33,7 @@ class UpdateFrame(wx.Frame):
     """
     Create a frame for updating the patcher
     """
-    def __init__(self, parent: wx.Frame, title: str, global_constants: constants.Constants, screen_location: wx.Point, url: str = "", version_label: str = "", changelog: str = "", mandatory: bool = False) -> None:
+    def __init__(self, parent: wx.Frame, title: str, global_constants: constants.Constants, screen_location: wx.Point, url: str = "", version_label: str = "", changelog: str = "", mandatory: bool = False, sha256: str = "") -> None:
         # CORRECTED: Always call the super-class constructor first to register the window correctly
         super().__init__(parent, title=title, size=(350, 300), style=wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX))
 
@@ -84,6 +84,7 @@ class UpdateFrame(wx.Frame):
             if dict:
                 version_label = dict["Version"]
                 url = dict["Link"]
+                sha256 = dict.get("SHA256") or ""
                 if not changelog:
                     changelog = dict.get("Changelog") or ""
             else:
@@ -93,6 +94,10 @@ class UpdateFrame(wx.Frame):
                 sys.exit(3)
         self.version_label = version_label
         self.url = url
+        # SHA256 the release published for this package when the update was offered
+        # (updates.py only offers updates that have one). Checked again before the
+        # download starts and against the downloaded file before installing.
+        self.expected_sha256: str = str(sha256 or "").lower()
         # Release notes of the version being installed, shown in the download window.
         # Same cut as gui_main_menu.py: the asset table at the end is not useful here.
         self.changelog = str(changelog).split("## Asset Information")[0] if changelog else ""
@@ -167,6 +172,30 @@ class UpdateFrame(wx.Frame):
             wx.Yield()
             time.sleep(self.constants.thread_sleep_interval)
 
+        # Don't start downloading a package that can't be verified afterwards: the
+        # release must (still) publish a SHA256 for it, and it must be the one the
+        # update was offered with - otherwise the release changed in the meantime.
+        published, checksum_error = updates.published_sha256(self.url)
+        if published is not None and self.expected_sha256 and published != self.expected_sha256:
+            checksum_error = (
+                "The SHA256 checksum published for this update changed after the update was offered "
+                f"(offered: {self.expected_sha256}, now: {published})."
+            )
+            published = None
+        if published is None:
+            logging.error(f"Not downloading the update, it can't be verified: {checksum_error}")
+            wx.MessageBox(
+                f"The update to {self.version_label} was not downloaded because it can't be verified.\n\n"
+                f"{checksum_error}\n\n"
+                "Please try again later, or download the update manually from GitHub.",
+                "Update Not Verified",
+                wx.OK | wx.ICON_ERROR
+            )
+            if self._return_to_parent():
+                return
+            sys.exit(3)
+        self.expected_sha256 = published
+
         download_obj = network_handler.DownloadObject(self.url, self.download_path)
         download_frame = gui_download.DownloadFrame(
             self.frame,
@@ -217,6 +246,26 @@ class UpdateFrame(wx.Frame):
         "Update complete!" and tried to launch an app that was never installed,
         racing the error dialog.
         """
+        # --- Phase 0: Verification ---
+        # Nothing is extracted, installed or handed to the macOS Installer unless the
+        # downloaded file matches the SHA256 its release publishes right now.
+        logging.info("Verify update")
+        wx.CallAfter(self._update_status_label, "Verifying update...")
+        try:
+            verified, verify_error = self._verify_download()
+        except Exception as error:
+            logging.exception("Stack Trace:")
+            verified, verify_error = False, f"The downloaded update couldn't be checked: {error}"
+        if not verified:
+            logging.error(f"Not installing the update, verification failed: {verify_error}")
+            for _path in (self.download_path, self.pkg_download_path):
+                try:
+                    Path(_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            wx.CallAfter(self._handle_verification_failure, verify_error)
+            return
+
         # --- Phase 1: Extraction ---
         logging.info("Extract update")
         wx.CallAfter(self._update_status_label, "Extracting update...")
@@ -337,6 +386,27 @@ class UpdateFrame(wx.Frame):
         logging.info("Closing the app")
         sys.exit(3)
 
+    def _handle_verification_failure(self, error_msg: str) -> None:
+        """
+        Main thread: the downloaded update didn't pass the SHA256 check and was deleted.
+
+        Nothing was installed, so return to the window the update came from instead of
+        closing the app - also for a mandatory update, which can't be installed from
+        this download anyway; the next check offers it again.
+        """
+        wx.MessageBox(
+            f"The update to {self.version_label} was not installed because it couldn't be verified, "
+            f"and the downloaded file was deleted.\n\n{error_msg}\n\n"
+            "Please try again later, or download the update manually from GitHub.",
+            "Update Not Verified",
+            wx.OK | wx.ICON_ERROR
+        )
+        self.progress_bar_animation.stop_pulse()
+        self.progress_bar.Hide()
+        if self._return_to_parent():
+            return
+        sys.exit(3)
+
     def _finalize_ui_and_start_countdown(self) -> None:
         """Reconstructs the interface layout and initializes the exit timer safely."""
         if self.mandatory:
@@ -384,6 +454,39 @@ class UpdateFrame(wx.Frame):
     # =========================================================================
     # SYSTEM ACTIONS (Executed inside sub-threads safely)
     # =========================================================================
+
+    def _verify_download(self) -> tuple:
+        """
+        Check the downloaded file against the SHA256 its release publishes
+
+        The checksum files are fetched again right before installing, so a release
+        whose checksums were removed or changed after the download started is not
+        installed either.
+
+        Returns:
+            (True, "") if verified, (False, reason) otherwise
+        """
+        if not Path(self.download_path).is_file():
+            return False, "The downloaded file is missing."
+
+        published, checksum_error = updates.published_sha256(self.url)
+        if published is None:
+            return False, checksum_error
+        if self.expected_sha256 and published != self.expected_sha256:
+            return False, (
+                "The SHA256 checksum published for this update changed during the download "
+                f"(expected: {self.expected_sha256}, now: {published})."
+            )
+
+        actual = updates.sha256_of_file(self.download_path)
+        logging.info(f"SHA256 of the downloaded update: {actual}")
+        if actual != published:
+            return False, (
+                "The downloaded file doesn't match the SHA256 checksum published for this release "
+                f"(expected: {published}, got: {actual}). It may have been corrupted or tampered with."
+            )
+        logging.info("Update verified: SHA256 matches the published checksum")
+        return True, ""
 
     def _extract_update(self) -> bool:
         logging.debug("Extracting update...")
