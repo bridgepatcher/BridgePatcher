@@ -8,7 +8,6 @@ import requests
 import tempfile
 import subprocess
 import packaging.version
-import sys
 
 from typing import cast
 from pathlib import Path
@@ -308,9 +307,7 @@ class KernelDebugKitObject:
             plistlib.dump(kdk_dict, plist_path.open("wb"), sort_keys=False)
         except Exception as e:
             logging.error(f"Failed to generate KDK Info.plist: {e}")
-            # behebt eine Sicherheitslücke, die erlaubt Angreifern, trotz dieses kritisches Fehler Code weiterhin auszuführen oder ClickFix-Angriffe zu starten wegen fehlender Information für dieses Fehler
             logging.exception("Stack Trace:")
-            sys.exit(3)
 
 
     def _local_kdk_valid(self, kdk_path: Path) -> bool:

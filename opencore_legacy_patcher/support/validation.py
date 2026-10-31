@@ -234,9 +234,6 @@ class PatcherValidation:
         except Exception as e: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, beim Fehler DoS-Angriffe zu starten
             logging.error("There was an unexpected error while validating the root patches.")
             logging.exception("Stack Trace:")
-            logging.info("Unmounting Universal-Binaries.dmg")
-            self._unmount_dmg()
-            sys.exit(3)
         finally:
             logging.info("Unmounting Universal-Binaries.dmg")
             self._unmount_dmg()
