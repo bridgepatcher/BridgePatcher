@@ -3,12 +3,14 @@ dmg_mount.py: PatcherSupportPkg DMG Mounting. Handles Universal-Binaries and Dor
 """
 
 import os
+import hashlib
 import logging
 import subprocess
 import applescript
 import sys
 from pathlib import Path
 from ... import constants
+from ...datasets import patcher_support_pkg_data
 from ...support import subprocess_wrapper, network_handler
 
 
@@ -128,6 +130,12 @@ class PatcherSupportPkgMount:
                 logging.exception("Stack Trace:")
                 return False
 
+        expected_sha256 = patcher_support_pkg_data.expected_universal_binaries_sha256(self.constants.patcher_support_pkg_version)
+        if expected_sha256 is None:
+            logging.error(f"- No SHA256 is pinned for PatcherSupportPkg {self.constants.patcher_support_pkg_version}, refusing to download an image that can't be verified")
+            logging.error("- Add it to datasets/patcher_support_pkg_data.py, or run './Build-Project.command --run-as-individual-steps --prepare-assets' once.")
+            return False
+
         url = f"{self.constants.url_patcher_support_pkg.rstrip('/')}/{self.constants.patcher_support_pkg_version}/Universal-Binaries.dmg"
         logging.info("- Universal-Binaries.dmg not found, redownloading")
         logging.info(f"- Downloading PatcherSupportPkg {self.constants.patcher_support_pkg_version}: {url}")
@@ -149,9 +157,29 @@ class PatcherSupportPkgMount:
             partial_path.unlink(missing_ok=True)
             return False
 
+        # The size check above only catches error pages and early aborts; a truncated,
+        # corrupted or substituted image must not reach hdiutil (which attaches with
+        # -noverify) or the root volume.
+        actual_sha256 = self._sha256_of_file(partial_path)
+        if actual_sha256 != expected_sha256:
+            logging.error("- Downloaded Universal-Binaries.dmg doesn't match the pinned SHA256, discarding it")
+            logging.error(f"- Expected: {expected_sha256}")
+            logging.error(f"- Got:      {actual_sha256}")
+            partial_path.unlink(missing_ok=True)
+            return False
+        logging.info(f"- Verified Universal-Binaries.dmg (SHA256 {actual_sha256})")
+
         partial_path.replace(dmg_path)
         logging.info("- Downloaded Universal-Binaries.dmg")
         return True
+
+    @staticmethod
+    def _sha256_of_file(path: Path) -> str:
+        digest = hashlib.sha256()
+        with open(path, "rb") as file:
+            while chunk := file.read(1024 * 1024):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def _mount_dortania_internal_resources_dmg(self) -> bool:
         """Mount PatcherSupportPkg's DortaniaInternalResources.dmg"""
