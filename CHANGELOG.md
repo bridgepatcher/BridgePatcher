@@ -22,6 +22,13 @@ This version:
 - on T2 Macs, updates T2TahoeFixup.kext to 1.0.19, which additionally hooks `_namei` so that `open`, `stat` and `mmap` calls from UpdateBrainService are redirected to the shadow BuildManifest in /private/tmp, aliases the dropped models' manifests (j132ap, j174ap, j680ap and others) to j214kap in memory, and lets `image4_trust_evaluate` succeed during Stage 2 to address the MobileSoftwareUpdate Error 81 on MacBookPro15,2 and Mac mini (#639). Not yet confirmed by testers. The kext's Info.plist still reports version 1.0.18, as its version wasn't bumped in this build. Thanks @matteoiacca
 - removes the stickers in the OpenCore Build completely, not just in Settings
 - fixes a bug where in validation.py it unmounts the volume twice (the second time it would fail) because in except Exception as e it unmounted once, then a second time it unmounted again in the finally block
+- mounting Universal-Binaries.dmg for root patching (#553):
+  - the quarantine flag (com.apple.quarantine) is removed from the disk image again before it is mounted, also when the mount is retried with the administrator password. This step was accidentally dropped when the administrator retry was reworked, although the code still described it
+  - a mount attempt that hangs is now stopped after 5 minutes instead of blocking root patching forever
+  - if the disk image is missing, the patcher no longer asks for the administrator password just to fail afterwards
+  - when the mount fails, the log now shows the output of both the normal and the administrator attempt, plus which disk images are attached (`hdiutil info`), instead of only the first error. This helps finding out why the retry with the administrator password did not mount the image in #553
+  - fixes a bug where the command line written to the log after a failed retry contained the disk image password. For Dortania's internal resources this was the user's personal decryption key
+- when running from source, the Universal-Binaries.dmg the patcher downloads on demand is now checked against its known SHA256 checksum before it is used, not only against a minimum size, so a truncated or damaged download is discarded instead of being mounted
 
 In the repository:
 - License Guard now also finds Dortania's icon when it is only part of a larger image (scaled, rotated, placed in a box or partly covered by a badge, as in the old package backgrounds), and checks the images stored inside design files such as .afdesign, .psd and .pdf. The reference icon is read from Dortania's repository during the check, so no copy of it is stored here
@@ -29,6 +36,7 @@ In the repository:
 - the former name OpenCore Legacy Patcher T2 / OCLP-T2 is now treated as a typosquat: repositories that are not GitHub forks but still use the former name, and websites using it in their address (including <name>.github.io), are flagged. The former address oclp-t2.github.io is always marked as a typosquat, and former official addresses are only reported once they serve content again
 - forks still named OpenCore-Legacy-Patcher-T2 are asked to rename
 - the SHA256SUMS workflow now waits for BridgePatcher.pkg (or OpenCore-Patcher-T2.pkg on older releases) before hashing, and fails if an installer attached to the release is missing from SHA256SUMS
+- Build-Project.command now checks Universal-Binaries.dmg against the SHA256 checksum pinned for the PatcherSupportPkg version in opencore_legacy_patcher/datasets/patcher_support_pkg_data.py, both after downloading it and when reusing a copy from an earlier build, so only the expected image ends up in the app. A mismatching cached copy is downloaded again, and a PatcherSupportPkg version without a pinned checksum stops the build with a message saying so. The checksum is pinned in the repository because the sha256sum.txt published on PatcherSupportPkg 2.11 does not match the Universal-Binaries.dmg attached to that release
 - License Guard now detects Dortania’s OCLP icon and Apple’s System Settings icon as well as images hotlinked from Dortania’s servers, and automatically closes pull requests from forks that add license violations
 - the duplicate issue check now skips issues opened by workflow bots
 - README: removes Dortania’s logo and the Discord server, and links to GitHub Discussions for community support
