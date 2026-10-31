@@ -61,7 +61,7 @@ exe = EXE(pyz,
           upx=True,
           console=False,
           disable_windowed_traceback=False,
-          target_arch=None,  
+          target_arch=x86,
           codesign_identity=None,
           entitlements_file=None)
 
