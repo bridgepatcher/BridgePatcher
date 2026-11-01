@@ -131,10 +131,9 @@ class Constants:
         self.kext_updater_version:       str = "3.8.5"  #      KextUpdater
 
         ## Matteo (Medelcartelinc / matteoiacca)
-        ## https://github.com/bridgepatcher
+        ## https://github.com/Medelcartelinc
         self.appleans2disabler_version:  str = "1.0.0"  #      AppleANS2Disabler (T2 internal SSD)
         self.t2tahoefixup_version:       str = "1.0.19" #      T2TahoeFixup
-        #TODO: did Matteo make the above kext? if so then his name should be here instead of BridgePatcher's
 
         ## Apple
         ## https://www.apple.com
