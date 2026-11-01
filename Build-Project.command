@@ -372,7 +372,7 @@ def resolve_application_identity(requested: str, auto_detect: bool) -> "str | No
 
 def main() -> None:
     global status, TOTAL_STEPS
-    parser = argparse.ArgumentParser(description="Build OpenCore Legacy Patcher Suite")
+    parser = argparse.ArgumentParser(description="Build BridgePatcher Suite")
 
     # Signing & Notarization
     parser.add_argument("--application-signing-identity", type=str, help="Application Signing Identity")
@@ -425,6 +425,12 @@ def main() -> None:
         args.application_signing_identity,
         auto_detect=args.no_auto_detect_identity is False,
     )
+    # check that the PHT exists
+    if not Path("./ci_tooling/privileged_helper_tool/com.bridgepatcher.privileged-helper").exists():
+        build = subprocess.run(["/usr/bin/make", "release"], cwd="./ci_tooling/build_modules/privileged_helper_tool", text=True, capture_output=True)
+        if build.returncode is not 0:
+            rich.print(f"building the Privileged Helper failed, {build.stderr}")
+            sys.exit(1)
 
     # A build that could never become a usable release is stopped before the first step:
     # a version that is behind a release without assets is corrected, and a version that
