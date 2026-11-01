@@ -480,7 +480,7 @@ def main() -> None:
             # AutoPkg-Assets-T2.pkg is installed by the app itself during auto patching,
             # so it needs a signature just as much as the user facing packages.
             step = 6
-            for pkg in package_generator.installer_packages + [package_generator.uninstaller_package, "AutoPkg-Assets-T2.pkg"]:
+            for pkg in package_generator.installer_packages + [package_generator.uninstaller_package, "AutoPkg-Assets.pkg"]:
                 pkg_path = Path(f"dist/{pkg}")
                 check_file_exists(pkg_path)
                 status = f"[{step}/{TOTAL_STEPS}] Signing {pkg}"
