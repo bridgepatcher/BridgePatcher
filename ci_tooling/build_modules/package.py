@@ -79,7 +79,7 @@ class GeneratePackage:
 
         self._files = {
             f"./dist/{constants.APP_BUNDLE_NAME}": f"{constants.APP_INSTALL_DIRECTORY}/{constants.APP_BUNDLE_NAME}",
-            "./ci_tooling/privileged_helper_toolcom.bridgepatcher.privileged-helper": "/Library/PrivilegedHelperTools/com.bridgepatcher.privileged-helper",
+            "./ci_tooling/privileged_helper_tool/com.bridgepatcher.privileged-helper": "/Library/PrivilegedHelperTools/com.bridgepatcher.privileged-helper",
             # Background update check, see support/arguments.py _check_updates_handler()
             "./payloads/Launch Services/com.bridgepatcher.bridgepatcher.update-check.plist": "/Library/LaunchAgents/com.bridgepatcher.bridgepatcher.update-check.plist",
         }
