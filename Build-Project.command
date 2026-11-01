@@ -241,7 +241,8 @@ from ci_tooling.build_modules import (
     package,
     release_guard,
     sign_notarize,
-    hash as hash_pkg
+    hash as hash_pkg,
+    print_scripts
 )
 from opencore_legacy_patcher import constants
 
@@ -471,13 +472,32 @@ def main() -> None:
 
         # 3. Packages
         if (args.run_as_individual_steps is False) or (args.run_as_individual_steps and args.prepare_package):
+            # First, we need to check that the syntax of the package scripts is correct
+            files = [
+                "preinstall_pkg.txt",
+                "preinstall_autopkg.txt",
+                "postinstall_pkg.txt",
+                "postinstall_autopkg.txt",
+                "uninstall.txt"
+            ]
+            print_scripts.main()
+            for file in files:
+                result = subprocess.run(["/usr/bin/zsh", "-n", f"./ci_tooling/build_moduales/{file}"], text=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+                if result.returncode == 0 and result.stderr == "" and result.stdout == "":
+                    rich.print(f"[green]{file} is OK[/green]")
+                else:
+                    rich.print("[red]zsh syntax error:[/red]")
+                    rich.print(result.stdout)
+                    rich.print(result.stderr)
+                    rich.print("[red]Stopping build...[/red]")
+
             # Compressing the app with its disk images (well over 1 GB) into the installer
             # takes several minutes with no output, which reads as a hang otherwise.
             status = f"[5/{TOTAL_STEPS}] Building packages - this can take several minutes"
             package_generator = package.GeneratePackage(legacy_installer=args.legacy_installer)
             package_generator.generate()
 
-            # AutoPkg-Assets-T2.pkg is installed by the app itself during auto patching,
+            # AutoPkg-Assets.pkg is installed by the app itself during auto patching,
             # so it needs a signature just as much as the user facing packages.
             step = 6
             for pkg in package_generator.installer_packages + [package_generator.uninstaller_package, "AutoPkg-Assets.pkg"]:
