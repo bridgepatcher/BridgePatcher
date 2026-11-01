@@ -427,9 +427,11 @@ def main() -> None:
     )
     # check that the PHT exists
     if not Path("./ci_tooling/privileged_helper_tool/com.bridgepatcher.privileged-helper").exists():
-        build = subprocess.run(["/usr/bin/make", "release"], cwd="./ci_tooling/build_modules/privileged_helper_tool", text=True, capture_output=True)
+        project_root = Path(__file__).resolve().parent
+        pht_dir = str(project_root) + "/ci_tooling/privileged_helper_tool"
+        build = subprocess.run(["/usr/bin/make", "release"], cwd=pht_dir, text=True, capture_output=True)
         if build.returncode != 0:
-            rich.print(f"building the Privileged Helper failed, {build.stderr}")
+            rich.print(f"[red]building the Privileged Helper failed, {build.stderr}[/red]")
             sys.exit(1)
 
     # A build that could never become a usable release is stopped before the first step:
