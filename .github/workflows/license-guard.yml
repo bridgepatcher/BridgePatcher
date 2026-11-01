@@ -73,12 +73,14 @@ jobs:
           python-version: "3.12"
 
       # OpenCV finds known artwork that is only part of a larger image (EMBEDDED_ART in license_guard.py)
+      # and Dortania's drive icons, e.g. "EFI Boot" in boot picker screenshots (DRIVE_ICONS)
       - name: Install Pillow and OpenCV
         run: python -m pip install --disable-pip-version-check "pillow==11.3.0" "opencv-python-headless==4.11.0.86"
 
       # tesseract reads the text in screenshots/banners, so Dortania's app name
-      # ("OpenCore Legacy Patcher") and Dortania's author ("Mykola Grymalyuk", e.g. his
-      # macOS user name in Finder/Terminal screenshots) shown inside an image are found too.
+      # ("OpenCore Legacy Patcher"), folders/volumes named after it ("Opencore-Legacy-Pat...",
+      # "Apple-Binaries-OCLP") and Dortania's author ("Mykola Grymalyuk", e.g. his macOS
+      # user name in Finder/Terminal screenshots) shown inside an image are found too.
       - name: Install tesseract (OCR for the image text check)
         run: |
           sudo apt-get update -qq
