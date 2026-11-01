@@ -1,4 +1,4 @@
-import package_scripts
+from . import package_scripts
 import rich
 
 

@@ -482,7 +482,7 @@ def main() -> None:
             ]
             print_scripts.main()
             for file in files:
-                result = subprocess.run(["/usr/bin/zsh", "-n", f"./ci_tooling/build_modules/{file}"], text=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+                result = subprocess.run(["/bin/zsh", "-n", file], text=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
                 if result.returncode == 0 and result.stderr == "" and result.stdout == "":
                     rich.print(f"[green]{file} is OK[/green]")
                 else:
