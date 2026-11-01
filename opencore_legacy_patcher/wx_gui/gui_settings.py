@@ -117,7 +117,7 @@ class SettingsFrame(wx.Frame):
         if not (self.constants.Experimental_Features or self.constants.True_Developer_Mode):
             tabs.remove("Advanced")
         for tab in tabs:
-            if tab == "Statistics":
+            if tab == "Statistics" or "License":
                 panel = wx.Panel(notebook)
             else:
                 panel = wx.ScrolledWindow(notebook)
@@ -419,6 +419,16 @@ class SettingsFrame(wx.Frame):
                     "args": wx.Frame,
                 },
             },
+            "License": {
+                "License": {
+                    "type": "title",
+                },
+                "Populate License":{
+                    "type": "populate",
+                    "function": self._populate_license,
+                    "args": wx.Frame,
+                },
+            },
             "Advanced": {
                 "Validation": {
                     "type": "title",
@@ -532,7 +542,22 @@ Hardware Information:
         self.app_stats = wx.TextCtrl(panel, value=lines, pos=(-1, title.GetPosition()[1] + 30), size=(712, 508), style=wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_RICH2 | wx.BORDER_NONE | wx.HSCROLL | wx.VSCROLL | wx.TE_DONTWRAP)
         self.app_stats.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
         self.app_stats.SetScrollbar(wx.HORIZONTAL, 0, 600, 1200)
-
+    def _populate_license(self, panel: wx.Frame) -> None:
+        title: wx.StaticText = None
+        for child in panel.GetChildren():
+            if child.GetLabel() == "License":
+                title = child
+                break
+        if self.constants.launcher_script or not self.constants.launcher_binary:
+            license_path = Path(self.constants.current_path) / Path("LICENSE.txt")
+        else:
+            license_path = Path(self.constants.current_path) / Path("Resources") / Path("LICENSE.txt")
+        with open(str(license_path), "r") as f:
+            license = f.read()
+        self.license_view = wx.TextCtrl(panel, value=license, pos=(-1, title.GetPosition()[1] + 30), size=(712, 508),
+                                     style=wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_RICH2 | wx.BORDER_NONE | wx.HSCROLL | wx.VSCROLL | wx.TE_DONTWRAP)
+        self.license_view.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
+        self.license_view.SetScrollbar(wx.HORIZONTAL, 0, 600, 1200)
     def _populate_oc_build_override(self, panel: wx.Panel) -> None:
         oc_build_box: wx.Choice = None
         for child in panel.GetChildren():

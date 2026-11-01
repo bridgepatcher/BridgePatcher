@@ -351,24 +351,32 @@ class BuildSecurity:
                     # Mac-5F9802EFE386AA28 (MacBookPro16,2) to the installer processes.
                     # Its own boot-args are for testing only (-t2tahoefixupoff / -t2off,
                     # -t2tahoefixupdbg / -t2dbg, -t2tahoefixupbeta / -t2beta,
-                    # -t2tahoeforce, -t2tahoestage2, t2tahoe-bridge=, t2tahoe-board=),
-                    # so OCLP doesn't add any. The old SpoofVMM args (-spoofvmmbid etc.)
-                    # are scrubbed in build.py.
+                    # -t2tahoeforce, -t2tahoedormant, -t2cspage, -t2noimg4fix, -t2noacmfix,
+                    # t2tahoe-bridge=, t2tahoe-board=), so OCLP doesn't add any. The old
+                    # SpoofVMM args (-spoofvmmbid etc.) are scrubbed in build.py.
 
                 if self.constants.t2_installer_workaround is True:
                     logging.info("- Enabling T2 Installer Workarounds")
+                    # Models macOS Tahoe supports natively. T2TahoeFixup 1.0.22+ detects them
+                    # (model + board-id) and stays dormant, but -t2tahoeforce skips that check
+                    # entirely and forces its Stage 1/2 hooks on, which brings back the Stage 1
+                    # duplicate extraction (Code=1004) 1.0.22 fixed on MacBookPro16,1/16,4.
+                    # So these models never get -t2tahoeforce (a leftover one is removed).
+                    tahoe_native_t2 = self.model in ("MacBookPro16,1", "MacBookPro16,2", "MacBookPro16,4", "iMac20,1", "iMac20,2", "MacPro7,1")
+                    removed_args = ("igfxgl=1", "igfxmetal=1", "igfxfw=2") + (("-t2tahoeforce",) if tahoe_native_t2 else ())
                     current_args = self._read_nvram_string(APPLE_NVRAM_UUID, "boot-args").split()
-                    cleaned_args = [arg for arg in current_args if arg not in ("igfxgl=1", "igfxmetal=1", "igfxfw=2")]
+                    cleaned_args = [arg for arg in current_args if arg not in removed_args]
                     if "NVRAM" in self.config and "Add" in self.config["NVRAM"] and APPLE_NVRAM_UUID in self.config["NVRAM"]["Add"]:
                         self.config["NVRAM"]["Add"][APPLE_NVRAM_UUID]["boot-args"] = " ".join(cleaned_args)
 
+                    t2_force_arg = "" if tahoe_native_t2 else " -t2tahoeforce"
                     # Dual-GPU T2 models (Intel UHD 630 + AMD dGPU) require -wegoff during installer/recovery passes
                     # to prevent WhateverGreen AGDP/connector policies from blocking display output on gmux.
                     # Single-iGPU models require -igfxvesa to bypass the unaccelerated console hang at cons[.
                     if self.model in ("MacBookPro15,1", "MacBookPro15,3", "MacBookPro16,1", "MacBookPro16,4"):
-                        self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-wegoff -t2tahoeforce -amfipassbeta")
+                        self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", f"-wegoff{t2_force_arg} -amfipassbeta")
                     else:
-                        self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-igfxvesa -t2tahoeforce -amfipassbeta")
+                        self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", f"-igfxvesa{t2_force_arg} -amfipassbeta")
 
                 # 5. Hard Structural Boundaries Pass
                 logging.info("- Final T2 verification pass (Enforcing absolute boundaries)")

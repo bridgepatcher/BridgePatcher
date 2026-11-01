@@ -1,5 +1,5 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
-## 4.0.0.2000000.1 - 4.0.0 alpha 20
+## 4.0.0.2000000.2 - 4.0.0 alpha 20 RC 2
 This version:
 - renames OpenCore Legacy Patcher T2 to BridgePatcher. One of the reasons for this rename is that it confuses users that this is Dortania’s official project and open issues inside the wrong repository. Attackers would love this patcher to be called OpenCore Legacy Patcher T2 to exploit for impersonation and malware delivery, I already documented a case where attackers intentionally confused users that this is Dortania’s official project to deliver malware over a malvertising website. 
 - replaces Dortania’s icons with our own ones
@@ -22,6 +22,15 @@ This version:
 - the installer, uninstaller and AutoPkg-Assets packages now show BridgePatcher's own icon in their background (in the box, in the trash can and behind the badge) instead of Dortania's OpenCore Legacy Patcher icon
 - the uninstaller package is now called BridgePatcher-Uninstaller.pkg (previously OpenCore-Patcher-Uninstaller.pkg)
 - on T2 Macs, updates T2TahoeFixup.kext to 1.0.19, which additionally hooks `_namei` so that `open`, `stat` and `mmap` calls from UpdateBrainService are redirected to the shadow BuildManifest in /private/tmp, aliases the dropped models' manifests (j132ap, j174ap, j680ap and others) to j214kap in memory, and lets `image4_trust_evaluate` succeed during Stage 2 to address the MobileSoftwareUpdate Error 81 on MacBookPro15,2 and Mac mini (#639). Not yet confirmed by testers. The kext's Info.plist still reports version 1.0.18, as its version wasn't bumped in this build. Thanks @matteoiacca
+- on T2 Macs, updates T2TahoeFixup.kext from 1.0.19 to 1.0.22. Changes:
+  - MacBookPro16,1 (j152fap) and MacBookPro16,4 (j215ap), which macOS Tahoe supports natively, are no longer treated as dropped models, so their installer no longer tries to extract the payload twice in Stage 1
+  - the extraction helpers (osinstallersetupd, InstallAssistant, ditto, softwareupdated, mobileassetd, ArchiveService, bom, bsdtar) now run without any path redirection; manifest aliasing is limited to the Stage 2 consumers (UpdateBrainService, mount_apfs, OSInstaller). This fixes the Code=1004 extraction collision in Stage 1
+  - the Image4 payload is now captured by hooking `_image4_trust_set_payload` in AppleImage4.kext instead of reading hardcoded struct offsets (trust + 0x2e8 / 0x2f0), which could change between Darwin minor releases
+  - the error override now only applies to status 81 (ENEEDAUTH), so real disk or signature errors are no longer hidden
+  - halves the stack usage of the `_namei` hook to 512 bytes and generates the shadow manifest per thread to avoid race conditions
+
+  Testers confirm Stage 1 completes again, but the MobileSoftwareUpdate Error 81 in Stage 2 (#639) is not fixed yet. Thanks @matteoiacca
+- the T2 Installer Workaround no longer adds `-t2tahoeforce` on the T2 Macs macOS Tahoe supports natively (MacBookPro16,1, 16,2, 16,4, iMac20,1, iMac20,2 and MacPro7,1), and removes it if it's left over. `-t2tahoeforce` makes T2TahoeFixup skip its native model check and turns its installer hooks on anyway, which would undo the Stage 1 fix of 1.0.22 on MacBookPro16,1 and 16,4. All other T2 Macs keep `-t2tahoeforce` as before. `-wegoff`/`-igfxvesa` and `-amfipassbeta` are unchanged
 - removes the stickers in the OpenCore Build completely, not just in Settings
 - fixes a bug where in validation.py it unmounts the volume twice (the second time it would fail) because in except Exception as e it unmounted once, then a second time it unmounted again in the finally block
 - mounting Universal-Binaries.dmg for root patching (#553):
@@ -31,9 +40,9 @@ This version:
   - when the mount fails, the log now shows the output of both the normal and the administrator attempt, plus which disk images are attached (`hdiutil info`), instead of only the first error. This helps finding out why the retry with the administrator password did not mount the image in #553
   - fixes a bug where the command line written to the log after a failed retry contained the disk image password. For Dortania's internal resources this was the user's personal decryption key
 - when running from source, the Universal-Binaries.dmg the patcher downloads on demand is now checked against its known SHA256 checksum before it is used, not only against a minimum size, so a truncated or damaged download is discarded instead of being mounted
-- fixes a bug where 2019 16 inch MacBook Pro (MacBookPro16,1) wasn't in the model_array data set
-- updates the Priveleged Helper Tool’s error handling to stop using the old name OCLP - now for error handling internally also uses BridgePatcher
-- renames AutoPkg-Assets-T2.pkg to AutoPkg-Assets.pkg
+- fixes a bug where 2019 16 inch MacBook Pro (MacBookPro16,1) wasn't in the model_array data set, thx @gandolf243
+- updates the Priveleged Helper Tool’s error handling to stop using the old name OCLP - now for error handling internally also uses BridgePatcher, thx @gandolf243
+- renames AutoPkg-Assets-T2.pkg to AutoPkg-Assets.pkg, thx @gandolf243
 
 In the repository:
 - License Guard now also finds Dortania's icon when it is only part of a larger image (scaled, rotated, placed in a box or partly covered by a badge, as in the old package backgrounds), and checks the images stored inside design files such as .afdesign, .psd and .pdf. The reference icon is read from Dortania's repository during the check, so no copy of it is stored here
