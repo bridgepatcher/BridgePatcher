@@ -1,5 +1,5 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
-## 4.0.0.2000000 - 4.0.0 alpha 20
+## 4.0.0.2000000.1 - 4.0.0 alpha 20
 This version:
 - renames OpenCore Legacy Patcher T2 to BridgePatcher. One of the reasons for this rename is that it confuses users that this is Dortania’s official project and open issues inside the wrong repository. Attackers would love this patcher to be called OpenCore Legacy Patcher T2 to exploit for impersonation and malware delivery, I already documented a case where attackers intentionally confused users that this is Dortania’s official project to deliver malware over a malvertising website. 
 - replaces Dortania’s icons with our own ones
@@ -32,6 +32,8 @@ This version:
   - fixes a bug where the command line written to the log after a failed retry contained the disk image password. For Dortania's internal resources this was the user's personal decryption key
 - when running from source, the Universal-Binaries.dmg the patcher downloads on demand is now checked against its known SHA256 checksum before it is used, not only against a minimum size, so a truncated or damaged download is discarded instead of being mounted
 - fixes a bug where 2019 16 inch MacBook Pro (MacBookPro16,1) wasn't in the model_array data set
+- updates the Priveleged Helper Tool’s error handling to stop using the old name OCLP - now for error handling internally also uses BridgePatcher
+- renames AutoPkg-Assets-T2.pkg to AutoPkg-Assets.pkg
 
 In the repository:
 - License Guard now also finds Dortania's icon when it is only part of a larger image (scaled, rotated, placed in a box or partly covered by a badge, as in the old package backgrounds), and checks the images stored inside design files such as .afdesign, .psd and .pdf. The reference icon is read from Dortania's repository during the check, so no copy of it is stored here
