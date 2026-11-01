@@ -599,7 +599,7 @@ class GenerateScripts:
         ]
 
         self.additional_auto_pkg_files = [
-            "Library/LaunchAgents/com.albert-mueller.opencore-legacy-patcher.auto-patch.plist"
+            "Library/LaunchAgents/com.bridgepatcher.bridgepatcher.auto-patch.plist"
         ]
 
 

@@ -319,14 +319,14 @@ class InstallAutomaticPatchingServices:
         # first; payload files are never modified in place (that would also
         # break the app bundle's code signature).
         services = {
-            "/Library/LaunchAgents/com.albert-mueller.opencore-legacy-patcher.auto-patch.plist":   self._render_service(self.constants.auto_patch_launch_agent_path),
-            "/Library/LaunchDaemons/com.albert-mueller.opencore-legacy-patcher.macos-update.plist": self._render_service(self.constants.update_launch_daemon_path),
+            "/Library/LaunchAgents/com.bridgepatcher.bridgepatcher.auto-patch.plist":   self._render_service(self.constants.auto_patch_launch_agent_path),
+            "/Library/LaunchDaemons/com.bridgepatcher.bridgepatcher.macos-update.plist": self._render_service(self.constants.update_launch_daemon_path),
         }
         rsr_monitor = self._create_rsr_monitor_daemon()
         if rsr_monitor is not None:
-            services["/Library/LaunchDaemons/com.albert-mueller.opencore-legacy-patcher.rsr-monitor.plist"] = rsr_monitor
+            services["/Library/LaunchDaemons/com.bridgepatcher.bridgepatcher.rsr-monitor.plist"] = rsr_monitor
         if kdk_caching_needed is True:
-            services["/Library/LaunchDaemons/com.albert-mueller.opencore-legacy-patcher.os-caching.plist"] = self._render_service(self.constants.kdk_launch_daemon_path)
+            services["/Library/LaunchDaemons/com.bridgepatcher.bridgepatcher.os-caching.plist"] = self._render_service(self.constants.kdk_launch_daemon_path)
 
         for destination, content in services.items():
             name = Path(destination).name
