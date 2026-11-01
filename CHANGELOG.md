@@ -30,6 +30,7 @@ This version:
   - when the mount fails, the log now shows the output of both the normal and the administrator attempt, plus which disk images are attached (`hdiutil info`), instead of only the first error. This helps finding out why the retry with the administrator password did not mount the image in #553
   - fixes a bug where the command line written to the log after a failed retry contained the disk image password. For Dortania's internal resources this was the user's personal decryption key
 - when running from source, the Universal-Binaries.dmg the patcher downloads on demand is now checked against its known SHA256 checksum before it is used, not only against a minimum size, so a truncated or damaged download is discarded instead of being mounted
+- fixes a bug where 2019 16 inch MacBook Pro (MacBookPro16,1) wasn't in the data set
 
 In the repository:
 - License Guard now also finds Dortania's icon when it is only part of a larger image (scaled, rotated, placed in a box or partly covered by a badge, as in the old package backgrounds), and checks the images stored inside design files such as .afdesign, .psd and .pdf. The reference icon is read from Dortania's repository during the check, so no copy of it is stored here
