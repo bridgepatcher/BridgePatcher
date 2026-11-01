@@ -22,26 +22,26 @@
 
 #define UTILITY_VERSION "2.0.0"
 
-#define BridgePatcher_PHT_ERROR_MISSING_ARGUMENTS           160
-#define BridgePatcher_PHT_ERROR_SET_UID_MISSING             161
-#define BridgePatcher_PHT_ERROR_SET_UID_FAILED              162
-#define BridgePatcher_PHT_ERROR_SELF_PATH_MISSING           163
-#define BridgePatcher_PHT_ERROR_PARENT_PATH_MISSING         164
-#define BridgePatcher_PHT_ERROR_SIGNING_INFORMATION_MISSING 165
-#define BridgePatcher_PHT_ERROR_INVALID_TEAM_ID             166
-#define BridgePatcher_PHT_ERROR_INVALID_CERTIFICATES        167
-#define BridgePatcher_PHT_ERROR_COMMAND_MISSING             168
-#define BridgePatcher_PHT_ERROR_COMMAND_FAILED              169
-#define BridgePatcher_PHT_ERROR_CATCH_ALL                   170
-#define BridgePatcher_PHT_ERROR_COMMAND_NOT_ALLOWED         171
-#define BridgePatcher_PHT_ERROR_CALLER_NOT_HARDENED         172
+#define BRIDGEPATCHER_PHT_ERROR_MISSING_ARGUMENTS           160
+#define BRIDGEPATCHER_PHT_ERROR_SET_UID_MISSING             161
+#define BRIDGEPATCHER_PHT_ERROR_SET_UID_FAILED              162
+#define BRIDGEPATCHER_PHT_ERROR_SELF_PATH_MISSING           163
+#define BRIDGEPATCHER_PHT_ERROR_PARENT_PATH_MISSING         164
+#define BRIDGEPATCHER_PHT_ERROR_SIGNING_INFORMATION_MISSING 165
+#define BRIDGEPATCHER_PHT_ERROR_INVALID_TEAM_ID             166
+#define BRIDGEPATCHER_PHT_ERROR_INVALID_CERTIFICATES        167
+#define BRIDGEPATCHER_PHT_ERROR_COMMAND_MISSING             168
+#define BRIDGEPATCHER_PHT_ERROR_COMMAND_FAILED              169
+#define BRIDGEPATCHER_PHT_ERROR_CATCH_ALL                   170
+#define BRIDGEPATCHER_PHT_ERROR_COMMAND_NOT_ALLOWED         171
+#define BRIDGEPATCHER_PHT_ERROR_CALLER_NOT_HARDENED         172
 
 /*
     Caller pinning (release builds)
     ------------------------------------------------
     A caller is accepted only if it satisfies the code requirement
 
-        identifier "<BridgePatcher_CLIENT_IDENTIFIER>" and certificate leaf = H"<SHA-1>"
+        identifier "<BRIDGEPATCHER_CLIENT_IDENTIFIER>" and certificate leaf = H"<SHA-1>"
 
     and its signature validates (dynamically for the running process, strictly
     for the code on disk), and it uses the hardened runtime.
@@ -49,7 +49,7 @@
     <SHA-1> is the leaf certificate of THIS helper's own, validated signature, so
     the helper only trusts apps signed with the exact certificate it was signed
     with - nothing that merely has a matching bundle ID or a look-alike chain.
-    Build with -DBridgePatcher_PINNED_LEAF_SHA1=\"<40 hex chars>\" (make CERT_SHA1=...)
+    Build with -DBRIDGEPATCHER_PINNED_LEAF_SHA1=\"<40 hex chars>\" (make CERT_SHA1=...)
     to additionally hard-code the expected hash; the helper then also refuses to
     run if its own signature does not carry that certificate.
 
@@ -58,12 +58,12 @@
     Those certificates are public, and an unvalidated signature blob can be
     grafted onto any binary, so a modified copy of the app passed the check.
 */
-#ifndef BridgePatcher_CLIENT_IDENTIFIER
-#define BridgePatcher_CLIENT_IDENTIFIER "com.bridgepatcher.bridgepatcher"
+#ifndef BRIDGEPATCHER_CLIENT_IDENTIFIER
+#define BRIDGEPATCHER_CLIENT_IDENTIFIER "com.bridgepatcher.bridgepatcher"
 #endif
 
 // kSecCodeSignatureRuntime (SDK 10.14+); the literal keeps older SDKs building.
-#define BridgePatcher_CS_RUNTIME_FLAG 0x10000
+#define BRIDGEPATCHER_CS_RUNTIME_FLAG 0x10000
 
 
 NSDictionary *getSigningInformationFromPath(NSString *path) {
@@ -147,8 +147,8 @@ static NSString *validatedSelfLeafSHA1(NSString *processPath) {
     if (info != NULL) CFRelease(info);
     CFRelease(selfCode);
 
-#ifdef BridgePatcher_PINNED_LEAF_SHA1
-    if (sha1 == nil || [sha1 caseInsensitiveCompare:@BridgePatcher_PINNED_LEAF_SHA1] != NSOrderedSame) {
+#ifdef BRIDGEPATCHER_PINNED_LEAF_SHA1
+    if (sha1 == nil || [sha1 caseInsensitiveCompare:@BRIDGEPATCHER_PINNED_LEAF_SHA1] != NSOrderedSame) {
         return nil;
     }
 #endif
@@ -163,11 +163,11 @@ static NSString *validatedSelfLeafSHA1(NSString *processPath) {
 static int validateCaller(NSString *pinnedSHA1) {
     pid_t parentPid = getppid();
     if (parentPid <= 1) {
-        return BridgePatcher_PHT_ERROR_PARENT_PATH_MISSING;
+        return BRIDGEPATCHER_PHT_ERROR_PARENT_PATH_MISSING;
     }
 
     NSString *requirementString = [NSString stringWithFormat:
-        @"identifier \"%s\" and certificate leaf = H\"%@\"", BridgePatcher_CLIENT_IDENTIFIER, pinnedSHA1];
+        @"identifier \"%s\" and certificate leaf = H\"%@\"", BRIDGEPATCHER_CLIENT_IDENTIFIER, pinnedSHA1];
 
     SecRequirementRef requirement = NULL;
     SecCodeRef        guest       = NULL;
@@ -175,7 +175,7 @@ static int validateCaller(NSString *pinnedSHA1) {
     CFDictionaryRef   guestInfo   = NULL;
     NSDictionary     *attributes  = nil;
     NSNumber         *flags       = nil;
-    int result = BridgePatcher_PHT_ERROR_INVALID_CERTIFICATES;
+    int result = BRIDGEPATCHER_PHT_ERROR_INVALID_CERTIFICATES;
 
     if (SecRequirementCreateWithString((__bridge CFStringRef)requirementString,
                                        kSecCSDefaultFlags, &requirement) != errSecSuccess) {
@@ -205,14 +205,14 @@ static int validateCaller(NSString *pinnedSHA1) {
         goto out;
     }
     flags = ((__bridge NSDictionary *)guestInfo)[(__bridge NSString *)kSecCodeInfoFlags];
-    if (flags == nil || (flags.unsignedIntValue & BridgePatcher_CS_RUNTIME_FLAG) == 0) {
-        result = BridgePatcher_PHT_ERROR_CALLER_NOT_HARDENED;
+    if (flags == nil || (flags.unsignedIntValue & BRIDGEPATCHER_CS_RUNTIME_FLAG) == 0) {
+        result = BRIDGEPATCHER_PHT_ERROR_CALLER_NOT_HARDENED;
         goto out;
     }
 
     // We were reparented (caller exited) while validating - the pid is no longer our caller.
     if (getppid() != parentPid) {
-        result = BridgePatcher_PHT_ERROR_PARENT_PATH_MISSING;
+        result = BRIDGEPATCHER_PHT_ERROR_PARENT_PATH_MISSING;
         goto out;
     }
 
@@ -242,7 +242,7 @@ out:
     Everything in this block is compiled out of release builds entirely.
 
     Keep this list in sync with the run_as_root() call sites in the Python app.
-    A rejected command returns BridgePatcher_PHT_ERROR_COMMAND_NOT_ALLOWED. The app treats
+    A rejected command returns BRIDGEPATCHER_PHT_ERROR_COMMAND_NOT_ALLOWED. The app treats
     that as final and does NOT retry the command through an administrator-password
     prompt - otherwise every command refused here would still run as root, just
     one password dialog later (see _HELPER_REFUSAL_ERRORS in subprocess_wrapper.py).
@@ -358,7 +358,7 @@ int main(int argc, const char * argv[]) {
     @autoreleasepool {
         // We simply return if no arguments are passed
         if (argc < 2) {
-            return BridgePatcher_PHT_ERROR_MISSING_ARGUMENTS;
+            return BRIDGEPATCHER_PHT_ERROR_MISSING_ARGUMENTS;
         }
 
         if (argc == 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0)) {
@@ -369,16 +369,16 @@ int main(int argc, const char * argv[]) {
         // Verify whether we can run as root
         NSString *processPath = getProcessPath();
         if (processPath == nil) {
-            return BridgePatcher_PHT_ERROR_SELF_PATH_MISSING;
+            return BRIDGEPATCHER_PHT_ERROR_SELF_PATH_MISSING;
         }
 
         if (!isSBitSet(processPath)) {
-            return BridgePatcher_PHT_ERROR_SET_UID_MISSING;
+            return BRIDGEPATCHER_PHT_ERROR_SET_UID_MISSING;
         }
 
         setuid(0);
         if (getuid() != 0) {
-            return BridgePatcher_PHT_ERROR_SET_UID_FAILED;
+            return BRIDGEPATCHER_PHT_ERROR_SET_UID_FAILED;
         }
 
         #ifdef DEBUG
@@ -388,18 +388,18 @@ int main(int argc, const char * argv[]) {
         // DO NOT USE IN PRODUCTION - prefer a self-signed release build.
         NSString *parentProcessPath = getParentProcessPath();
         if (parentProcessPath == nil) {
-            return BridgePatcher_PHT_ERROR_PARENT_PATH_MISSING;
+            return BRIDGEPATCHER_PHT_ERROR_PARENT_PATH_MISSING;
         }
         NSDictionary *processSigningInformation = getSigningInformationFromPath(processPath);
         if (processSigningInformation == nil || getSigningInformationFromPath(parentProcessPath) == nil) {
-            return BridgePatcher_PHT_ERROR_SIGNING_INFORMATION_MISSING;
+            return BRIDGEPATCHER_PHT_ERROR_SIGNING_INFORMATION_MISSING;
         }
         #else
         // Pin to our own (validated) leaf certificate, then require the caller
         // to match it - see "Caller pinning" at the top of this file.
         NSString *pinnedSHA1 = validatedSelfLeafSHA1(processPath);
         if (pinnedSHA1 == nil) {
-            return BridgePatcher_PHT_ERROR_SIGNING_INFORMATION_MISSING;
+            return BRIDGEPATCHER_PHT_ERROR_SIGNING_INFORMATION_MISSING;
         }
         int callerStatus = validateCaller(pinnedSHA1);
         if (callerStatus != 0) {
@@ -409,7 +409,7 @@ int main(int argc, const char * argv[]) {
 
         NSString *command = resolveCommandPath(argv[1]);
         if (command == nil) {
-            return OCLP_PHT_ERROR_COMMAND_MISSING;
+            return BRIDGEPATCHER_PHT_ERROR_COMMAND_MISSING;
         }
 
         NSMutableArray<NSString *> *arguments = [NSMutableArray array];
@@ -417,7 +417,7 @@ int main(int argc, const char * argv[]) {
             NSString *argument = [NSString stringWithUTF8String:argv[i]];
             if (argument == nil) {
                 // Not valid UTF-8 - refuse instead of silently dropping/crashing
-                return BridgePatcher_PHT_ERROR_COMMAND_NOT_ALLOWED;
+                return BRIDGEPATCHER_PHT_ERROR_COMMAND_NOT_ALLOWED;
             }
             [arguments addObject:argument];
         }
@@ -426,7 +426,7 @@ int main(int argc, const char * argv[]) {
         // Only DEBUG builds restrict the command set - release builds already
         // verified the caller's signing certificates above.
         if (!isCommandAllowed(command, arguments, processSigningInformation)) {
-            return BridgePatcher_PHT_ERROR_COMMAND_NOT_ALLOWED;
+            return BRIDGEPATCHER_PHT_ERROR_COMMAND_NOT_ALLOWED;
         }
         #endif
 
@@ -442,5 +442,5 @@ int main(int argc, const char * argv[]) {
         [task waitUntilExit];
         return [task terminationStatus];
     }
-    return BridgePatcher_PHT_ERROR_CATCH_ALL; // Should never reach here
+    return BRIDGEPATCHER_PHT_ERROR_CATCH_ALL; // Should never reach here
 }
