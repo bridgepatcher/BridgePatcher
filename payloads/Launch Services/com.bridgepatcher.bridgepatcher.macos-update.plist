@@ -7,15 +7,15 @@
 		<string>com.bridgepatcher.bridgepatcher</string>
 	</array>
 	<key>Label</key>
-	<string>com.albert-mueller.opencore-legacy-patcher.os-caching</string>
+	<string>com.bridgepatcher.bridgepatcher.macos-update</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/Library/Application Support/albert-mueller/OpenCore-Patcher-T2/BridgePatcher.app/Contents/MacOS/BridgePatcher</string>
-		<string>--cache_os</string>
+		<string>--prepare_for_update</string>
 	</array>
 	<key>WatchPaths</key>
 	<array>
-		<string>/System/Volumes/Update/Preflight.plist</string>
+		<string>/System/Volumes/Update/Update.plist</string>
 	</array>
 </dict>
 </plist>

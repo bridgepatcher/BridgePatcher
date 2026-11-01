@@ -1,9 +1,10 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
-## 4.0.0.2000000 - 4.0.0 alpha 20
+## 4.0.0.2000000.1 - 4.0.0 alpha 20
 This version:
 - renames OpenCore Legacy Patcher T2 to BridgePatcher. One of the reasons for this rename is that it confuses users that this is Dortania’s official project and open issues inside the wrong repository. Attackers would love this patcher to be called OpenCore Legacy Patcher T2 to exploit for impersonation and malware delivery, I already documented a case where attackers intentionally confused users that this is Dortania’s official project to deliver malware over a malvertising website. 
 - replaces Dortania’s icons with our own ones
 - now includes the license of the patcher inside the binary itself
+- updates the Privilege Helper Tool to version 2.0.0
 - fixes a bug where the bundle ID inside OpenCore-Patcher-GUI is hardcoded, so upon launch it did never trusted even the patcher's own helper tool
 - the user agent the patcher sends when downloading Kernel Debug Kits, Metallibs and the AppleDB catalog, and when fetching the release notes of an update, now ends in BridgePatcher/<version> instead of OpenCoreLegacyPatcherT2/<version>. The rest of the user agent stays the same
 - all API and link endpoints (updates, PatcherSupportPkg, Metallibs, project status, website, Help menu, OpenCore update script) now point at the renamed GitHub organization bridgepatcher
@@ -30,6 +31,9 @@ This version:
   - when the mount fails, the log now shows the output of both the normal and the administrator attempt, plus which disk images are attached (`hdiutil info`), instead of only the first error. This helps finding out why the retry with the administrator password did not mount the image in #553
   - fixes a bug where the command line written to the log after a failed retry contained the disk image password. For Dortania's internal resources this was the user's personal decryption key
 - when running from source, the Universal-Binaries.dmg the patcher downloads on demand is now checked against its known SHA256 checksum before it is used, not only against a minimum size, so a truncated or damaged download is discarded instead of being mounted
+- fixes a bug where 2019 16 inch MacBook Pro (MacBookPro16,1) wasn't in the model_array data set
+- updates the Priveleged Helper Tool’s error handling to stop using the old name OCLP - now for error handling internally also uses BridgePatcher
+- renames AutoPkg-Assets-T2.pkg to AutoPkg-Assets.pkg
 
 In the repository:
 - License Guard now also finds Dortania's icon when it is only part of a larger image (scaled, rotated, placed in a box or partly covered by a badge, as in the old package backgrounds), and checks the images stored inside design files such as .afdesign, .psd and .pdf. The reference icon is read from Dortania's repository during the check, so no copy of it is stored here
@@ -46,6 +50,18 @@ fixes the following vulnerabilities:
 - an attacker could set up a fake site or a typosquatting site claiming to be the T2 team or Dortania team to spread malware by not warning that their site is unofficial
 Impact: an attacker could trick users into trusting a typosquatting site whose installer has been tampered and they added malware to it without any warning. This is fixed by when installing the application, it checks if the SHA256 certificates match the official ones and if not, display a warning that it could be malicious like this:
 <img width="532" height="460" alt="Bildschirmfoto 2026-10-31 um 17 37 34" src="https://github.com/user-attachments/assets/21a4467f-2240-4f45-8710-f4387c150528" />
+- fixes a vulnerability where the updater doesn’t check the SHA256 certificats
+Impact: a half downloaded update could still apply, or worse, an attacker could hijack the DNS server to launch MiTM attacks and redirect the updater to a malicious website who is pretending to be GitHub. This vulnerability is fixed by ensuring that:
+1. Before offering the update, the updater checks if the SHA256 certificates are published
+2. Downloads the update
+3. Checks the SHA256 certificate before starting to install the update
+4. Installs the update
+5. Checks again the SHA256 certificate of the update (because it runs the installer in the background) during installation
+6. Completes the update installation
+
+- fixes a vulnerability where when downloading the Universal-Binaries.dmg, the SHA256 certificates of the patchset doesn’t get checked, even though it is published
+Impact: an attacker could launch a MiTM attack by compromising the DNS server to point to a malicious website that pretends to be GitHub to install low level malware instead. This vulnerability is fixed by checking the SHA256 certificates if ever the patcher needs to download Universal-Binaries.dmg (e.g the built in one got corrupted)
+
 
 
 ## 4.0.0.1900019 - 4.0.0 alpha 19.19
@@ -4494,7 +4510,6 @@ self.patcher_full_name: str = f"{self.patcher_name} version {self.patcher_versio
 
     # URLs
     self.url_patcher_support_pkg:         str = "https://github.com/dortania/PatcherSupportPkg/releases/download/"
-    self.discord_link:                    str = "https://discord.gg/rqdPgH8xSN"
     self.guide_link:                      str = "https://dortania.github.io/OpenCore-Legacy-Patcher/"
     self.repo_link:                       str = "https://github.com/oclp-t2/OpenCore-Legacy-Patcher-T2/"
     self.installer_pkg_url:               str = f"{self.repo_link}/releases/download/{self.patcher_version}/AutoPkg-Assets.pkg"

@@ -241,7 +241,8 @@ from ci_tooling.build_modules import (
     package,
     release_guard,
     sign_notarize,
-    hash as hash_pkg
+    hash as hash_pkg,
+    print_scripts
 )
 from opencore_legacy_patcher import constants
 
@@ -371,7 +372,7 @@ def resolve_application_identity(requested: str, auto_detect: bool) -> "str | No
 
 def main() -> None:
     global status, TOTAL_STEPS
-    parser = argparse.ArgumentParser(description="Build OpenCore Legacy Patcher Suite")
+    parser = argparse.ArgumentParser(description="Build BridgePatcher Suite")
 
     # Signing & Notarization
     parser.add_argument("--application-signing-identity", type=str, help="Application Signing Identity")
@@ -424,6 +425,12 @@ def main() -> None:
         args.application_signing_identity,
         auto_detect=args.no_auto_detect_identity is False,
     )
+    # check that the PHT exists
+    if not Path("./ci_tooling/privileged_helper_tool/com.bridgepatcher.privileged-helper").exists():
+        build = subprocess.run(["/usr/bin/make", "release"], cwd="./ci_tooling/build_modules/privileged_helper_tool", text=True, capture_output=True)
+        if build.returncode != 0:
+            rich.print(f"building the Privileged Helper failed, {build.stderr}")
+            sys.exit(1)
 
     # A build that could never become a usable release is stopped before the first step:
     # a version that is behind a release without assets is corrected, and a version that
@@ -442,7 +449,7 @@ def main() -> None:
         if (args.run_as_individual_steps is False) or (args.run_as_individual_steps and args.prepare_application):
             status = f"[2/{TOTAL_STEPS}] Signing Helper Tool"
             sign_notarize.SignAndNotarize(
-                path=Path("./ci_tooling/privileged_helper_tool/io.github.bridgepatcher.privileged-helper"),
+                path=Path("./ci_tooling/privileged_helper_tool/com.bridgepatcher.privileged-helper"),
                 signing_identity=application_signing_identity,
                 notarization_apple_id=args.notarization_apple_id,
                 notarization_password=notarization_password,
@@ -471,16 +478,32 @@ def main() -> None:
 
         # 3. Packages
         if (args.run_as_individual_steps is False) or (args.run_as_individual_steps and args.prepare_package):
+            # First, we need to check that the syntax of the package scripts is correct
+            files = [
+                "preinstall_pkg.txt",
+                "preinstall_autopkg.txt",
+                "postinstall_pkg.txt",
+                "postinstall_autopkg.txt",
+                "uninstall.txt"
+            ]
+            print_scripts.main()
+            for file in files:
+                result = subprocess.run(["/bin/zsh", "-n", file], text=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+                if result.returncode == 0 and result.stderr == "" and result.stdout == "":
+                    rich.print(f"[green]{file} is OK[/green]")
+                else:
+                    raise Exception("zsh syntax errors: "+result.stdout+result.stderr)
+
             # Compressing the app with its disk images (well over 1 GB) into the installer
             # takes several minutes with no output, which reads as a hang otherwise.
             status = f"[5/{TOTAL_STEPS}] Building packages - this can take several minutes"
             package_generator = package.GeneratePackage(legacy_installer=args.legacy_installer)
             package_generator.generate()
 
-            # AutoPkg-Assets-T2.pkg is installed by the app itself during auto patching,
+            # AutoPkg-Assets.pkg is installed by the app itself during auto patching,
             # so it needs a signature just as much as the user facing packages.
             step = 6
-            for pkg in package_generator.installer_packages + [package_generator.uninstaller_package, "AutoPkg-Assets-T2.pkg"]:
+            for pkg in package_generator.installer_packages + [package_generator.uninstaller_package, "AutoPkg-Assets.pkg"]:
                 pkg_path = Path(f"dist/{pkg}")
                 check_file_exists(pkg_path)
                 status = f"[{step}/{TOTAL_STEPS}] Signing {pkg}"

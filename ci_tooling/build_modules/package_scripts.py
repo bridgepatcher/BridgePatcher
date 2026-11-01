@@ -5,8 +5,9 @@ package_scripts.py: Generate pre/postinstall scripts for PKG and AutoPkg
 
 from opencore_legacy_patcher import constants
 
-LEGACY_DOMAIN = "com.dortania.opencore-legacy-patcher"
-NEW_DOMAIN    = "com.albert-mueller.opencore-legacy-patcher"
+DORTANIA_DOMAIN = "com.dortania.opecore-legacy-patcher"
+LEGACY_DOMAIN = "com.albert-mueller.opencore-legacy-patcher"
+NEW_DOMAIN    = "com.bridgepatcher.bridgepatcher"
 
 # Install locations, relative to the target volume
 _INSTALL_DIRECTORY   = constants.APP_INSTALL_DIRECTORY.lstrip("/")
@@ -182,7 +183,7 @@ class ZSHFunctions:
         _script = ""
 
         _script += "function _logFile() {\n"
-        _script += "    echo \"/Users/Shared/.OCLP-AutoPatcher-Log-$(/bin/date +\"%Y_%m_%d_%I_%M_%p\").txt\"\n"
+        _script += "    echo \"/Users/Shared/.BridgePatcher-AutoPatcher-Log-$(/bin/date +\"%Y_%m_%d_%I_%M_%p\").txt\"\n"
         _script += "}\n"
 
         return _script
@@ -255,6 +256,7 @@ class ZSHFunctions:
         _script += "function _cleanLaunchService() {\n"
         _script += f"    local domain=\"{NEW_DOMAIN}\"\n"
         _script += f"    local legacyDomain=\"{LEGACY_DOMAIN}\"\n"
+        _script += f"    local dortaniaDomain=\"{DORTANIA_DOMAIN}\""
         _script += f"    local ourApp=\"{constants.APP_BUNDLE_NAME}\"\n"
         _script += f"    local ourLegacyApp=\"{constants.LEGACY_APP_BUNDLE_NAME}\"\n\n"
 
@@ -274,7 +276,7 @@ class ZSHFunctions:
         _script += "        # Installs from before the rename used Dortania's filenames for\n"
         _script += "        # our services. Only remove the ones whose ProgramArguments point\n"
         _script += "        # at our app, so a side-by-side Dortania install keeps its own.\n"
-        _script += "        for launchServicePath in \"$launchServiceVariant\"/$legacyDomain*.plist(N); do\n"
+        _script += "        for launchServicePath in \"$launchServiceVariant\"/$dortaniaDomain*.plist(N); do\n"
         _script += "            local program=$(/usr/libexec/PlistBuddy -c \"Print :ProgramArguments:0\" \"$launchServicePath\" 2>/dev/null)\n"
         _script += "            if [[ $program == *$ourApp* || $program == *$ourLegacyApp* ]]; then\n"
         _script += "                echo \"Removing legacy launch service: $launchServicePath\"\n"
@@ -306,7 +308,6 @@ class ZSHFunctions:
         _script += f"    local domain=\"{NEW_DOMAIN}\"\n"
         _script += f"    local legacyBinary=\"/{LEGACY_EXECUTABLE_PATH}\"\n"
         _script += f"    local newBinary=\"/{EXECUTABLE_PATH}\"\n\n"
-
         _script += "    for launchServiceVariant in \"$pathToTargetVolume/Library/LaunchAgents\" \"$pathToTargetVolume/Library/LaunchDaemons\"; do\n"
         _script += "        if [[ ! -d $launchServiceVariant ]]; then\n"
         _script += "            continue\n"
@@ -375,12 +376,15 @@ class ZSHFunctions:
 
         _script += "function _cleanLegacyHelper() {\n"
         _script += f"    local legacyHelper=\"$pathToTargetVolume/Library/PrivilegedHelperTools/{LEGACY_DOMAIN}.privileged-helper\"\n"
-        _script += "    local dortaniaApp=\"$pathToTargetVolume/Library/Application Support/Dortania/OpenCore-Patcher.app\"\n\n"
-
+        _script += "    local dortaniaApp=\"$pathToTargetVolume/Library/Application Support/Dortania/OpenCore-Patcher.app\"\n"
+        _script += "    local old_pht_=\"$pathToTargetVolume/Library/PrivilegedHelperTools/io.github.bridgepatcher.privileged-helper\"\n\n"
         _script += "    if [[ ! -e $legacyHelper ]]; then\n"
         _script += "        return\n"
         _script += "    fi\n\n"
-
+        _script += "    # remove the old pre-release helper tool\n"
+        _script += "    if [[ ! -e $old_pht ]]; then\n"
+        _script += "        _removeFile \"$old_pht\"\n"
+        _script += "    fi\n\n"
         _script += "    if [[ -e $dortaniaApp ]]; then\n"
         _script += "        echo \"Leaving legacy helper in place, Dortania's patcher is installed\"\n"
         _script += "        return\n"
@@ -595,7 +599,7 @@ class GenerateScripts:
         ]
 
         self.additional_auto_pkg_files = [
-            "Library/LaunchAgents/com.albert-mueller.opencore-legacy-patcher.auto-patch.plist"
+            "Library/LaunchAgents/com.bridgepatcher.bridgepatcher.auto-patch.plist"
         ]
 
 
@@ -630,7 +634,7 @@ class GenerateScripts:
         _script += self.__generate_shebang()
 
         _script += self._generate_header_bar()
-        _script += f"# {'AutoPkg Assets' if is_autopkg else 'OpenCore Legacy Patcher'} Preinstall Script\n"
+        _script += f"# {'AutoPkg Assets' if is_autopkg else 'BrigePatcher'} Preinstall Script\n"
         _script += self._generate_header_bar()
         _script += "# Remove old files, and prepare directories.\n"
         _script += self._generate_header_bar()
@@ -704,7 +708,7 @@ class GenerateScripts:
         _script += self.__generate_shebang()
 
         _script += self._generate_header_bar()
-        _script += f"# {'AutoPkg Assets' if is_autopkg else 'OpenCore Legacy Patcher'} Post Install Script\n"
+        _script += f"# {'AutoPkg Assets' if is_autopkg else 'BridgePatcher'} Post Install Script\n"
         _script += self._generate_header_bar()
         if is_autopkg:
             _script += "# Set UID, create alias, start patching, and reboot.\n"
@@ -720,7 +724,7 @@ class GenerateScripts:
         _script += self._generate_label_bar()
         _script += "\n"
 
-        _script += "helperPath=\"Library/PrivilegedHelperTools/io.github.bridgepatcher.privileged-helper\"\n"
+        _script += "helperPath=\"Library/PrivilegedHelperTools/com.bridgepatcher.privileged-helper\"\n"
         _script += f"mainAppPath=\"{MAIN_APP_PATH}\"\n"
         _script += f"shimAppPath=\"{SHIM_APP_PATH}\"\n"
         if legacy_compatibility:

@@ -23,7 +23,7 @@ CLIENT_ID="${OCLP_CLIENT_ID:-com.bridgepatcher.bridgepatcher}"
 SIGNING_KEYCHAIN="${HOME}/Library/Keychains/oclp-signing.keychain-db"
 
 appPath="${1:-/Library/Application Support/albert-mueller/OpenCore-Patcher-T2/BridgePatcher.app}"
-helperPath="${2:-/Library/PrivilegedHelperTools/io.github.bridgepatcher.privileged-helper}"
+helperPath="${2:-/Library/PrivilegedHelperTools/com.bridgepatcher.privileged-helper}"
 expectedSHA1="${3:-$OCLP_CERT_SHA1}"
 expectedSHA1="${expectedSHA1:u}"
 

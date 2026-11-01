@@ -46,7 +46,7 @@ class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
         # Wenn eine Version mit s endet, es heißt, dass sie noch nicht fertig ist.
-        self.patcher_version:                 str = "4.0.0.2000000"
+        self.patcher_version:                 str = "4.0.0.2000000.2"
         self.patcher_version_label=self.patcher_version
         self.patcher_support_pkg_version:     str = "2.11"  # PatcherSupportPkg (needs a 2.11 release built from bridgepatcher/PatcherSupportPkg master: GMA X3100 + non-metal screen saver payloads)
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
@@ -131,10 +131,9 @@ class Constants:
         self.kext_updater_version:       str = "3.8.5"  #      KextUpdater
 
         ## Matteo (Medelcartelinc / matteoiacca)
-        ## https://github.com/bridgepatcher
+        ## https://github.com/Medelcartelinc
         self.appleans2disabler_version:  str = "1.0.0"  #      AppleANS2Disabler (T2 internal SSD)
         self.t2tahoefixup_version:       str = "1.0.19" #      T2TahoeFixup
-        #TODO: did Matteo make the above kext? if so then his name should be here instead of BridgePatcher's
 
         ## Apple
         ## https://www.apple.com
@@ -430,19 +429,19 @@ class Constants:
 
     @property
     def auto_patch_launch_agent_path(self):
-        return self.launch_services_path / Path("com.albert-mueller.opencore-legacy-patcher.auto-patch.plist")
+        return self.launch_services_path / Path("com.bridgepatcher.bridgepatcher.auto-patch.plist")
 
     @property
     def rsr_monitor_launch_daemon_path(self):
-        return self.launch_services_path / Path("com.albert-mueller.opencore-legacy-patcher.rsr-monitor.plist")
+        return self.launch_services_path / Path("com.bridgepatcher.bridgepatcher.rsr-monitor.plist")
 
     @property
     def update_launch_daemon_path(self):
-        return self.launch_services_path / Path("com.albert-mueller.opencore-legacy-patcher.macos-update.plist")
+        return self.launch_services_path / Path("com.bridgepatcher.bridgepatcher.macos-update.plist")
 
     @property
     def kdk_launch_daemon_path(self):
-        return self.launch_services_path / Path("com.albert-mueller.opencore-legacy-patcher.os-caching.plist")
+        return self.launch_services_path / Path("com.bridgepatcher.bridgepatcher.os-caching.plist")
 
     # ACPI
     @property

@@ -268,3 +268,9 @@ payloads/Kexts/FeatureUnlock.kext.dSYM/Contents/Info.plist
 payloads/Kexts/CryptexFixup.kext.dSYM/Contents/Resources/Relocations/x86_64/CryptexFixup.yml
 payloads/Kexts/CryptexFixup.kext.dSYM/Contents/Resources/DWARF/CryptexFixup
 payloads/Kexts/CryptexFixup.kext.dSYM/Contents/Info.plist
+/ci_tooling/privileged_helper_tool/com.bridgepatcher.privileged-helper
+/ci_tooling/build_modules/postinstall_autopkg.txt
+/ci_tooling/build_modules/postinstall_pkg.txt
+/ci_tooling/build_modules/preinstall_autopkg.txt
+/ci_tooling/build_modules/preinstall_pkg.txt
+/ci_tooling/build_modules/uninstall.txt

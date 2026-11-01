@@ -128,6 +128,33 @@ EMB_MAX_SIDE = 600
 # 0.73-0.99 / 0.84-0.99, own artwork at most 0.59 / 0.77, small logos in screenshots ~0.66.
 EMB_FULL = (0.65, 0.75)
 EMB_PART = (0.80, 0.85)
+# Dortania's volume icons (the OpenCore logo with a drive in front of it), which Dortania's app copies
+# onto the EFI partition: they show up in boot picker screenshots ("EFI Boot"), in Finder and on the
+# Desktop. The logo is drawn differently than in the app icon, so the ring search above misses them
+# (0.29 on the boot picker screenshot). Each is searched for as a whole icon with OpenCV template
+# matching instead: masked by its own transparency (so the background doesn't matter), greyscale
+# with normalised correlation (so dimming doesn't matter), at every size from DRIVE_MIN_PX up.
+# References are read from the upstream tree at run time - no copy of the artwork is stored here.
+DRIVE_ICONS = {
+    "dortania-external-drive-icon": ("payloads/Icon/DriveIcons/External/.VolumeIcon.icns",
+                                     "Dortania's external drive icon (OpenCore logo with a gold drive)"),
+    "dortania-internal-drive-icon": ("payloads/Icon/DriveIcons/Internal/.VolumeIcon.icns",
+                                     "Dortania's internal drive icon (OpenCore logo with a hard disk)"),
+    "dortania-sd-card-drive-icon": ("payloads/Icon/DriveIcons/SD-Card/.VolumeIcon.icns",
+                                    "Dortania's SD card drive icon (OpenCore logo with an SD card)"),
+    "dortania-ssd-drive-icon": ("payloads/Icon/DriveIcons/SSD/.VolumeIcon.icns",
+                                "Dortania's SSD drive icon (OpenCore logo with an NVMe SSD)"),
+}
+DRIVE_VERSION = 1      # bump to invalidate cached results after changing the settings below
+DRIVE_T = 48           # template size (px)
+DRIVE_MIN_PX = 40      # smallest icon searched for, in the image's own pixels
+DRIVE_STEP = 1.12      # size step between searches
+DRIVE_MAX_WORK = 2400  # longest side of a scaled copy; tinier icons in huge images are skipped (speed)
+# (warning, violation). Measured: boot picker screenshot with the external drive icon 0.97,
+# synthetic copies 96px+ 0.79-0.98; BridgePatcher's own icons and the website's screenshots at most
+# 0.65 - except for the SSD icon, whose plain dark card shape scores up to 0.77 on unrelated images.
+DRIVE_THRESHOLDS = {"dortania-ssd-drive-icon": (0.80, 0.88)}
+DRIVE_DEFAULT = (0.72, 0.76)
 # Design/source files that keep images inside them (previews, placed images): every PNG and JPEG
 # stored in them is checked like a normal image.
 CONTAINER_EXT = (".afdesign", ".afphoto", ".afpub", ".psd", ".psb", ".ai", ".pdf", ".sketch", ".xcf", ".fig")
@@ -226,6 +253,36 @@ def scan_names(head, add):
                  "  (e.g. \"Dortania's OpenCore Legacy Patcher 2.0.0\"). Copyright/credit lines are fine."])
 
 
+# Invite links to Dortania's Discord server (OpenCore Patcher Paradise, the server upstream's app
+# and docs send users to). Sending BridgePatcher users there - from the app's Help menu, the docs,
+# issue forms or bot replies - implies the upstream project endorses or supports the fork.
+# Invite codes are case-sensitive, so the code is matched exactly; the domain is not.
+UPSTREAM_DISCORD_CODES = ("rqdPgH8xSN",)
+UPSTREAM_DISCORD_RE = re.compile(
+    r"(?i:(?:https?://)?(?:www\.)?(?:discord\.gg/|discord(?:app)?\.com/invite/))(?:"
+    + "|".join(map(re.escape, UPSTREAM_DISCORD_CODES)) + r")(?![A-Za-z0-9])")
+DISCORD_CHECK_EXT = OLD_NAME_EXT
+
+
+def scan_discord(head, add):
+    """Links to Dortania's Discord server anywhere in the audited tree: code, app strings, docs,
+    issue forms, bot replies in workflows and the changelog. Only this script is skipped."""
+    for row in git("ls-tree", "-r", "-l", head).splitlines():
+        meta, path = row.split("\t", 1)
+        _, kind, sha, size = meta.split()
+        if (kind != "blob" or size == "-" or int(size) > ART_MAX_BYTES
+                or path == ".github/scripts/license_guard.py"
+                or not (path.lower().endswith(DISCORD_CHECK_EXT) or path.startswith(NAME_CHECK_DIRS))):
+            continue
+        hits = [(n, l) for n, l in enumerate(git("cat-file", "blob", sha).splitlines(), 1)
+                if UPSTREAM_DISCORD_RE.search(l)]
+        if hits:
+            add("violation", path, "Link to Dortania's Discord server (OpenCore Patcher Paradise)",
+                [f"  line {n}: {show(l)}" for n, l in hits[:5]] + (["  …"] if len(hits) > 5 else []) +
+                ["  Don't send BridgePatcher users to the upstream project's Discord for support.",
+                 "  Link this project's GitHub Discussions or Issues instead."])
+
+
 HOTLINK_RE = re.compile(
     r"(?:raw\.githubusercontent\.com/dortania/|github\.com/dortania/[^\s\"'()<>]*/(?:raw|blob)/"
     r"|dortania\.github\.io/)[^\s\"'()<>]*\.(?:png|icns|svg|jpe?g|gif|webp)", re.I)
@@ -315,12 +372,58 @@ def embedded_images(data, limit=20):
     return [f for f in found if len(f) > 2000][:limit]
 
 
+def drive_template(data):
+    """Greyscale template of an icon, cropped to its visible part, plus a mask of its opaque pixels."""
+    import numpy as np
+    from PIL import Image
+    with Image.open(io.BytesIO(data)) as im:
+        im.load()
+        im = im.convert("RGBA")
+    ys, xs = np.where(np.array(im)[..., 3] > 10)
+    im = im.crop((xs.min(), ys.min(), xs.max() + 1, ys.max() + 1))
+    f = DRIVE_T / max(im.size)
+    im = im.resize((max(8, round(im.width * f)), max(8, round(im.height * f))), Image.LANCZOS)
+    arr = np.array(im).astype(np.float32)
+    grey = arr[..., :3] @ np.array([0.299, 0.587, 0.114], np.float32)
+    return grey, (arr[..., 3] > 200).astype(np.float32)
+
+
+def drive_scores(data, templates):
+    """Best match of each icon anywhere in the image: {key: [score, size_px, x, y]}."""
+    import cv2
+    import numpy as np
+    from PIL import Image
+    with Image.open(io.BytesIO(data)) as im:
+        im.load()
+        im = im.convert("RGBA")
+    base = Image.new("RGBA", im.size, (128, 128, 128, 255))
+    base.alpha_composite(im)
+    grey = np.array(base.convert("L")).astype(np.float32)
+    H, W = grey.shape
+    out = {}
+    for key, (tpl, mask) in templates.items():
+        best, d = [-1.0, 0, 0, 0], float(DRIVE_MIN_PX)
+        while d <= min(H, W):
+            f = DRIVE_T / d
+            if max(W, H) * f <= DRIVE_MAX_WORK:
+                small = cv2.resize(grey, (max(tpl.shape[1], round(W * f)), max(tpl.shape[0], round(H * f))),
+                                   interpolation=cv2.INTER_AREA if f < 1 else cv2.INTER_LINEAR)
+                r = cv2.matchTemplate(small, tpl, cv2.TM_CCOEFF_NORMED, mask=mask)
+                r[~np.isfinite(r)] = -1
+                _, v, _, loc = cv2.minMaxLoc(r)
+                if v > best[0]:
+                    best = [round(float(v), 3), round(d), round(loc[0] / f), round(loc[1] / f)]
+            d *= DRIVE_STEP
+        out[key] = best
+    return out
+
+
 # The upstream app's NAME shown inside an image (screenshots of Dortania's app, banners):
 # "OpenCore Legacy Patcher" (also "... T2" / "...-T2"). Found with OCR (tesseract), so it only runs
 # where tesseract is installed. Lines with a copyright notice are skipped on purpose - the upstream
 # notice ("Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors") must stay.
-# Technical identifiers written without spaces (OCLP-Version, OpenCore-Legacy-Patcher repo/folder,
-# Dortania's URLs) are not matched: they are literal names, not the product name.
+# Technical identifiers written without spaces (OCLP-Version, Dortania's URLs) are not matched here;
+# folder/volume names such as "OpenCore-Legacy-Patcher" are covered by IMG_FOLDER_RE below.
 IMG_NAME_RE = re.compile(r"(?i)\bOpen\s?Core\s+Legacy\s+Patcher\b")
 IMG_NAME_WRAP = (re.compile(r"(?i)\bOpen\s?Core(\s+Legacy)?\s*$"), re.compile(r"(?i)^\s*(Legacy\s+)?Patcher\b"))
 IMG_COPYRIGHT_RE = re.compile(r"(?i)(©|\(c\))\s*\d|copyright|contributors")
@@ -381,6 +484,47 @@ def find_old_name_in_image(passes):
     return hits
 
 
+# Dortania's project name used as a FOLDER or VOLUME name in a screenshot: the Finder sidebar
+# ("Opencore-Legacy-Pat..."), path bars and Terminal ("~/Developer/OpenCore-Legacy-Patcher"),
+# "Apple-Binaries-OCLP". BridgePatcher is cloned into a "BridgePatcher" folder, so these are
+# Dortania's screenshots. Not matched: URLs (github.com/dortania/OpenCore-Legacy-Patcher), file names
+# (OpenCore-Legacy-Patcher.plist) and the OCLP-* identifiers BridgePatcher itself still uses
+# (NVRAM keys OCLP-Version/-Settings/..., the OCLP-Installer volume) - a screenshot showing those is accurate.
+IMG_FOLDER_RE = re.compile(r"(?i)(?<![\w/.-])Open\s?Core[-_]Legacy(?:[-_][A-Za-z]*)?(?![\w-])(?!\.[A-Za-z])")
+IMG_OCLP_TOKEN_RE = re.compile(r"(?<![\w/.-])((?:[A-Za-z0-9]+[-_\u2013\u2014])*OCLP(?:[-_\u2013\u2014][A-Za-z0-9]+)*)(?![\w/-])")
+IMG_OCLP_OK_RE = re.compile(r"^OCLP-(?:Version|Settings|Model|Spoofed-\w+|Installer|Helper|MOD)$")
+
+
+def find_upstream_folder_in_image(passes):
+    hits = []
+    for lines in passes:
+        for line in lines:
+            if IMG_COPYRIGHT_RE.search(line) or line in hits:
+                continue
+            tokens = [re.sub("[\u2013\u2014_]", "-", m.group(1)) for m in IMG_OCLP_TOKEN_RE.finditer(line)]
+            if IMG_FOLDER_RE.search(line) or any(t != "OCLP" and not IMG_OCLP_OK_RE.match(t) for t in tokens):
+                hits.append(line)
+    return hits
+
+
+# Mykola Grymalyuk (Dortania's co-author) named inside an image. Dortania's screenshots were taken
+# on his Mac, so they show his macOS user ("mykolagrymalyuk" in Finder, Terminal titles and prompts),
+# "Mykola's MacBook Pro" / "Mykola's iMac" in Finder and Displays, or "Mykola Monterey" in password
+# prompts. Such an image is Dortania's screenshot, and clause 4 of the licence forbids using his name
+# to promote a derived product. Tolerates common OCR misreads (Nykola, Mykole, a truncated
+# "mykolagryma..."). Copyright/licence lines are skipped: that notice must stay, see the attribution guard.
+IMG_AUTHOR_RE = re.compile(r"(?i)[mn][yv]k[o0][l1][aeo]|gr[yi]ma[l1]|gyumurluk")
+
+
+def find_author_in_image(passes):
+    hits = []
+    for lines in passes:
+        for line in lines:
+            if IMG_AUTHOR_RE.search(line) and not IMG_COPYRIGHT_RE.search(line) and line not in hits:
+                hits.append(line)
+    return hits
+
+
 def tesseract_available():
     try:
         return subprocess.run(["tesseract", "--version"], capture_output=True).returncode == 0
@@ -428,6 +572,52 @@ def scan_artwork(head, add):
                     f"{ref_path} not found in {upstream}")
     except ImportError:
         add("warning", "-", "Embedded artwork check skipped: opencv-python-headless is not installed")
+    drives = {}
+    try:
+        import cv2  # noqa: F401
+        have_cv2 = True
+    except ImportError:
+        have_cv2 = False   # already reported by the embedded artwork check above
+    if have_cv2:
+        upstream = re.split(r"\.\.\.?", DIFF_RANGE)[0]
+        missing = []
+        for key, (ref_path, _) in DRIVE_ICONS.items():
+            ref = subprocess.run(["git", "show", f"{upstream}:{ref_path}"], capture_output=True)
+            try:
+                drives[key] = drive_template(ref.stdout) if ref.returncode == 0 else None
+            except Exception:
+                drives[key] = None
+            if drives[key] is None:
+                del drives[key]
+                missing.append(ref_path)
+        if missing:
+            add("warning", "-", f"Drive icon check incomplete: not found in {upstream}", [f"  {p}" for p in missing])
+    drive_ck = f"drv{DRIVE_VERSION}:{','.join(sorted(drives))}:"
+
+    def check_drive_icons(path, sha, data, where=""):
+        if not drives:
+            return
+        if drive_ck + sha not in cache:
+            try:
+                cache[drive_ck + sha] = drive_scores(data, drives)
+            except Exception:
+                cache[drive_ck + sha] = {}
+        # Best match first; the drive icons share the logo, so matches at the same spot are one finding.
+        reported = []
+        for key, (score, size_px, x, y) in sorted(cache[drive_ck + sha].items(), key=lambda kv: -kv[1][0]):
+            warn_at, violation_at = DRIVE_THRESHOLDS.get(key, DRIVE_DEFAULT)
+            if score < warn_at or any(abs(x - rx) < rs / 2 and abs(y - ry) < rs / 2 for rx, ry, rs in reported):
+                continue
+            reported.append((x, y, size_px))
+            name = DRIVE_ICONS[key][1]
+            loc = f"  Found at x={x}, y={y}, about {size_px}px (match {score:.2f})."
+            if score >= violation_at:
+                add("violation", path, f"Contains {name}{where}",
+                    [loc, "  Dortania's drive icon is part of this image (e.g. \"EFI Boot\" in the boot picker).",
+                     "  Use BridgePatcher's own icon (payloads/Resources/DriveIcons) or retake the screenshot."])
+            else:
+                add("warning", path, f"Might contain {name}{where}",
+                    [loc, "  Check by hand; if it shows the icon, replace it."])
 
     def check_embedded(path, sha, data, where=""):
         for key, templates in emb.items():
@@ -500,6 +690,7 @@ def scan_artwork(head, add):
                          "  Check by hand; if it embeds the artwork, replace it."])
             if not copied:
                 check_embedded(path, sha, data)
+            check_drive_icons(path, sha, data)
             if ocr_on:
                 names = find_old_name_in_image(cache.get(f"ocr{OCR_VERSION}:{sha}", [[], []]))
                 if names:
@@ -507,10 +698,25 @@ def scan_artwork(head, add):
                         [f"  Text read in the image: {show(n)}" for n in names[:3]] +
                         ["  Screenshots/banners must show BridgePatcher, not Dortania's app name.",
                          "  Retake the screenshot or edit the text. Copyright lines are not affected."])
+                folders = find_upstream_folder_in_image(cache.get(f"ocr{OCR_VERSION}:{sha}", [[], []]))
+                if folders:
+                    add("violation", path, "Upstream project name as a folder/volume name in image (OpenCore-Legacy-Patcher / OCLP)",
+                        [f"  Text read in the image: {show(n)}" for n in folders[:3]] +
+                        ["  A folder or volume in this screenshot is named after Dortania's project",
+                         "  (e.g. \"Opencore-Legacy-Pat...\" in the Finder sidebar, \"Apple-Binaries-OCLP\").",
+                         "  Rename it (BridgePatcher, PatcherSupportPkg, ...) and retake the screenshot, or edit the name."])
+                authors = find_author_in_image(cache.get(f"ocr{OCR_VERSION}:{sha}", [[], []]))
+                if authors:
+                    add("violation", path, "Upstream author's name in image (Mykola Grymalyuk)",
+                        [f"  Text read in the image: {show(n)}" for n in authors[:3]] +
+                        ["  This is a screenshot from Mykola Grymalyuk's Mac (his user name, Mac or account name).",
+                         "  The licence forbids using his name to promote BridgePatcher: retake the",
+                         "  screenshot on your own Mac or edit the name out. Copyright lines are not affected."])
         elif low.endswith(CONTAINER_EXT) and emb:
             data = subprocess.run(["git", "cat-file", "blob", sha], capture_output=True, check=True).stdout
             for i, inner in enumerate(embedded_images(data)):
                 check_embedded(path, f"{sha}#{i}", inner, f" (image {i + 1} stored inside this file)")
+                check_drive_icons(path, f"{sha}#{i}", inner, f" (image {i + 1} stored inside this file)")
         elif low.endswith(TEXT_EXT):
             text = git("cat-file", "blob", sha)
             urls = sorted(set(m.group(0) for m in HOTLINK_RE.finditer(text)))
@@ -644,6 +850,9 @@ def main():
     # 5) Former project name / Dortania's app name anywhere in the audited tree
     scan_names(re.split(r"\.\.\.?", DIFF_RANGE)[-1], add)
 
+    # 6) Links to Dortania's Discord server anywhere in the audited tree
+    scan_discord(re.split(r"\.\.\.?", DIFF_RANGE)[-1], add)
+
     v = [x for x in findings if x[0] == "violation"]
     w = [x for x in findings if x[0] == "warning"]
     i = [x for x in findings if x[0] == "info"]
@@ -680,7 +889,10 @@ def main():
             "copyright line *alongside* the existing ones is fine; replacing or removing them is not. "
             "Year bumps like `2020-2024` → `2020-2026` are ignored.", "",
             "Artwork such as Dortania's OpenCore Legacy Patcher icon or Apple's System Settings icon is "
-            "not covered by the code license and must not be shipped or hotlinked; use your own artwork.",
+            "not covered by the code license and must not be shipped or hotlinked; use your own artwork.", "",
+            "The licence also forbids using the upstream name to endorse or promote the fork, so the app and "
+            "its docs must not send users to Dortania's Discord server (OpenCore Patcher Paradise) for help "
+            "with BridgePatcher; link this project's GitHub Discussions or Issues instead.",
             "", "</details>"]
 
     report = "\n".join(out) + "\n"

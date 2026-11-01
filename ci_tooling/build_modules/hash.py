@@ -10,10 +10,10 @@ from pathlib import Path
 
 class GenerateHash():
     def __init__(self):
-        shutil.copyfile("./ci_tooling/privileged_helper_tool/io.github.bridgepatcher.privileged-helper", "./dist/io.github.bridgepatcher.privileged-helper")
+        shutil.copyfile("./ci_tooling/privileged_helper_tool/com.bridgepatcher.privileged-helper", "./dist/com.bridgepatcher.privileged-helper")
         Path("./dist/certificates.txt").unlink(missing_ok=True)
         self.start()
-        Path("./dist/io.github.bridgepatcher.privileged-helper").unlink(missing_ok=True)
+        Path("./dist/com.bridgepatcher.privileged-helper").unlink(missing_ok=True)
 
     def start(self):
         file_dump = ["Resource certificates:"]

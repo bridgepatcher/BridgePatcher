@@ -3,6 +3,7 @@ gui_about.py: About frame
 """
 
 import wx
+import wx.html2
 import markdown
 import re
 import logging
@@ -154,7 +155,7 @@ class AboutFrame(wx.Frame):
 
         # This lets relative images and links resolve relative to the
         # directory containing the Markdown file.
-        base_url = Path("./README.md").resolve().parent.as_uri() + "/"
+        base_url = Path(self.constants.app_icon_path_png).resolve().parent.as_uri() + "/"
 
         self.webview.SetPage(html_document, base_url)
 

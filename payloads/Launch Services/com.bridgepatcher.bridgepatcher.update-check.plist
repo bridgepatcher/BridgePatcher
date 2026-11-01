@@ -7,15 +7,17 @@
 		<string>com.bridgepatcher.bridgepatcher</string>
 	</array>
 	<key>Label</key>
-	<string>com.albert-mueller.opencore-legacy-patcher.macos-update</string>
+	<string>com.bridgepatcher.bridgepatcher.update-check</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/Library/Application Support/albert-mueller/OpenCore-Patcher-T2/BridgePatcher.app/Contents/MacOS/BridgePatcher</string>
-		<string>--prepare_for_update</string>
+		<string>--check_updates</string>
 	</array>
-	<key>WatchPaths</key>
-	<array>
-		<string>/System/Volumes/Update/Update.plist</string>
-	</array>
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StartInterval</key>
+	<integer>21600</integer>
 </dict>
 </plist>

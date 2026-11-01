@@ -1,6 +1,6 @@
 # BridgePatcher Privileged Helper Tool
 
-`io.github.bridgepatcher.privileged-helper` is BridgePatcher's Privileged Helper Tool.
+`com.bridgepatcher.privileged-helper` is BridgePatcher's Privileged Helper Tool.
 
 The architecture is as such:
 1. The main application (BridgePatcher.app) will send arguments to the privileged helper tool to execute.

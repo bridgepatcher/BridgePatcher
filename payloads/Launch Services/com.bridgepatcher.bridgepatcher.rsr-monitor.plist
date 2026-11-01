@@ -7,7 +7,7 @@
 		<string>com.bridgepatcher.bridgepatcher</string>
 	</array>
 	<key>Label</key>
-	<string>com.albert-mueller.opencore-legacy-patcher.rsr-monitor</string>
+	<string>com.bridgepatcher.bridgepatcher.rsr-monitor</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>rm</string>

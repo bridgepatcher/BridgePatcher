@@ -1,5 +1,5 @@
 CC=clang
-OUTPUT=io.github.bridgepatcher.privileged-helper
+OUTPUT=com.bridgepatcher.privileged-helper
 
 # Optional, release builds only:
 #   make CERT_SHA1=<40 hex chars>        also hard-code the expected leaf certificate
@@ -32,10 +32,10 @@ endif
 MACOS_MIN ?= 10.13.6
 PIN_FLAGS=
 ifneq ($(CERT_SHA1),)
-PIN_FLAGS+= -DOCLP_PINNED_LEAF_SHA1=\"$(CERT_SHA1)\"
+PIN_FLAGS+= -DBridgePatcher_PINNED_LEAF_SHA1=\"$(CERT_SHA1)\"
 endif
 ifneq ($(CLIENT_ID),)
-PIN_FLAGS+= -DOCLP_CLIENT_IDENTIFIER=\"$(CLIENT_ID)\"
+PIN_FLAGS+= -DBridgePatcher_CLIENT_IDENTIFIER=\"$(CLIENT_ID)\"
 endif
 
 all: clean release
