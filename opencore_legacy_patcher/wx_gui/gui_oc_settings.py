@@ -7,6 +7,7 @@ from pathlib import Path
 
 import wx
 import wx.adv
+import copy
 import logging
 import subprocess
 import py_sip_xnu
@@ -18,6 +19,7 @@ from ..wx_gui import (
     gui_build,
 )
 from ..support import (
+    defaults,
     global_settings,
     generate_smbios,
 )
@@ -1017,21 +1019,86 @@ class OCSettingsFrame(wx.Frame):
         else:
             self.sip_value = self.sip_value - dict["value"]
 
-        if hex(self.sip_value) == "0x0":
+        self._store_sip_value(self.sip_value)
+
+    def _store_sip_value(self, sip_value: int) -> None:
+        """
+        Persist a SIP value to constants and the settings plist, and refresh the label.
+
+        0x0 and 0x803 map onto the plain sip_status flag (enabled / lowered for root
+        patching) so the build takes its normal path; anything else is a custom value.
+        """
+        self.sip_value = sip_value
+
+        if hex(sip_value) == "0x0":
             self.constants.custom_sip_value = None
             self.constants.sip_status = True
             global_settings.GlobalEnviromentSettings().write_property("GUI:custom_sip_value", "PYTHON_NONE_VALUE")
             global_settings.GlobalEnviromentSettings().write_property("GUI:sip_status", True)
-        elif hex(self.sip_value) == "0x803":
+        elif hex(sip_value) == "0x803":
             self.constants.custom_sip_value = None
             self.constants.sip_status = False
             global_settings.GlobalEnviromentSettings().write_property("GUI:custom_sip_value", "PYTHON_NONE_VALUE")
             global_settings.GlobalEnviromentSettings().write_property("GUI:sip_status", False)
         else:
-            self.constants.custom_sip_value = hex(self.sip_value)
-            global_settings.GlobalEnviromentSettings().write_property("GUI:custom_sip_value", hex(self.sip_value))
+            self.constants.custom_sip_value = hex(sip_value)
+            global_settings.GlobalEnviromentSettings().write_property("GUI:custom_sip_value", hex(sip_value))
 
-        self.sip_configured_label.SetLabel(f"Currently configured SIP: {hex(self.sip_value)}")
+        self.sip_configured_label.SetLabel(f"Currently configured SIP: {hex(sip_value)}")
+
+    def _recommended_sip_value(self) -> int:
+        """
+        SIP value BridgePatcher would pick for the current build target on its own,
+        ignoring anything stored in the settings plist.
+
+        Runs the regular defaults probes on a throwaway copy of the constants, the same
+        way picking the model in "Model:" does, so a root-patching Mac gets 0x803 back
+        and a Mac that needs no root patches gets 0x0. Everything else on self.constants
+        stays untouched.
+        """
+        scratch = copy.copy(self.constants)
+        if self.constants.custom_model:
+            defaults.GenerateDefaults(self.constants.custom_model, False, scratch, ignore_settings_file=True)
+        else:
+            defaults.GenerateDefaults(self.constants.computer.real_model, True, scratch, ignore_settings_file=True)
+
+        if scratch.custom_sip_value:
+            return int(scratch.custom_sip_value, 16)
+        return 0x0 if scratch.sip_status is True else 0x803
+
+    def on_reset_sip(self, event: wx.Event = None) -> None:
+        """
+        Restore SIP to the recommended value for this model, for when the bit
+        matrix above has been flipped into a state that no longer boots or patches.
+        """
+        recommended = self._recommended_sip_value()
+
+        if recommended == self.sip_value:
+            wx.MessageDialog(
+                self.frame_modal,
+                f"SIP is already set to the recommended value for this Mac ({hex(recommended)}).",
+                "Reset SIP",
+                wx.OK | wx.ICON_INFORMATION,
+            ).ShowModal()
+            return
+
+        dlg = wx.MessageDialog(
+            self.frame_modal,
+            f"Reset SIP from {hex(self.sip_value)} to the recommended value for this Mac ({hex(recommended)})?\n\n"
+            "This undoes any bits you have flipped manually. Rebuild and install OpenCore afterwards for it to take effect.",
+            "Reset SIP",
+            wx.YES_NO | wx.ICON_QUESTION | wx.NO_DEFAULT,
+        )
+        if dlg.ShowModal() != wx.ID_YES:
+            return
+
+        logging.info(f"Resetting SIP: {hex(self.sip_value)} -> {hex(recommended)}")
+        self._store_sip_value(recommended)
+
+        # SetValue() doesn't emit EVT_CHECKBOX, so on_sip_value() won't re-add bits here
+        for checkbox in self.sip_checkboxes:
+            bit = sip_data.system_integrity_protection.csr_values_extended[f"CSR_{checkbox.GetLabel()}"]["value"]
+            checkbox.SetValue(recommended & bit == bit)
 
     def on_choice(self, event: wx.Event, label: str) -> None:
         """
@@ -1256,6 +1323,7 @@ class OCSettingsFrame(wx.Frame):
         horizontal_spacer = 15
         vertical_spacer = 25
         index = 1
+        self.sip_checkboxes: list = []
         for sip_bit in sip_data.system_integrity_protection.csr_values_extended:
             self.sip_checkbox = wx.CheckBox(panel, label=sip_data.system_integrity_protection.csr_values_extended[sip_bit]["name"].split("CSR_")[1], pos = (vertical_spacer, sip_booted_label.GetPosition()[1] + 20 + horizontal_spacer))
             self.sip_checkbox.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
@@ -1271,6 +1339,14 @@ class OCSettingsFrame(wx.Frame):
 
             index += 1
             self.sip_checkbox.Bind(wx.EVT_CHECKBOX, self.on_sip_value)
+            self.sip_checkboxes.append(self.sip_checkbox)
+
+        # Button: Reset SIP - non-T2 only (T2 targets returned above, OpenCore forces 0xFFF there)
+        sip_grid_bottom = max(checkbox.GetPosition()[1] + checkbox.GetSize()[1] for checkbox in self.sip_checkboxes)
+        reset_sip_button = wx.Button(panel, label="Reset SIP", pos=(25, sip_grid_bottom + 15), size=(200, -1))
+        reset_sip_button.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
+        reset_sip_button.SetToolTip("Restore SIP to the recommended value for this Mac")
+        reset_sip_button.Bind(wx.EVT_BUTTON, self.on_reset_sip)
 
 
     def on_build_and_install_standard(self, event: wx.Event = None):
