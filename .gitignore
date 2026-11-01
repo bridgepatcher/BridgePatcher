@@ -274,3 +274,8 @@ payloads/Kexts/CryptexFixup.kext.dSYM/Contents/Info.plist
 /ci_tooling/build_modules/preinstall_autopkg.txt
 /ci_tooling/build_modules/preinstall_pkg.txt
 /ci_tooling/build_modules/uninstall.txt
+/postinstall_autopkg.txt
+/postinstall_pkg.txt
+/preinstall_autopkg.txt
+/preinstall_pkg.txt
+/uninstall.txt
