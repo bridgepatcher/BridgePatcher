@@ -4,6 +4,7 @@ This version:
 - renames OpenCore Legacy Patcher T2 to BridgePatcher. One of the reasons for this rename is that it confuses users that this is Dortania’s official project and open issues inside the wrong repository. Attackers would love this patcher to be called OpenCore Legacy Patcher T2 to exploit for impersonation and malware delivery, I already documented a case where attackers intentionally confused users that this is Dortania’s official project to deliver malware over a malvertising website. 
 - replaces Dortania’s icons with our own ones
 - now includes the license of the patcher inside the binary itself
+- updates the Privilege Helper Tool to version 2.0.0
 - fixes a bug where the bundle ID inside OpenCore-Patcher-GUI is hardcoded, so upon launch it did never trusted even the patcher's own helper tool
 - the user agent the patcher sends when downloading Kernel Debug Kits, Metallibs and the AppleDB catalog, and when fetching the release notes of an update, now ends in BridgePatcher/<version> instead of OpenCoreLegacyPatcherT2/<version>. The rest of the user agent stays the same
 - all API and link endpoints (updates, PatcherSupportPkg, Metallibs, project status, website, Help menu, OpenCore update script) now point at the renamed GitHub organization bridgepatcher
