@@ -385,7 +385,7 @@ class OCSettingsFrame(wx.Frame):
                     "type": "checkbox",
                     "value": self.constants.t2_installer_workaround,
                     "variable": "t2_installer_workaround",
-                    "warning": "You are enabling the T2 Installer Workaround. This forces software rendering (-igfxvesa, or -wegoff on dual-GPU models), bypasses AMFI (-amfipassbeta) and forces T2TahoeFixup active (-t2tahoeforce) to allow the macOS Tahoe installer to boot without freezing on T2 Macs.\n\nOnly enable this if you are creating a USB installer or running the initial installer pass. You must uncheck this and rebuild OpenCore after installing macOS and root patching!",
+                    "warning": "You are enabling the T2 Installer Workaround. This forces software rendering (-igfxvesa, or -wegoff on dual-GPU models), bypasses AMFI (-amfipassbeta) and forces T2TahoeFixup active (-t2tahoeforce, not on models macOS Tahoe supports natively) to allow the macOS Tahoe installer to boot without freezing on T2 Macs.\n\nOnly enable this if you are creating a USB installer or running the initial installer pass. You must uncheck this and rebuild OpenCore after installing macOS and root patching!",
                     "description": [
                         "Enables workarounds to fix freezing",
                         "in the macOS Tahoe installer on T2 Macs.",

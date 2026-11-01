@@ -30,6 +30,7 @@ This version:
   - halves the stack usage of the `_namei` hook to 512 bytes and generates the shadow manifest per thread to avoid race conditions
 
   Testers confirm Stage 1 completes again, but the MobileSoftwareUpdate Error 81 in Stage 2 (#639) is not fixed yet. Thanks @matteoiacca
+- the T2 Installer Workaround no longer adds `-t2tahoeforce` on the T2 Macs macOS Tahoe supports natively (MacBookPro16,1, 16,2, 16,4, iMac20,1, iMac20,2 and MacPro7,1), and removes it if it's left over. `-t2tahoeforce` makes T2TahoeFixup skip its native model check and turns its installer hooks on anyway, which would undo the Stage 1 fix of 1.0.22 on MacBookPro16,1 and 16,4. All other T2 Macs keep `-t2tahoeforce` as before. `-wegoff`/`-igfxvesa` and `-amfipassbeta` are unchanged
 - removes the stickers in the OpenCore Build completely, not just in Settings
 - fixes a bug where in validation.py it unmounts the volume twice (the second time it would fail) because in except Exception as e it unmounted once, then a second time it unmounted again in the finally block
 - mounting Universal-Binaries.dmg for root patching (#553):
