@@ -376,8 +376,8 @@ class ZSHFunctions:
 
         _script += "function _cleanLegacyHelper() {\n"
         _script += f"    local legacyHelper=\"$pathToTargetVolume/Library/PrivilegedHelperTools/{LEGACY_DOMAIN}.privileged-helper\"\n"
-        _script += "    local dortaniaApp=\"$pathToTargetVolume/Library/Application Support/Dortania/OpenCore-Patcher.app\"\n\n"
-        _script += "    local old_pht_=\"$pathToTargetVolume/Library/PrivilegedHelperTools/io.github.bridgepatcher.privileged-helper"
+        _script += "    local dortaniaApp=\"$pathToTargetVolume/Library/Application Support/Dortania/OpenCore-Patcher.app\"\n"
+        _script += "    local old_pht_=\"$pathToTargetVolume/Library/PrivilegedHelperTools/io.github.bridgepatcher.privileged-helper\"\n\n"
         _script += "    if [[ ! -e $legacyHelper ]]; then\n"
         _script += "        return\n"
         _script += "    fi\n\n"
