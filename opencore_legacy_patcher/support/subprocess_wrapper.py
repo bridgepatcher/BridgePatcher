@@ -5,19 +5,16 @@ subprocess_wrapper.py: Wrapper for subprocess module to better handle errors and
 
 import enum
 import stat
-import shlex
 import logging
 import subprocess
 import os
-import atexit
-import threading
 import tempfile
 import shutil
 import time
 from . import utilities
 
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 
 BRIDGEPATCHER_PRIVILEGED_HELPER = "/Library/PrivilegedHelperTools/com.bridgepatcher.privileged-helper"
