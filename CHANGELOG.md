@@ -22,6 +22,14 @@ This version:
 - the installer, uninstaller and AutoPkg-Assets packages now show BridgePatcher's own icon in their background (in the box, in the trash can and behind the badge) instead of Dortania's OpenCore Legacy Patcher icon
 - the uninstaller package is now called BridgePatcher-Uninstaller.pkg (previously OpenCore-Patcher-Uninstaller.pkg)
 - on T2 Macs, updates T2TahoeFixup.kext to 1.0.19, which additionally hooks `_namei` so that `open`, `stat` and `mmap` calls from UpdateBrainService are redirected to the shadow BuildManifest in /private/tmp, aliases the dropped models' manifests (j132ap, j174ap, j680ap and others) to j214kap in memory, and lets `image4_trust_evaluate` succeed during Stage 2 to address the MobileSoftwareUpdate Error 81 on MacBookPro15,2 and Mac mini (#639). Not yet confirmed by testers. The kext's Info.plist still reports version 1.0.18, as its version wasn't bumped in this build. Thanks @matteoiacca
+- on T2 Macs, updates T2TahoeFixup.kext from 1.0.19 to 1.0.22. Changes:
+  - MacBookPro16,1 (j152fap) and MacBookPro16,4 (j215ap), which macOS Tahoe supports natively, are no longer treated as dropped models, so their installer no longer tries to extract the payload twice in Stage 1
+  - the extraction helpers (osinstallersetupd, InstallAssistant, ditto, softwareupdated, mobileassetd, ArchiveService, bom, bsdtar) now run without any path redirection; manifest aliasing is limited to the Stage 2 consumers (UpdateBrainService, mount_apfs, OSInstaller). This fixes the Code=1004 extraction collision in Stage 1
+  - the Image4 payload is now captured by hooking `_image4_trust_set_payload` in AppleImage4.kext instead of reading hardcoded struct offsets (trust + 0x2e8 / 0x2f0), which could change between Darwin minor releases
+  - the error override now only applies to status 81 (ENEEDAUTH), so real disk or signature errors are no longer hidden
+  - halves the stack usage of the `_namei` hook to 512 bytes and generates the shadow manifest per thread to avoid race conditions
+
+  Testers confirm Stage 1 completes again, but the MobileSoftwareUpdate Error 81 in Stage 2 (#639) is not fixed yet. Thanks @matteoiacca
 - removes the stickers in the OpenCore Build completely, not just in Settings
 - fixes a bug where in validation.py it unmounts the volume twice (the second time it would fail) because in except Exception as e it unmounted once, then a second time it unmounted again in the finally block
 - mounting Universal-Binaries.dmg for root patching (#553):
