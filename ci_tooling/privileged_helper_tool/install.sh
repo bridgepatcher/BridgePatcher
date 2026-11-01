@@ -11,7 +11,7 @@
 
 # MARK: Variables
 # ---------------------------
-helperName="io.github.bridgepatcher.privileged-helper"
+helperName="com.bridgepatcher.privileged-helper"
 helperPath="/Library/PrivilegedHelperTools/$helperName"
 sourcePath="./$helperName"
 

@@ -79,12 +79,12 @@ class GeneratePackage:
 
         self._files = {
             f"./dist/{constants.APP_BUNDLE_NAME}": f"{constants.APP_INSTALL_DIRECTORY}/{constants.APP_BUNDLE_NAME}",
-            "./ci_tooling/privileged_helper_tool/io.github.bridgepatcher.privileged-helper": "/Library/PrivilegedHelperTools/io.github.bridgepatcher.privileged-helper",
+            "./ci_tooling/privileged_helper_toolcom.bridgepatcher.privileged-helper": "/Library/PrivilegedHelperTools/com.bridgepatcher.privileged-helper",
             # Background update check, see support/arguments.py _check_updates_handler()
-            "./payloads/Launch Services/com.albert-mueller.opencore-legacy-patcher.update-check.plist": "/Library/LaunchAgents/com.albert-mueller.opencore-legacy-patcher.update-check.plist",
+            "./payloads/Launch Services/com.bridgepatcher.bridgepatcher.update-check.plist": "/Library/LaunchAgents/com.bridgepatcher.bridgepatcher.update-check.plist",
         }
         self._autopkg_files = {
-            "./payloads/Launch Services/com.albert-mueller.opencore-legacy-patcher.auto-patch.plist": "/Library/LaunchAgents/com.albert-mueller.opencore-legacy-patcher.auto-patch.plist",
+            "./payloads/Launch Services/com.bridgepatcher.bridgepatcher.auto-patch.plist": "/Library/LaunchAgents/com.bridgepatcher.bridgepatcher.auto-patch.plist",
         }
         self._autopkg_files.update(self._files)
 
@@ -95,7 +95,7 @@ class GeneratePackage:
 
     def _write_temp_script(self, contents: str) -> str:
         """
-        Write a generated install script to a temporary file and register it for cleanup
+        Write a generated installation script to a temporary file and register it for cleanup
         """
         _file = tempfile.NamedTemporaryFile(delete=False)
         self._temp_files.append(_file.name)
@@ -133,10 +133,10 @@ class GeneratePackage:
         _welcome += f"This package will install the BridgePatcher application (v{constants.Constants().patcher_version}) on your system."
 
         _welcome += "\n\nAdditionally, a shortcut for BridgePatcher will be added in the '/Applications' folder."
-        _welcome += "\n\nThis package will not 'Build and Install OpenCore' or install any 'Root Patches' on your machine. If required, you can run BridgePatcher to install any patches you may need."
+        _welcome += "\n\nThis package will not 'Install OpenCore' or install any 'Root Patches' on your machine. If required, you can run BridgePatcher to install any patches you may need."
         _welcome += "\n\nWhen you click Install, this package checks its own SHA256 checksum against the ones published on the official release. If it doesn't match, or can't be checked, a warning appears and you can cancel the installation. You can also check it yourself in Terminal with `shasum -a 256` and compare it with SHA256SUMS on the release page."
         _welcome += f"\n\nFor more information on BridgePatcher usage, see our [documentation]({constants.Constants().guide_link}) and [GitHub repository]({constants.Constants().repo_link})."
-        _welcome += "\n\nA copy of LICENSE.txt, including the upstream BSD 4-Clause terms and the additional terms for this fork, is included in the application bundle at `Contents/Resources/LICENSE.txt`."
+        _welcome += "\n\nA copy of LICENSE.txt, including the upstream BSD 4-Clause terms and the additional terms for this fork, is included in the application and can be found in the Settings Tab."
         _welcome += "\n\n"
 
         if is_legacy:
@@ -177,7 +177,7 @@ class GeneratePackage:
 
         _welcome += "# PLEASE DO NOT RUN AUTOPKG-ASSETS MANUALLY!\n\n"
         _welcome += "## THIS WILL CORRUPT THE OPERATING SYSTEM!\n\n"
-        _welcome += f"This package is intented to be used only by the Patcher application itslef, not run manually by a user. Download {constants.INSTALLER_PKG_NAME} on the Github Repository.\n\n"
+        _welcome += f"This package is intented to be used only by the Patcher application itself, not run manually by a user. Download {constants.INSTALLER_PKG_NAME} on the Github Repository.\n\n"
         _welcome += f"[BridgePatcher GitHub Release]({constants.Constants().repo_link})"
 
         return _welcome
@@ -220,7 +220,7 @@ class GeneratePackage:
         self._build_package(
             constants.UNINSTALLER_PKG_NAME,
             pkg_output=f"./dist/{constants.UNINSTALLER_PKG_NAME}",
-            pkg_bundle_id="com.dortania.opencore-legacy-patcher-uninstaller",
+            pkg_bundle_id="com.bridgepatcher.bridgepatcher-uninstaller",
             pkg_version=constants.Constants().patcher_version,
             pkg_background="./ci_tooling/pkg_assets/PkgBackground-Uninstaller.png",
             pkg_preinstall_script=self._write_temp_script(GenerateScripts().uninstall()),
@@ -241,7 +241,7 @@ class GeneratePackage:
                 pkg_output=f"./dist/{_package}",
                 # Same receipt identifier for both: they install the same product,
                 # so either one upgrades an install made by the other.
-                pkg_bundle_id="com.dortania.opencore-legacy-patcher-t2",
+                pkg_bundle_id="com.bridgepatcher.bridgepatcher-installer",
                 pkg_version=constants.Constants().patcher_version,
                 pkg_allow_relocation=False,
                 pkg_as_distribution=True,
@@ -254,9 +254,9 @@ class GeneratePackage:
             )
 
         self._build_package(
-            "AutoPkg-Assets-T2.pkg",
-            pkg_output="./dist/AutoPkg-Assets-T2.pkg",
-            pkg_bundle_id="com.dortania.pkg.AutoPkg-Assets",
+            "AutoPkg-Assets.pkg",
+            pkg_output="./dist/AutoPkg-Assets.pkg",
+            pkg_bundle_id="com.bridgepatcher.bridgepatcher-AutoPkg-Assets",
             pkg_version=constants.Constants().patcher_version,
             pkg_allow_relocation=False,
             pkg_as_distribution=True,
