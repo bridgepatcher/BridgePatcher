@@ -4510,7 +4510,6 @@ self.patcher_full_name: str = f"{self.patcher_name} version {self.patcher_versio
 
     # URLs
     self.url_patcher_support_pkg:         str = "https://github.com/dortania/PatcherSupportPkg/releases/download/"
-    self.discord_link:                    str = "https://discord.gg/rqdPgH8xSN"
     self.guide_link:                      str = "https://dortania.github.io/OpenCore-Legacy-Patcher/"
     self.repo_link:                       str = "https://github.com/oclp-t2/OpenCore-Legacy-Patcher-T2/"
     self.installer_pkg_url:               str = f"{self.repo_link}/releases/download/{self.patcher_version}/AutoPkg-Assets.pkg"
