@@ -559,9 +559,15 @@ def scan_artwork(head, add):
         return
     known = {k: [int(h, 16) for h in v["hashes"]] for k, v in KNOWN_ART.items()}
     cache = _load_cache()
-    emb = {}
+    # Both the embedded artwork and the drive icon checks need OpenCV; check for it once
     try:
         import cv2  # noqa: F401
+        have_cv2 = True
+    except ImportError:
+        have_cv2 = False
+        add("warning", "-", "Embedded artwork check skipped: opencv-python-headless is not installed")
+    emb = {}
+    if have_cv2:
         upstream = re.split(r"\.\.\.?", DIFF_RANGE)[0]
         for key, ref_path in EMBEDDED_ART.items():
             ref = subprocess.run(["git", "show", f"{upstream}:{ref_path}"], capture_output=True)
@@ -570,14 +576,7 @@ def scan_artwork(head, add):
             else:
                 add("warning", "-", f"Embedded artwork check skipped for {KNOWN_ART[key]['name']}: "
                     f"{ref_path} not found in {upstream}")
-    except ImportError:
-        add("warning", "-", "Embedded artwork check skipped: opencv-python-headless is not installed")
     drives = {}
-    try:
-        import cv2  # noqa: F401
-        have_cv2 = True
-    except ImportError:
-        have_cv2 = False   # already reported by the embedded artwork check above
     if have_cv2:
         upstream = re.split(r"\.\.\.?", DIFF_RANGE)[0]
         missing = []
