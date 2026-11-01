@@ -482,14 +482,11 @@ def main() -> None:
             ]
             print_scripts.main()
             for file in files:
-                result = subprocess.run(["/usr/bin/zsh", "-n", f"./ci_tooling/build_moduales/{file}"], text=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+                result = subprocess.run(["/usr/bin/zsh", "-n", f"./ci_tooling/build_modules/{file}"], text=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
                 if result.returncode == 0 and result.stderr == "" and result.stdout == "":
                     rich.print(f"[green]{file} is OK[/green]")
                 else:
-                    rich.print("[red]zsh syntax error:[/red]")
-                    rich.print(result.stdout)
-                    rich.print(result.stderr)
-                    rich.print("[red]Stopping build...[/red]")
+                    raise Exception("zsh syntax errors: "+result.stdout+result.stderr)
 
             # Compressing the app with its disk images (well over 1 GB) into the installer
             # takes several minutes with no output, which reads as a hang otherwise.
