@@ -411,6 +411,24 @@ def find_old_name_in_image(passes):
     return hits
 
 
+# Mykola Grymalyuk (Dortania's co-author) named inside an image. Dortania's screenshots were taken
+# on his Mac, so they show his macOS user ("mykolagrymalyuk" in Finder, Terminal titles and prompts),
+# "Mykola's MacBook Pro" / "Mykola's iMac" in Finder and Displays, or "Mykola Monterey" in password
+# prompts. Such an image is Dortania's screenshot, and clause 4 of the licence forbids using his name
+# to promote a derived product. Tolerates common OCR misreads (Nykola, Mykole, a truncated
+# "mykolagryma..."). Copyright/licence lines are skipped: that notice must stay, see the attribution guard.
+IMG_AUTHOR_RE = re.compile(r"(?i)[mn][yv]k[o0][l1][aeo]|gr[yi]ma[l1]|gyumurluk")
+
+
+def find_author_in_image(passes):
+    hits = []
+    for lines in passes:
+        for line in lines:
+            if IMG_AUTHOR_RE.search(line) and not IMG_COPYRIGHT_RE.search(line) and line not in hits:
+                hits.append(line)
+    return hits
+
+
 def tesseract_available():
     try:
         return subprocess.run(["tesseract", "--version"], capture_output=True).returncode == 0
@@ -537,6 +555,13 @@ def scan_artwork(head, add):
                         [f"  Text read in the image: {show(n)}" for n in names[:3]] +
                         ["  Screenshots/banners must show BridgePatcher, not Dortania's app name.",
                          "  Retake the screenshot or edit the text. Copyright lines are not affected."])
+                authors = find_author_in_image(cache.get(f"ocr{OCR_VERSION}:{sha}", [[], []]))
+                if authors:
+                    add("violation", path, "Upstream author's name in image (Mykola Grymalyuk)",
+                        [f"  Text read in the image: {show(n)}" for n in authors[:3]] +
+                        ["  This is a screenshot from Mykola Grymalyuk's Mac (his user name, Mac or account name).",
+                         "  The licence forbids using his name to promote BridgePatcher: retake the",
+                         "  screenshot on your own Mac or edit the name out. Copyright lines are not affected."])
         elif low.endswith(CONTAINER_EXT) and emb:
             data = subprocess.run(["git", "cat-file", "blob", sha], capture_output=True, check=True).stdout
             for i, inner in enumerate(embedded_images(data)):
