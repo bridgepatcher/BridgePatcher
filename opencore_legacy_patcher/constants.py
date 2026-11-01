@@ -48,7 +48,7 @@ class Constants:
         # Wenn eine Version mit s endet, es heißt, dass sie noch nicht fertig ist.
         self.patcher_version:                 str = "4.0.0.2000000.2"
         self.patcher_version_label=self.patcher_version
-        self.patcher_support_pkg_version:     str = "2.4"
+        self.patcher_support_pkg_version:     str = "2.5"
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
 
         # Application identity
