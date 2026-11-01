@@ -38,7 +38,7 @@ APP_INSTALL_DIRECTORY:     str = "/Library/Application Support/albert-mueller/Op
 INSTALLER_PKG_NAME:        str = f"{APP_NAME}.pkg"
 LEGACY_INSTALLER_PKG_NAME: str = f"{LEGACY_APP_NAME}.pkg"
 UNINSTALLER_PKG_NAME:      str = f"{APP_NAME}-Uninstaller.pkg"
-# Name of the uninstaller before the rename to BridgePatcher (releases up to 4.0.0 alpha 20)
+# Name of the uninstaller before the rename to BridgePatcher (releases up to 4.0.0 alpha 19)
 LEGACY_UNINSTALLER_PKG_NAME: str = "OpenCore-Patcher-Uninstaller.pkg"
 
 
@@ -48,7 +48,7 @@ class Constants:
         # Wenn eine Version mit s endet, es heißt, dass sie noch nicht fertig ist.
         self.patcher_version:                 str = "4.0.0.2000000.2"
         self.patcher_version_label=self.patcher_version
-        self.patcher_support_pkg_version:     str = "2.2u"  # PatcherSupportPkg (needs a 2.11 release built from bridgepatcher/PatcherSupportPkg master: GMA X3100 + non-metal screen saver payloads)
+        self.patcher_support_pkg_version:     str = "2.4"
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
 
         # Application identity
