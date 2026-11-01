@@ -226,6 +226,36 @@ def scan_names(head, add):
                  "  (e.g. \"Dortania's OpenCore Legacy Patcher 2.0.0\"). Copyright/credit lines are fine."])
 
 
+# Invite links to Dortania's Discord server (OpenCore Patcher Paradise, the server upstream's app
+# and docs send users to). Sending BridgePatcher users there - from the app's Help menu, the docs,
+# issue forms or bot replies - implies the upstream project endorses or supports the fork.
+# Invite codes are case-sensitive, so the code is matched exactly; the domain is not.
+UPSTREAM_DISCORD_CODES = ("rqdPgH8xSN",)
+UPSTREAM_DISCORD_RE = re.compile(
+    r"(?i:(?:https?://)?(?:www\.)?(?:discord\.gg/|discord(?:app)?\.com/invite/))(?:"
+    + "|".join(map(re.escape, UPSTREAM_DISCORD_CODES)) + r")(?![A-Za-z0-9])")
+DISCORD_CHECK_EXT = OLD_NAME_EXT
+
+
+def scan_discord(head, add):
+    """Links to Dortania's Discord server anywhere in the audited tree: code, app strings, docs,
+    issue forms, bot replies in workflows and the changelog. Only this script is skipped."""
+    for row in git("ls-tree", "-r", "-l", head).splitlines():
+        meta, path = row.split("\t", 1)
+        _, kind, sha, size = meta.split()
+        if (kind != "blob" or size == "-" or int(size) > ART_MAX_BYTES
+                or path == ".github/scripts/license_guard.py"
+                or not (path.lower().endswith(DISCORD_CHECK_EXT) or path.startswith(NAME_CHECK_DIRS))):
+            continue
+        hits = [(n, l) for n, l in enumerate(git("cat-file", "blob", sha).splitlines(), 1)
+                if UPSTREAM_DISCORD_RE.search(l)]
+        if hits:
+            add("violation", path, "Link to Dortania's Discord server (OpenCore Patcher Paradise)",
+                [f"  line {n}: {show(l)}" for n, l in hits[:5]] + (["  …"] if len(hits) > 5 else []) +
+                ["  Don't send BridgePatcher users to the upstream project's Discord for support.",
+                 "  Link this project's GitHub Discussions or Issues instead."])
+
+
 HOTLINK_RE = re.compile(
     r"(?:raw\.githubusercontent\.com/dortania/|github\.com/dortania/[^\s\"'()<>]*/(?:raw|blob)/"
     r"|dortania\.github\.io/)[^\s\"'()<>]*\.(?:png|icns|svg|jpe?g|gif|webp)", re.I)
@@ -644,6 +674,9 @@ def main():
     # 5) Former project name / Dortania's app name anywhere in the audited tree
     scan_names(re.split(r"\.\.\.?", DIFF_RANGE)[-1], add)
 
+    # 6) Links to Dortania's Discord server anywhere in the audited tree
+    scan_discord(re.split(r"\.\.\.?", DIFF_RANGE)[-1], add)
+
     v = [x for x in findings if x[0] == "violation"]
     w = [x for x in findings if x[0] == "warning"]
     i = [x for x in findings if x[0] == "info"]
@@ -680,7 +713,10 @@ def main():
             "copyright line *alongside* the existing ones is fine; replacing or removing them is not. "
             "Year bumps like `2020-2024` → `2020-2026` are ignored.", "",
             "Artwork such as Dortania's OpenCore Legacy Patcher icon or Apple's System Settings icon is "
-            "not covered by the code license and must not be shipped or hotlinked; use your own artwork.",
+            "not covered by the code license and must not be shipped or hotlinked; use your own artwork.", "",
+            "The licence also forbids using the upstream name to endorse or promote the fork, so the app and "
+            "its docs must not send users to Dortania's Discord server (OpenCore Patcher Paradise) for help "
+            "with BridgePatcher; link this project's GitHub Discussions or Issues instead.",
             "", "</details>"]
 
     report = "\n".join(out) + "\n"
