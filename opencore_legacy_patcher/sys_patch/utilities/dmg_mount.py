@@ -130,10 +130,14 @@ class PatcherSupportPkgMount:
                 logging.exception("Stack Trace:")
                 return False
 
-        expected_sha256 = patcher_support_pkg_data.expected_universal_binaries_sha256(self.constants.patcher_support_pkg_version)
-        if expected_sha256 is None:
-            logging.error(f"- No SHA256 is pinned for PatcherSupportPkg {self.constants.patcher_support_pkg_version}, refusing to download an image that can't be verified")
-            logging.error("- Add it to datasets/patcher_support_pkg_data.py, or run './Build-Project.command --run-as-individual-steps --prepare-assets' once.")
+        try:
+            expected_sha256 = patcher_support_pkg_data.expected_universal_binaries_sha256(
+                self.constants.patcher_support_pkg_version, self.constants.url_patcher_support_pkg
+            )
+        except patcher_support_pkg_data.ChecksumLookupError as error:
+            logging.error(f"- Can't determine the SHA256 of PatcherSupportPkg {self.constants.patcher_support_pkg_version}, refusing to download an image that can't be verified")
+            logging.error(f"- {error}")
+            logging.error("- Run './Build-Project.command --run-as-individual-steps --prepare-assets' once, or try again later.")
             return False
 
         url = f"{self.constants.url_patcher_support_pkg.rstrip('/')}/{self.constants.patcher_support_pkg_version}/Universal-Binaries.dmg"
@@ -162,7 +166,7 @@ class PatcherSupportPkgMount:
         # -noverify) or the root volume.
         actual_sha256 = self._sha256_of_file(partial_path)
         if actual_sha256 != expected_sha256:
-            logging.error("- Downloaded Universal-Binaries.dmg doesn't match the pinned SHA256, discarding it")
+            logging.error("- Downloaded Universal-Binaries.dmg doesn't match the release SHA256, discarding it")
             logging.error(f"- Expected: {expected_sha256}")
             logging.error(f"- Got:      {actual_sha256}")
             partial_path.unlink(missing_ok=True)
