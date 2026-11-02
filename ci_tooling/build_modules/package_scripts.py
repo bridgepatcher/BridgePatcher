@@ -3,11 +3,15 @@ package_scripts.py: Generate pre/postinstall scripts for PKG and AutoPkg
 """
 
 
-from opencore_legacy_patcher import constants
+import os
 
-DORTANIA_DOMAIN = "com.dortania.opecore-legacy-patcher"
-LEGACY_DOMAIN = "com.albert-mueller.opencore-legacy-patcher"
-NEW_DOMAIN    = "com.bridgepatcher.bridgepatcher"
+from bridgepatcher import constants
+from bridgepatcher.support import global_settings
+
+# Identifiers of legacy installs, only used to find and clean them up
+DORTANIA_DOMAIN = "com.dortania.opencore-legacy-patcher"
+LEGACY_DOMAIN   = "com.albert-mueller.opencore-legacy-patcher"
+NEW_DOMAIN      = "com.bridgepatcher.bridgepatcher"
 
 # Install locations, relative to the target volume
 _INSTALL_DIRECTORY   = constants.APP_INSTALL_DIRECTORY.lstrip("/")
@@ -19,6 +23,21 @@ EXECUTABLE_PATH      = f"{MAIN_APP_PATH}/Contents/MacOS/{constants.APP_EXECUTABL
 LEGACY_MAIN_APP_PATH   = f"{_INSTALL_DIRECTORY}/{constants.LEGACY_APP_BUNDLE_NAME}"
 LEGACY_SHIM_APP_PATH   = f"Applications/{constants.LEGACY_APP_BUNDLE_NAME}"
 LEGACY_EXECUTABLE_PATH = f"{LEGACY_MAIN_APP_PATH}/Contents/MacOS/{constants.LEGACY_APP_EXECUTABLE_NAME}"
+
+# Install directory before it was renamed to BridgePatcher (legacy installs only)
+LEGACY_INSTALL_DIRECTORY = constants.LEGACY_APP_INSTALL_DIRECTORY.lstrip("/")
+# Links left in LEGACY_INSTALL_DIRECTORY point here; relative, so they also
+# resolve when installing to another volume
+LEGACY_DIRECTORY_LINK_TARGET = os.path.relpath(
+    f"/{MAIN_APP_PATH}", start=constants.LEGACY_APP_INSTALL_DIRECTORY
+)
+
+# Every executable path launch services of legacy installs may still point at
+LEGACY_EXECUTABLE_PATHS = [
+    f"{LEGACY_INSTALL_DIRECTORY}/{constants.APP_BUNDLE_NAME}/Contents/MacOS/{constants.APP_EXECUTABLE_NAME}",
+    f"{LEGACY_INSTALL_DIRECTORY}/{constants.LEGACY_APP_BUNDLE_NAME}/Contents/MacOS/{constants.LEGACY_APP_EXECUTABLE_NAME}",
+    LEGACY_EXECUTABLE_PATH,
+]
 
 
 _VERIFY_BODY = '    local packageHash=""\n    if [[ -f $pathToPackage ]]; then\n        packageHash=$(/usr/bin/shasum -a 256 "$pathToPackage" | /usr/bin/awk \'{print $1}\')\n        echo "Package SHA256: $packageHash"\n    else\n        echo "Package file not found ($pathToPackage), can\'t compute its checksum"\n    fi\n\n    local url list reached=0\n    for url in $checksumUrls; do\n        list=$(/usr/bin/curl --fail --silent --location --max-time 20 "$url" 2>/dev/null) || continue\n        reached=1\n        if [[ -n $packageHash ]] && print -r -- "$list" | /usr/bin/grep -qiwF -- "$packageHash"; then\n            echo "Verified: checksum matches $url"\n            return 0\n        fi\n    done\n\n    local reason\n    if [[ -z $packageHash ]]; then\n        reason="The installer couldn\'t compute this package\'s checksum."\n    elif (( reached )); then\n        reason="Its SHA256 checksum doesn\'t match any checksum published for version @VERSION@."\n    else\n        reason="The published checksums for version @VERSION@ couldn\'t be downloaded (no internet connection, or this version was never released)."\n    fi\n    echo "WARNING: this package is not verified. $reason"\n\n    # \'installer\' on the command line (the app\'s own updater, MDM): nobody to ask\n    if [[ -n $COMMAND_LINE_INSTALL ]]; then\n        echo "Command line install, continuing without asking"\n        return 0\n    fi\n\n    local consoleUser=$(/usr/bin/stat -f%Su /dev/console)\n    if [[ -z $consoleUser || $consoleUser == root || $consoleUser == loginwindow ]]; then\n        echo "No logged-in user to confirm installing an unverified package, cancelling"\n        return 1\n    fi\n\n    local answer\n    answer=$(/bin/launchctl asuser $(/usr/bin/id -u $consoleUser) /usr/bin/sudo -u $consoleUser \\\n        /usr/bin/osascript - "$reason" "${packageHash:-unknown}" 2>/dev/null <<\'APPLESCRIPT\'\non run argv\n    set msg to "This build of BridgePatcher @VERSION@ has not been verified and could include malware." & return & return & (item 1 of argv) & return & return & "Official builds are only published on @SOURCES@. Only continue if you built this package yourself or fully trust where you downloaded it." & return & return & "SHA256: " & (item 2 of argv)\n    try\n        set r to display dialog msg with title "Unverified BridgePatcher build" buttons {"Cancel Installation", "Install Anyway"} default button "Cancel Installation" cancel button "Cancel Installation" with icon caution giving up after 600\n        if gave up of r then return "cancel"\n        return button returned of r\n    on error\n        return "cancel"\n    end try\nend run\nAPPLESCRIPT\n)\n    if [[ $answer == "Install Anyway" ]]; then\n        echo "User chose to install the unverified package"\n        return 0\n    fi\n    echo "Installation of the unverified package cancelled"\n    return 1\n'
@@ -197,7 +216,7 @@ class ZSHFunctions:
         _script = ""
 
         _script += "function _fixSettingsFilePermission() {\n"
-        _script += "    local settingsPath=\"$pathToTargetVolume/Users/Shared/.com.dortania.opencore-legacy-patcher.plist\"\n\n"
+        _script += f"    local settingsPath=\"$pathToTargetVolume/Users/Shared/{global_settings.SETTINGS_FILE_NAME}\"\n\n"
 
         _script += "    if [[ -e $settingsPath ]]; then\n"
         _script += "        echo \"Fixing settings file permissions: $settingsPath\"\n"
@@ -256,7 +275,7 @@ class ZSHFunctions:
         _script += "function _cleanLaunchService() {\n"
         _script += f"    local domain=\"{NEW_DOMAIN}\"\n"
         _script += f"    local legacyDomain=\"{LEGACY_DOMAIN}\"\n"
-        _script += f"    local dortaniaDomain=\"{DORTANIA_DOMAIN}\""
+        _script += f"    local dortaniaDomain=\"{DORTANIA_DOMAIN}\"\n"
         _script += f"    local ourApp=\"{constants.APP_BUNDLE_NAME}\"\n"
         _script += f"    local ourLegacyApp=\"{constants.LEGACY_APP_BUNDLE_NAME}\"\n\n"
 
@@ -299,14 +318,21 @@ class ZSHFunctions:
         OpenCore-Patcher-T2.app/Contents/MacOS/OpenCore-Patcher-T2. That bundle is
         removed by the preinstall script, which would leave launchd with nothing to
         exec until root patches were installed again. Only services whose program
-        is exactly the old executable are touched.
+        is exactly one of the old executables are touched.
+
+        The same goes for services of installs from before the install directory
+        was renamed to BridgePatcher: their program is still the executable under
+        the old directory, which the preinstall script removes as well.
         """
 
         _script = ""
 
         _script += "function _migrateLaunchServices() {\n"
         _script += f"    local domain=\"{NEW_DOMAIN}\"\n"
-        _script += f"    local legacyBinary=\"/{LEGACY_EXECUTABLE_PATH}\"\n"
+        _script += "    local -a legacyBinaries=(\n"
+        for _path in LEGACY_EXECUTABLE_PATHS:
+            _script += f"        \"/{_path}\"\n"
+        _script += "    )\n"
         _script += f"    local newBinary=\"/{EXECUTABLE_PATH}\"\n\n"
         _script += "    for launchServiceVariant in \"$pathToTargetVolume/Library/LaunchAgents\" \"$pathToTargetVolume/Library/LaunchDaemons\"; do\n"
         _script += "        if [[ ! -d $launchServiceVariant ]]; then\n"
@@ -319,7 +345,7 @@ class ZSHFunctions:
         _script += "                continue\n"
         _script += "            fi\n"
         _script += "            local program=$(/usr/libexec/PlistBuddy -c \"Print :ProgramArguments:0\" \"$launchServicePath\" 2>/dev/null)\n"
-        _script += "            if [[ $program != \"$legacyBinary\" ]]; then\n"
+        _script += "            if (( ! ${legacyBinaries[(Ie)$program]} )); then\n"
         _script += "                continue\n"
         _script += "            fi\n"
         _script += "            echo \"Pointing launch service at the renamed app: $launchServicePath\"\n"
@@ -337,10 +363,11 @@ class ZSHFunctions:
     def generate_create_legacy_compatibility_link(self) -> str:
         """
         ZSH function for OpenCore-Patcher-T2.pkg only: link the old bundle name
-        to the renamed app inside the install directory
+        in the old install directory to the renamed app
 
         The built-in updater of builds from before the rename decides whether an
-        update succeeded by looking at OpenCore-Patcher-T2.app/Contents/Info.plist.
+        update succeeded by looking at OpenCore-Patcher-T2.app/Contents/Info.plist
+        in their install directory, the one now called LEGACY_INSTALL_DIRECTORY.
         Without this link it reports a failed update and opens the macOS Installer
         a second time, although the update was installed. The link is relative, so
         it also resolves when installing to another volume, and it is removed again
@@ -352,11 +379,85 @@ class ZSHFunctions:
         _script += "function _createLegacyCompatibilityLink() {\n"
         _script += "    local linkPath=\"$pathToTargetVolume/$legacyAppPath\"\n\n"
 
+        _script += "    /bin/mkdir -p \"$(/usr/bin/dirname \"$linkPath\")\"\n"
         _script += "    if [[ -e $linkPath && ! -L $linkPath ]]; then\n"
         _script += "        /bin/rm -rf \"$linkPath\"\n"
         _script += "    fi\n"
         _script += "    echo \"Creating compatibility link: $linkPath\"\n"
-        _script += f"    /bin/ln -sfh \"{constants.APP_BUNDLE_NAME}\" \"$linkPath\"\n"
+        _script += f"    /bin/ln -sfh \"{LEGACY_DIRECTORY_LINK_TARGET}\" \"$linkPath\"\n"
+        _script += "}\n"
+
+        return _script
+
+
+    def generate_migrate_legacy_install_directory(self) -> str:
+        """
+        ZSH function (preinstall) moving installs out of the install directory
+        used before the rename to BridgePatcher (LEGACY_INSTALL_DIRECTORY)
+
+        The package installs into the new directory; the copy in the old one is
+        removed here. If the old directory still held a real app, this install is
+        the update that moves it: the directory is kept for now, so the postinstall
+        script can leave a link to the new location in it (see
+        generate_link_legacy_install_directory()). If it only holds such links, they
+        are from that earlier move and are removed together with the directory.
+        """
+
+        _script = ""
+
+        _script += "function _migrateLegacyInstallDirectory() {\n"
+        _script += f"    local legacyDirectory=\"$pathToTargetVolume/{LEGACY_INSTALL_DIRECTORY}\"\n\n"
+
+        _script += "    if [[ -L $legacyDirectory || ! -d $legacyDirectory ]]; then\n"
+        _script += "        return 0\n"
+        _script += "    fi\n\n"
+
+        _script += "    local bundle moving=0\n"
+        _script += f"    for bundle in \"$legacyDirectory/{constants.APP_BUNDLE_NAME}\" \"$legacyDirectory/{constants.LEGACY_APP_BUNDLE_NAME}\"; do\n"
+        _script += "        if [[ -d $bundle && ! -L $bundle ]]; then\n"
+        _script += "            moving=1\n"
+        _script += "        fi\n"
+        _script += "        _removeFile \"$bundle\"\n"
+        _script += "    done\n\n"
+
+        _script += "    if (( moving )); then\n"
+        _script += f"        echo \"Moving the app to /{_INSTALL_DIRECTORY}\"\n"
+        _script += "        return 0\n"
+        _script += "    fi\n\n"
+
+        _script += "    # rmdir refuses non-empty directories, so nothing else in it is touched\n"
+        _script += "    /bin/rmdir \"$legacyDirectory\" 2>/dev/null && echo \"Removed legacy install directory: $legacyDirectory\"\n"
+        _script += "    return 0\n"
+        _script += "}\n"
+
+        return _script
+
+
+    def generate_link_legacy_install_directory(self) -> str:
+        """
+        ZSH function (postinstall) linking the app in the old install directory to
+        the new one, only while generate_migrate_legacy_install_directory() kept that
+        directory (i.e. during the update that moves the app)
+
+        The built-in updater of the build being replaced checks for
+        <its install directory>/BridgePatcher.app to decide whether the update
+        succeeded, and launches the new version from there. Without this link it
+        would report a failed update. The next update removes the link and the
+        old directory.
+        """
+
+        _script = ""
+
+        _script += "function _linkLegacyInstallDirectory() {\n"
+        _script += f"    local legacyDirectory=\"$pathToTargetVolume/{LEGACY_INSTALL_DIRECTORY}\"\n"
+        _script += f"    local linkPath=\"$legacyDirectory/{constants.APP_BUNDLE_NAME}\"\n\n"
+
+        _script += "    if [[ -L $legacyDirectory || ! -d $legacyDirectory || -e $linkPath ]]; then\n"
+        _script += "        return 0\n"
+        _script += "    fi\n"
+        _script += "    echo \"Creating link for the previous version's updater: $linkPath\"\n"
+        _script += f"    /bin/ln -sfh \"{LEGACY_DIRECTORY_LINK_TARGET}\" \"$linkPath\"\n"
+        _script += "    return 0\n"
         _script += "}\n"
 
         return _script
@@ -377,13 +478,13 @@ class ZSHFunctions:
         _script += "function _cleanLegacyHelper() {\n"
         _script += f"    local legacyHelper=\"$pathToTargetVolume/Library/PrivilegedHelperTools/{LEGACY_DOMAIN}.privileged-helper\"\n"
         _script += "    local dortaniaApp=\"$pathToTargetVolume/Library/Application Support/Dortania/OpenCore-Patcher.app\"\n"
-        _script += "    local old_pht_=\"$pathToTargetVolume/Library/PrivilegedHelperTools/io.github.bridgepatcher.privileged-helper\"\n\n"
+        _script += "    local oldPht=\"$pathToTargetVolume/Library/PrivilegedHelperTools/io.github.bridgepatcher.privileged-helper\"\n\n"
         _script += "    if [[ ! -e $legacyHelper ]]; then\n"
         _script += "        return\n"
         _script += "    fi\n\n"
         _script += "    # remove the old pre-release helper tool\n"
-        _script += "    if [[ ! -e $old_pht ]]; then\n"
-        _script += "        _removeFile \"$old_pht\"\n"
+        _script += "    if [[ -e $oldPht ]]; then\n"
+        _script += "        _removeFile \"$oldPht\"\n"
         _script += "    fi\n\n"
         _script += "    if [[ -e $dortaniaApp ]]; then\n"
         _script += "        echo \"Leaving legacy helper in place, Dortania's patcher is installed\"\n"
@@ -434,6 +535,7 @@ class ZSHFunctions:
         _script += "function _main() {\n"
         _script += "    _cleanLegacyHelper\n"
         _script += "    _cleanLegacyInstallLocation\n"
+        _script += "    _migrateLegacyInstallDirectory\n"
         _script += "    for file in $filesToRemove; do\n"
         _script += "        _removeFile $pathToTargetVolume/$file\n"
         _script += "        _createParentDirectory $pathToTargetVolume/$file\n"
@@ -537,6 +639,7 @@ class ZSHFunctions:
         _script += "function _main() {\n"
         _script += "    _setSUIDBit \"$pathToTargetVolume/$helperPath\"\n"
         _script += "    _createAlias \"$pathToTargetVolume/$mainAppPath\" \"$pathToTargetVolume/$shimAppPath\"\n"
+        _script += "    _linkLegacyInstallDirectory\n"
         if legacy_compatibility:
             _script += "    _createLegacyCompatibilityLink\n"
         _script += "    _migrateLaunchServices\n"
@@ -566,6 +669,9 @@ class ZSHFunctions:
         _script += "    for file in $filesToRemove; do\n"
         _script += "        _removeFile $pathToTargetVolume/$file\n"
         _script += "    done\n"
+        _script += "    # Both passes: the first removes a real app, the second the directory\n"
+        _script += "    _migrateLegacyInstallDirectory\n"
+        _script += "    _migrateLegacyInstallDirectory\n"
         _script += "}\n"
 
         return _script
@@ -580,12 +686,13 @@ class GenerateScripts:
             SHIM_APP_PATH,
             MAIN_APP_PATH,
             "Library/PrivilegedHelperTools/io.github.bridgepatcher.privileged-helper",
-            "Library/LaunchAgents/com.albert-mueller.opencore-legacy-patcher.update-check.plist"
+            f"Library/LaunchAgents/{NEW_DOMAIN}.update-check.plist",
         ]
 
         # Locations used before the app moved out of Dortania's directory and the
         # helper was renamed. Removed on install and uninstall, never recreated.
         self.legacy_files = [
+            f"Library/LaunchAgents/{LEGACY_DOMAIN}.update-check.plist",
             "Library/Application Support/Dortania/Update.plist",
             "Library/Application Support/Dortania/OpenCore-Patcher-T2.app",
             "Library/PrivilegedHelperTools/com.albert-mueller.opencore-legacy-patcher.privileged-helper",
@@ -681,6 +788,8 @@ class GenerateScripts:
         _script += "\n"
         _script += self.zsh_functions.generate_clean_legacy_install_location()
         _script += "\n"
+        _script += self.zsh_functions.generate_migrate_legacy_install_directory()
+        _script += "\n"
         _script += self.zsh_functions.generate_preinstall_main()
         if not is_autopkg:
             _script += "\n"
@@ -728,7 +837,7 @@ class GenerateScripts:
         _script += f"mainAppPath=\"{MAIN_APP_PATH}\"\n"
         _script += f"shimAppPath=\"{SHIM_APP_PATH}\"\n"
         if legacy_compatibility:
-            _script += f"legacyAppPath=\"{LEGACY_MAIN_APP_PATH}\"\n"
+            _script += f"legacyAppPath=\"{LEGACY_INSTALL_DIRECTORY}/{constants.LEGACY_APP_BUNDLE_NAME}\"\n"
         if is_autopkg:
             _script += f"executablePath=\"{EXECUTABLE_PATH}\"\n"
 
@@ -747,6 +856,8 @@ class GenerateScripts:
         _script += self.zsh_functions.generate_load_update_check_agent()
         _script += "\n"
         _script += self.zsh_functions.generate_migrate_launch_services()
+        _script += "\n"
+        _script += self.zsh_functions.generate_link_legacy_install_directory()
         _script += "\n"
         if legacy_compatibility:
             _script += self.zsh_functions.generate_create_legacy_compatibility_link()
@@ -824,6 +935,8 @@ class GenerateScripts:
         _script += self.zsh_functions.generate_clean_legacy_helper()
         _script += "\n"
         _script += self.zsh_functions.generate_clean_legacy_install_location()
+        _script += "\n"
+        _script += self.zsh_functions.generate_migrate_legacy_install_directory()
         _script += "\n"
         _script += self.zsh_functions.generate_uninstall_main()
         _script += "\n\n"

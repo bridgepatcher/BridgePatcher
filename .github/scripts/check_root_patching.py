@@ -318,7 +318,7 @@ def _worker(root: str, case: str, out_path: str) -> None:
         _install_stubs()
     logging.disable(logging.CRITICAL)
 
-    from opencore_legacy_patcher.support import utilities
+    from bridgepatcher.support import utilities
     try:
         utilities.disable_cls()
     except Exception:
@@ -346,16 +346,16 @@ def _worker_flow(case: str):
     import shutil
     import subprocess as real_subprocess
 
-    from opencore_legacy_patcher import constants
-    from opencore_legacy_patcher.datasets import example_data
-    from opencore_legacy_patcher.support import subprocess_wrapper, utilities
-    from opencore_legacy_patcher.sys_patch import sys_patch as sp_mod
-    from opencore_legacy_patcher.sys_patch import sys_patch_helpers
-    from opencore_legacy_patcher.sys_patch.patchsets import HardwarePatchsetSettings, PatchType
+    from bridgepatcher import constants
+    from bridgepatcher.datasets import example_data
+    from bridgepatcher.support import subprocess_wrapper, utilities
+    from bridgepatcher.sys_patch import sys_patch as sp_mod
+    from bridgepatcher.sys_patch import sys_patch_helpers
+    from bridgepatcher.sys_patch.patchsets import HardwarePatchsetSettings, PatchType
 
     problems, checked, errors = [], 0, []
 
-    sandbox = Path(tempfile.mkdtemp(prefix="oclp-root-patch-"))
+    sandbox = Path(tempfile.mkdtemp(prefix="bridgepatcher-root-patch-"))
     sim = CommandSimulator(sandbox)
 
     # Every process goes to the simulator - through the wrapper and directly.
@@ -366,7 +366,7 @@ def _worker_flow(case: str):
         OSError(f"simulator: Popen not supported ({argv!r})"))
     try:
         import importlib
-        copy_mod = importlib.import_module("opencore_legacy_patcher.volume.copy")
+        copy_mod = importlib.import_module("bridgepatcher.volume.copy")
         copy_mod.can_copy_on_write = lambda *a, **k: False
     except Exception:
         pass
@@ -421,8 +421,8 @@ def _worker_flow(case: str):
         builtins.open = recording_open
         io.open = recording_open
 
-        for modname, clsname in (("opencore_legacy_patcher.efi_builder.build", "BuildOpenCore"),
-                                 ("opencore_legacy_patcher.support.defaults", "GenerateDefaults")):
+        for modname, clsname in (("bridgepatcher.efi_builder.build", "BuildOpenCore"),
+                                 ("bridgepatcher.support.defaults", "GenerateDefaults")):
             try:
                 cls = getattr(importlib.import_module(modname), clsname)
             except Exception:
@@ -484,7 +484,7 @@ def _worker_flow(case: str):
         _plistlib.dump, _plistlib.dumps = recording_dump, recording_dumps
 
         try:
-            from opencore_legacy_patcher.support import global_settings
+            from bridgepatcher.support import global_settings
 
             def recording_write(self, key, value):
                 sb["settings"].append((str(key), value))
@@ -505,35 +505,35 @@ def _worker_flow(case: str):
         (mnt / "System/Library/CoreServices").mkdir(parents=True)
         (mnt / "System/Library/KernelCollections").mkdir(parents=True)
         (mnt / "System/Library/Frameworks").mkdir(parents=True)
-        (mnt / "System/Library/Extensions/OCLPCheckOld.kext/Contents").mkdir(parents=True)
-        (mnt / "System/Library/Extensions/OCLPCheckOld.kext/Contents/Info.plist").write_bytes(b"")
+        (mnt / "System/Library/Extensions/BPCheckOld.kext/Contents").mkdir(parents=True)
+        (mnt / "System/Library/Extensions/BPCheckOld.kext/Contents/Info.plist").write_bytes(b"")
         with (mnt / "System/Library/CoreServices/SystemVersion.plist").open("wb") as f:
             plistlib.dump({"ProductBuildVersion": "SIM1", "ProductVersion": "0.0"}, f)
         (data / "Library/Extensions").mkdir(parents=True)
         # The live (booted, sealed) root as seen through the data volume prefix
-        (data / "System/Library/Extensions/OCLPCheckOld.kext/Contents").mkdir(parents=True)
+        (data / "System/Library/Extensions/BPCheckOld.kext/Contents").mkdir(parents=True)
         (data / "System/Library/Frameworks").mkdir(parents=True)
         (data / "Library/Application Support").mkdir(parents=True)
 
-        kext = payload / "System/Library/Extensions/OCLPCheck.kext/Contents"
+        kext = payload / "System/Library/Extensions/BPCheck.kext/Contents"
         kext.mkdir(parents=True)
         with (kext / "Info.plist").open("wb") as f:
-            plistlib.dump({"CFBundleIdentifier": "com.apple.driver.OCLPCheck",
+            plistlib.dump({"CFBundleIdentifier": "com.apple.driver.BPCheck",
                            "OSBundleRequired": "Root"}, f)
         (kext / "MacOS").mkdir()
-        (kext / "MacOS/OCLPCheck").write_bytes(b"\0" * 16)
-        fw = payload / "System/Library/Frameworks/OCLPCheck.framework/Versions/A"
+        (kext / "MacOS/BPCheck").write_bytes(b"\0" * 16)
+        fw = payload / "System/Library/Frameworks/BPCheck.framework/Versions/A"
         fw.mkdir(parents=True)
-        (fw / "OCLPCheck").write_bytes(b"\0" * 16)
+        (fw / "BPCheck").write_bytes(b"\0" * 16)
         return mnt, data, payload
 
     def patchset(payload):
         src = str(payload)
         return {
             "BridgePatcher Check Patch": {
-                PatchType.OVERWRITE_SYSTEM_VOLUME: {"/System/Library/Extensions": {"OCLPCheck.kext": src}},
-                PatchType.MERGE_SYSTEM_VOLUME:     {"/System/Library/Frameworks": {"OCLPCheck.framework": src}},
-                PatchType.REMOVE_SYSTEM_VOLUME:    {"/System/Library/Extensions": ["OCLPCheckOld.kext"]},
+                PatchType.OVERWRITE_SYSTEM_VOLUME: {"/System/Library/Extensions": {"BPCheck.kext": src}},
+                PatchType.MERGE_SYSTEM_VOLUME:     {"/System/Library/Frameworks": {"BPCheck.framework": src}},
+                PatchType.REMOVE_SYSTEM_VOLUME:    {"/System/Library/Extensions": ["BPCheckOld.kext"]},
             }
         }
 
@@ -702,12 +702,12 @@ def _worker_flow(case: str):
                 expected_kext_dir = (Path(r["data"]) / "Library/Extensions") if (xnu >= VENTURA and not kdk) \
                                     else (Path(mnt) / "System/Library/Extensions")
                 missing = []
-                if not (expected_kext_dir / "OCLPCheck.kext/Contents/Info.plist").exists():
-                    missing.append(f"OCLPCheck.kext in {expected_kext_dir}")
-                if not (Path(mnt) / "System/Library/Frameworks/OCLPCheck.framework/Versions/A/OCLPCheck").exists():
-                    missing.append("merged OCLPCheck.framework")
-                if (Path(mnt) / "System/Library/Extensions/OCLPCheckOld.kext").exists():
-                    missing.append("removal of OCLPCheckOld.kext")
+                if not (expected_kext_dir / "BPCheck.kext/Contents/Info.plist").exists():
+                    missing.append(f"BPCheck.kext in {expected_kext_dir}")
+                if not (Path(mnt) / "System/Library/Frameworks/BPCheck.framework/Versions/A/BPCheck").exists():
+                    missing.append("merged BPCheck.framework")
+                if (Path(mnt) / "System/Library/Extensions/BPCheckOld.kext").exists():
+                    missing.append("removal of BPCheckOld.kext")
                 if missing:
                     problems.append(_problem(case, subject,
                         "Patch files didn't end up on the mounted volume (" + ", ".join(missing) +
@@ -747,8 +747,8 @@ def _worker_flow(case: str):
 
             elif case == "flow:file-failure":
                 for what, pred in (
-                    ("copying OCLPCheck.kext", lambda a: 1 if is_tool(a, "cp") and any(x.endswith("/OCLPCheck.kext") for x in a[1:-1]) else 0),
-                    ("merging OCLPCheck.framework (rsync)", lambda a: 23 if is_tool(a, "rsync") else 0),
+                    ("copying BPCheck.kext", lambda a: 1 if is_tool(a, "cp") and any(x.endswith("/BPCheck.kext") for x in a[1:-1]) else 0),
+                    ("merging BPCheck.framework (rsync)", lambda a: 23 if is_tool(a, "rsync") else 0),
                 ):
                     r = run(xnu, kdk, fail=pred)
                     checked += 1
@@ -855,7 +855,7 @@ def _worker_flow(case: str):
     if case == "flow:secure-boot":
         import ast
         # Belt and braces: nothing in the root patcher may assign secure_status at all
-        for path in sorted(Path("opencore_legacy_patcher/sys_patch").rglob("*.py")):
+        for path in sorted(Path("bridgepatcher/sys_patch").rglob("*.py")):
             try:
                 tree = ast.parse(path.read_bytes(), filename=str(path))
             except SyntaxError as e:
@@ -884,10 +884,10 @@ def _worker_static():
     import copy
     import posixpath
 
-    from opencore_legacy_patcher import constants
-    from opencore_legacy_patcher.datasets import example_data
-    from opencore_legacy_patcher.sys_patch.patchsets import detect
-    from opencore_legacy_patcher.sys_patch.patchsets.base import PatchType, DynamicPatchset
+    from bridgepatcher import constants
+    from bridgepatcher.datasets import example_data
+    from bridgepatcher.sys_patch.patchsets import detect
+    from bridgepatcher.sys_patch.patchsets.base import PatchType, DynamicPatchset
 
     problems, checked, errors = [], 0, []
     case = "static:patchsets"
@@ -1019,10 +1019,10 @@ def _worker_gate():
 
     import py_sip_xnu
 
-    from opencore_legacy_patcher import constants
-    from opencore_legacy_patcher.datasets import example_data, sip_data
-    from opencore_legacy_patcher.support import utilities, global_settings
-    from opencore_legacy_patcher.sys_patch.patchsets import detect
+    from bridgepatcher import constants
+    from bridgepatcher.datasets import example_data, sip_data
+    from bridgepatcher.support import utilities, global_settings
+    from bridgepatcher.sys_patch.patchsets import detect
 
     problems, checked, errors = [], 0, []
     case = "gate:detect"
@@ -1049,7 +1049,7 @@ def _worker_gate():
     utilities.get_nvram = lambda name, *a, **k: state["nvram"].get(name)
     utilities.check_secure_boot_level = lambda *a, **k: False    # covered by the SecureBootModel check
     utilities.check_kext_loaded = lambda *a, **k: None
-    utilities.find_any_oclp_manifest = lambda *a, **k: None
+    utilities.find_any_patcher_manifest = lambda *a, **k: None
     detect.network_handler.NetworkUtilities.verify_network_connection = lambda self, *a, **k: True
 
     class FakeAmfi:
@@ -1097,7 +1097,7 @@ def _worker_gate():
         return d
 
     def lowered_sip(xnu):
-        from opencore_legacy_patcher.datasets.sip_data import system_integrity_protection as s
+        from bridgepatcher.datasets.sip_data import system_integrity_protection as s
         configs = s.root_patch_sip_ventura if xnu >= 22 else s.root_patch_sip_big_sur
         value = 0
         for cfg in configs:

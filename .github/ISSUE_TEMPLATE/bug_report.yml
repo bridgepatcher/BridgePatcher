@@ -87,7 +87,7 @@ body:
       required: true
 
   - type: input
-    id: oclp-version
+    id: patcher-version
     attributes:
       label: BridgePatcher version (Please state the version clearly, not state as version new or something. / Bitte die exakte Version nennen, nicht nur etwas oder neu.)
       placeholder: e.g. 4.0.0.16000 or 4.0.0 alpha 16 / z.B 4.0.0.16000 oder 4.0.0 alpha 16

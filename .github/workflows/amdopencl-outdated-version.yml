@@ -39,7 +39,7 @@ jobs:
             // Look for the version in the triggering text, then fall back to the issue body
             const findVersion = (s) => {
               // Prefer a version right after "Patcher" / "OCLP" / "version" (branding: keep - what users write)
-              const near = s.match(/(?:patcher(?:\s+t2)?|oclp(?:-t2)?|version)[^\d\n]{0,20}(\d+\.\d+\.\d+\.\d+)/i);
+              const near = s.match(/(?:patcher(?:\s+t2)?|oclp(?:-t2)?|version)[^\d\n]{0,20}(\d+\.\d+\.\d+\.\d+)/i);  // branding: keep - what users write
               if (near) return near[1];
               const any = s.match(/\b(\d+\.\d+\.\d+\.\d+)\b/);
               return any ? any[1] : null;

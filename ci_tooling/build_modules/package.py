@@ -55,7 +55,7 @@ def _patched_prepare_distribution_file(self, input_file) -> None:
 
 macos_pkg_builder.distribution_pkg.DistributionPackage._prepare_distribution_file = _patched_prepare_distribution_file
 
-from opencore_legacy_patcher import constants
+from bridgepatcher import constants
 
 from .package_scripts import GenerateScripts
 
@@ -148,7 +148,7 @@ class GeneratePackage:
         for value in self._files.values():
             _welcome += f"\n\n- `{value}`"
         if is_legacy:
-            _welcome += f"\n\n- `{constants.APP_INSTALL_DIRECTORY}/{constants.LEGACY_APP_BUNDLE_NAME}` (link to {constants.APP_BUNDLE_NAME}, removed again by the next update)"
+            _welcome += f"\n\n- `{constants.LEGACY_APP_INSTALL_DIRECTORY}/{constants.LEGACY_APP_BUNDLE_NAME}` (link to {constants.APP_BUNDLE_NAME}, removed again by the next update)"
 
         return _welcome
 
