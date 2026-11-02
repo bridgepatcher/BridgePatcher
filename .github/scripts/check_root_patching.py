@@ -309,11 +309,45 @@ class CommandSimulator:
         return b""
 
 
+# Name of the patcher's Python package. Trees from before it was renamed (e.g. the base
+# branch of the PR that renamed it) still use LEGACY_PACKAGE; _use_package() then makes
+# "bridgepatcher" import that one, so the checks below run unchanged on either tree.
+PACKAGE        = "bridgepatcher"
+LEGACY_PACKAGE = "opencore_legacy_patcher"  # branding: legacy - package name before the rename
+_package_dir   = PACKAGE
+
+
+def _use_package(root: str) -> None:
+    global _package_dir
+    if Path(root, PACKAGE).is_dir() or not Path(root, LEGACY_PACKAGE).is_dir():
+        return
+    import importlib
+    import importlib.abc
+    import importlib.util
+
+    _package_dir = LEGACY_PACKAGE
+
+    class _LegacyPackageAlias(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+        def find_spec(self, name, path=None, target=None):
+            if name == PACKAGE or name.startswith(PACKAGE + "."):
+                return importlib.util.spec_from_loader(name, self)
+            return None
+
+        def create_module(self, spec):
+            return importlib.import_module(LEGACY_PACKAGE + spec.name[len(PACKAGE):])
+
+        def exec_module(self, module):
+            pass
+
+    sys.meta_path.insert(0, _LegacyPackageAlias())
+
+
 def _worker(root: str, case: str, out_path: str) -> None:
     import logging
 
     os.chdir(root)
     sys.path.insert(0, root)
+    _use_package(root)
     if sys.platform != "darwin":
         _install_stubs()
     logging.disable(logging.CRITICAL)
@@ -855,7 +889,7 @@ def _worker_flow(case: str):
     if case == "flow:secure-boot":
         import ast
         # Belt and braces: nothing in the root patcher may assign secure_status at all
-        for path in sorted(Path("bridgepatcher/sys_patch").rglob("*.py")):
+        for path in sorted(Path(_package_dir, "sys_patch").rglob("*.py")):
             try:
                 tree = ast.parse(path.read_bytes(), filename=str(path))
             except SyntaxError as e:
@@ -1050,6 +1084,7 @@ def _worker_gate():
     utilities.check_secure_boot_level = lambda *a, **k: False    # covered by the SecureBootModel check
     utilities.check_kext_loaded = lambda *a, **k: None
     utilities.find_any_patcher_manifest = lambda *a, **k: None
+    utilities.find_any_oclp_manifest = lambda *a, **k: None    # branding: legacy - its name before the rename
     detect.network_handler.NetworkUtilities.verify_network_connection = lambda self, *a, **k: True
 
     class FakeAmfi:

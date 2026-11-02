@@ -101,6 +101,39 @@ def _problem(case, subject, message, **extra):
     return entry
 
 
+# Name of the patcher's Python package. Trees from before it was renamed (e.g. the base
+# branch of the PR that renamed it) still use LEGACY_PACKAGE; _use_package() then makes
+# "bridgepatcher" import that one, so the checks below run unchanged on either tree.
+PACKAGE        = "bridgepatcher"
+LEGACY_PACKAGE = "opencore_legacy_patcher"  # branding: legacy - package name before the rename
+_package_dir   = PACKAGE
+
+
+def _use_package(root: str) -> None:
+    global _package_dir
+    if Path(root, PACKAGE).is_dir() or not Path(root, LEGACY_PACKAGE).is_dir():
+        return
+    import importlib
+    import importlib.abc
+    import importlib.util
+
+    _package_dir = LEGACY_PACKAGE
+
+    class _LegacyPackageAlias(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+        def find_spec(self, name, path=None, target=None):
+            if name == PACKAGE or name.startswith(PACKAGE + "."):
+                return importlib.util.spec_from_loader(name, self)
+            return None
+
+        def create_module(self, spec):
+            return importlib.import_module(LEGACY_PACKAGE + spec.name[len(PACKAGE):])
+
+        def exec_module(self, module):
+            pass
+
+    sys.meta_path.insert(0, _LegacyPackageAlias())
+
+
 def _worker(root: str, case: str, out_path: str) -> None:
     import copy
     import logging
@@ -108,6 +141,7 @@ def _worker(root: str, case: str, out_path: str) -> None:
 
     os.chdir(root)
     sys.path.insert(0, root)
+    _use_package(root)
     if sys.platform != "darwin":
         _install_stubs()
     logging.disable(logging.CRITICAL)
@@ -286,7 +320,7 @@ def _worker(root: str, case: str, out_path: str) -> None:
                 problems.append(_problem(case, subject, msg, value=str(result)))
 
         # detect.py must still use that gate to block root patching
-        detect_src = Path("bridgepatcher/sys_patch/patchsets/detect.py")
+        detect_src = Path(_package_dir, "sys_patch/patchsets/detect.py")
         try:
             src = detect_src.read_text(encoding="utf-8")
         except OSError as e:
