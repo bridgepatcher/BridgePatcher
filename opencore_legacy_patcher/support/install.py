@@ -25,8 +25,22 @@ _WINDOWS_CONTENT_TYPES = {
     "microsoft reserved", "windows recovery", "windows_ntfs",
     "e3c9e316-0b5c-4db8-817d-f92df00215ae",  # Microsoft Reserved
     "de94bba4-06d1-4d40-a16a-bfd50179d6ac",  # Windows Recovery Environment
+    "5808c8aa-7e8f-42e0-85d2-e1e90434cfb3",  # Windows LDM metadata
+    "af9b60a0-1431-4f62-bc68-3311714a69ad",  # Windows LDM data
+    "e75caf8f-f680-4cee-afa3-b001e56efc2d",  # Windows Storage Spaces
 }
 _WINDOWS_FILESYSTEMS = {"ntfs"}
+
+# "Microsoft Basic Data" is also what macOS uses for plain FAT32/exFAT partitions (e.g. a separate
+# OPENCORE partition), so it only counts as Windows when it does NOT hold a filesystem macOS knows.
+# The Boot Camp partition is usually reported as "ntfs", but when macOS can't identify it (BitLocker /
+# Device Encryption, or a macOS release that doesn't probe NTFS) diskutil reports no FilesystemType at
+# all - that case previously slipped through and the shared EFI partition was offered for OpenCore.
+_BASIC_DATA_TYPES = {"microsoft basic data", "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7"}
+_NON_WINDOWS_BASIC_DATA_FILESYSTEMS = {"msdos", "exfat", "hfs", "apfs"}
+
+# Volume names Boot Camp Assistant gives the Windows partition
+_WINDOWS_VOLUME_NAMES = {"bootcamp"}
 
 _LINUX_CONTENT_TYPES = {
     "0fc63daf-8483-4772-8e79-3d69d8477de4",  # Linux filesystem data
@@ -36,6 +50,7 @@ _LINUX_CONTENT_TYPES = {
     "4f68bce3-e8cd-4db1-96e7-fbcaf984b709",  # Linux root (x86-64)
     "933ac7e1-2eb4-4f13-b844-0e14e2aef915",  # Linux /home
     "bc13c2ff-59e6-4262-a352-b275fd6f7172",  # Linux /boot (XBOOTLDR)
+    "ca7d7ccb-63ed-4c53-861c-1742536059cc",  # LUKS (encrypted Linux)
 }
 _LINUX_FILESYSTEMS = {"ext2", "ext3", "ext4", "btrfs", "xfs", "f2fs", "reiserfs", "jfs"}
 
@@ -51,13 +66,25 @@ _LINUX_ESP_FOLDERS = {
 
 def _foreign_os_from_partitions(partitions) -> list:
     """
-    Return the operating systems ("Windows"/"Linux") found in an iterable of (filesystem, content) pairs
+    Return the operating systems ("Windows"/"Linux") found in an iterable of
+    (filesystem, content) or (filesystem, content, volume name) tuples
     """
     found = []
-    for fs, content in partitions:
+    for entry in partitions:
+        fs, content = entry[0], entry[1]
+        name = entry[2] if len(entry) > 2 else ""
         fs = (fs or "").lower()
         content = (content or "").lower()
-        if fs in _WINDOWS_FILESYSTEMS or content in _WINDOWS_CONTENT_TYPES:
+        name = (name or "").strip().lower()
+        is_windows = (
+            fs in _WINDOWS_FILESYSTEMS
+            or content in _WINDOWS_CONTENT_TYPES
+            # Basic Data partition without a FAT/exFAT/HFS/APFS filesystem: NTFS that macOS couldn't
+            # identify (list_disks() falls back to the content type when FilesystemType is missing)
+            or (content in _BASIC_DATA_TYPES and fs not in _NON_WINDOWS_BASIC_DATA_FILESYSTEMS)
+            or (name in _WINDOWS_VOLUME_NAMES and fs not in _NON_WINDOWS_BASIC_DATA_FILESYSTEMS)
+        )
+        if is_windows:
             if "Windows" not in found:
                 found.append("Windows")
         if fs in _LINUX_FILESYSTEMS or content in _LINUX_CONTENT_TYPES or content.startswith("linux"):
@@ -66,15 +93,29 @@ def _foreign_os_from_partitions(partitions) -> list:
     return found
 
 
-def _foreign_os_from_esp(mount_path: Path) -> list:
+def _foreign_os_from_esp(mount_path: Path):
     """
     Return the operating systems whose boot loaders live in EFI/ of a mounted ESP
+
+    Returns None if EFI/ exists but can't be read: callers must treat that as "unknown" and refuse,
+    not as "nothing found" (which used to let OpenCore onto a shared ESP).
     """
     found = []
-    try:
-        folders = {entry.name.lower() for entry in (mount_path / "EFI").iterdir() if entry.is_dir()}
-    except Exception:
+    efi_folder = mount_path / "EFI"
+    if not efi_folder.exists():
         return found
+    try:
+        folders = {entry.name.lower() for entry in efi_folder.iterdir() if entry.is_dir()}
+    except Exception as e:
+        # The ESP was mounted as root; retry the listing with the same privileges
+        logging.warning(f"Could not list {efi_folder} ({e}), retrying as root")
+        try:
+            result = subprocess_wrapper.run_as_root(["/bin/ls", "-1", str(efi_folder)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if result.returncode != 0:
+                return None
+            folders = {line.strip().lower() for line in result.stdout.decode(errors="ignore").splitlines() if line.strip()}
+        except Exception:
+            return None
     if folders & _WINDOWS_ESP_FOLDERS:
         found.append("Windows")
     if folders & _LINUX_ESP_FOLDERS:
@@ -160,8 +201,20 @@ class tui_disk_installation:
         """
         return (self.constants.custom_model or self.constants.computer.real_model) in model_array.T2Macs
 
+    def host_is_t2(self) -> bool:
+        """
+        True if the Mac this is running on is a T2 Mac, regardless of the selected build target
+        """
+        computer = getattr(self.constants, "computer", None)
+        if computer is None:
+            return False
+        return getattr(computer, "real_model", None) in model_array.T2Macs or getattr(computer, "t2_chip", False) is True
+
     def _shared_esp_check_enabled(self) -> bool:
-        if not self.target_is_t2():
+        # Checking only the build target let a T2 Mac with a non-T2 model selected (Model change)
+        # install OpenCore onto its own internal ESP next to Boot Camp/Linux. The host's internal ESP
+        # is just as much at risk in that case, so the check runs if either one is a T2 Mac.
+        if not (self.target_is_t2() or self.host_is_t2()):
             return False
         if getattr(self.constants, "allow_oc_on_shared_t2_esp", False) is True:
             logging.warning("allow_oc_on_shared_t2_esp is set: skipping the Windows/Linux EFI partition check for T2 Macs")
@@ -174,7 +227,7 @@ class tui_disk_installation:
         """
         disk = supported_disks.get(disk_identifier) or {}
         partitions = disk.get("partitions", {})
-        return _foreign_os_from_partitions((partitions[p].get("fs"), partitions[p].get("type")) for p in partitions)
+        return _foreign_os_from_partitions((partitions[p].get("fs"), partitions[p].get("type"), partitions[p].get("name")) for p in partitions)
 
     def _foreign_os_on_parent_disk(self, parent_disk: str) -> list:
         """
@@ -189,14 +242,16 @@ class tui_disk_installation:
         for disk in disk_list.get("AllDisksAndPartitions", []):
             for partition in disk.get("Partitions", []):
                 content = partition.get("Content", "")
+                name = partition.get("VolumeName", "")
                 fs = ""
                 try:
                     info = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "info", "-plist", partition["DeviceIdentifier"]], stdout=subprocess.PIPE).stdout)
                     fs = info.get("FilesystemType", "")
                     content = info.get("Content", content)
+                    name = info.get("VolumeName", name)
                 except Exception:
                     pass
-                pairs.append((fs, content))
+                pairs.append((fs, content, name))
         return _foreign_os_from_partitions(pairs)
 
     def list_partitions(self, disk_response, supported_disks):
@@ -305,7 +360,12 @@ class tui_disk_installation:
         # loaders on the ESP itself (e.g. Windows/Linux on another disk using this ESP).
         if self._shared_esp_check_enabled() and is_esp(partition_info.get("Content", "")):
             foreign_os = self._foreign_os_on_parent_disk(parent_disk)
-            for os_name in _foreign_os_from_esp(mount_path):
+            esp_os = _foreign_os_from_esp(mount_path)
+            if esp_os is None:
+                logging.error(f"Could not read the EFI folder on {full_disk_identifier}, so it can't be verified that Windows/Linux don't boot from it.")
+                foreign_os.append("an unverifiable boot loader")
+                esp_os = []
+            for os_name in esp_os:
                 if os_name not in foreign_os:
                     foreign_os.append(os_name)
             if foreign_os:
