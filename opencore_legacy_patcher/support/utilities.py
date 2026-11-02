@@ -1,5 +1,5 @@
 """
-utilities.py: Utility functions for OpenCore Legacy Patcher
+utilities.py: Utility functions for BridgePatcher
 """
 
 import os
@@ -148,9 +148,10 @@ def check_seal():
 
 def find_any_oclp_manifest(root_path: Path = None):
     """
-    Search common locations for any OpenCore Legacy Patcher root-volume
-    manifest left behind by a previous root patch, regardless of which
-    OCLP version originally wrote it.
+    Search common locations for any root-volume manifest
+    (OpenCore-Legacy-Patcher.plist) left behind by a previous root patch,
+    regardless of which patcher version originally wrote it - BridgePatcher
+    or Dortania's OpenCore Legacy Patcher.
 
     Returns the Path to the first manifest found, or None if none exists.
     """
@@ -170,7 +171,7 @@ def find_any_oclp_manifest(root_path: Path = None):
                 # Note: 'pathlib.Path.glob()' matches case-sensitively even on
                 # case-insensitive filesystems (default macOS APFS included),
                 # since the pattern matching itself happens in Python, not the OS.
-                # The real file OCLP writes is mixed-case
+                # The real manifest file is mixed-case
                 # ("OpenCore-Legacy-Patcher.plist"), which a lowercase glob
                 # pattern will never match, so match case-insensitively instead.
                 if candidate.is_file() and "opencore-legacy-patcher" in candidate.name.lower():

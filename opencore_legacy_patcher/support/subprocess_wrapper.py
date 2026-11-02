@@ -35,6 +35,10 @@ BRIDGEPATCHER_PRIVILEGED_HELPER_EXPECTED_MODE = 0o4755
 # convenience/exposure trade-off, not a secure-memory guarantee; the process already
 # held the password transiently for the sudo-based DMG mounts before this change.
 _sudo_elevation_failed = False
+# Set once the helper has reported a non-transient failure (signing/certificates), so we
+# stop invoking it for every single command of the session. run_as_root() declares this
+# 'global' and reads it before ever assigning it, so it must exist at module level.
+_privileged_helper_unusable = False
 
 
 class PrivilegedHelperErrorCodes(enum.IntEnum):
@@ -213,6 +217,63 @@ def run(*args, **kwargs):
     return subprocess.run(*args, **kwargs)
 
 
+def _run_via_privileged_helper(command: list, **kwargs) -> Optional[subprocess.CompletedProcess]:
+    """
+    Run 'command' as root through the Privileged Helper Tool, without any password prompt.
+
+    Returns the CompletedProcess when the helper ran the command, or when it must not be
+    retried any other way (helper refused the command, or its permissions could not be
+    repaired). Returns None when the helper is missing, known unusable for this build, or
+    failed on its own - only then may the caller fall back to the administrator prompt.
+    """
+    global _privileged_helper_unusable
+
+    if not Path(BRIDGEPATCHER_PRIVILEGED_HELPER).exists():
+        logging.warning(f"Privileged Helper Tool not found at {BRIDGEPATCHER_PRIVILEGED_HELPER}.")
+        return None
+    if _privileged_helper_unusable:
+        return None
+
+    if privileged_helper_needs_setuid_repair():
+        if not repair_privileged_helper_permissions():
+            logging.error("Privileged Helper Tool permissions could not be repaired, cannot complete request.")
+            # Deliberately no osascript fallback here: the helper being in an
+            # unexpected state is exactly when a silent downgrade to an
+            # administrator-password prompt is least appropriate, since that
+            # prompt is indistinguishable from one an attacker could provoke.
+            return subprocess.CompletedProcess(
+                args=command,
+                returncode=PrivilegedHelperErrorCodes.BRIDGEPATCHER_PHT_ERROR_SET_UID_FAILED.value,
+                stdout=b"",
+                stderr=b"Privileged Helper Tool permissions could not be repaired",
+            )
+    result = subprocess.run([BRIDGEPATCHER_PRIVILEGED_HELPER] + command, **kwargs)
+    # Any of our own PrivilegedHelperErrorCodes sentinel values (160-172) means the helper
+    # tool itself couldn't do its job - an escalation failure (eg. missing/invalid setuid bit)
+    # or another internal precondition (signing/certificates/command validation) - as opposed
+    # to the wrapped command failing on its own merits with an ordinary low exit code, which is
+    # just returned as-is: retrying that via osascript wouldn't fix a genuine command failure,
+    # and would only cost an extra administrator-password prompt for nothing.
+    _helper_error = __resolve_privileged_helper_errors(result.returncode)
+    if _helper_error is None:
+        return result
+    if result.returncode in _HELPER_REFUSAL_ERRORS:
+        # The helper refused this specific command on purpose - do NOT retry it through
+        # an administrator prompt (see _HELPER_REFUSAL_ERRORS). Return the helper's own
+        # result so callers see the sentinel code and fail cleanly.
+        logging.error(
+            f"Privileged Helper Tool refused to run {command[0]} ({_helper_error}), "
+            "not retrying with administrator privileges."
+        )
+        return result
+    if result.returncode in _HELPER_PERMANENT_ERRORS:
+        _privileged_helper_unusable = True
+        logging.error(f"Privileged Helper Tool rejected this build ({_helper_error}), not using it for the rest of this session.")
+    else:
+        logging.error(f"Privileged Helper Tool failed ({_helper_error}).")
+    return None
+
+
 def run_as_root(*args, **kwargs):
     """
     Run subprocess as root.
@@ -235,59 +296,14 @@ def run_as_root(*args, **kwargs):
     if os.geteuid() == 0:
         return subprocess.run(_command, **kwargs)
 
-    global _privileged_helper_unusable
-
-    if Path(BRIDGEPATCHER_PRIVILEGED_HELPER).exists() and not _privileged_helper_unusable:
-        if privileged_helper_needs_setuid_repair():
-            if not repair_privileged_helper_permissions():
-                logging.error("Privileged Helper Tool permissions could not be repaired, cannot complete request.")
-                # Deliberately no osascript fallback here: the helper being in an
-                # unexpected state is exactly when a silent downgrade to an
-                # administrator-password prompt is least appropriate, since that
-                # prompt is indistinguishable from one an attacker could provoke.
-                return subprocess.CompletedProcess(
-                    args=_command,
-                    returncode=PrivilegedHelperErrorCodes.BRIDGEPATCHER_PHT_ERROR_SET_UID_FAILED.value,
-                    stdout=b"",
-                    stderr=b"Privileged Helper Tool permissions could not be repaired",
-                )
-        result = subprocess.run([BRIDGEPATCHER_PRIVILEGED_HELPER] + _command, **kwargs)
-        # Any of our own PrivilegedHelperErrorCodes sentinel values (160-170) means the helper
-        # tool itself couldn't do its job - an escalation failure (eg. missing/invalid setuid bit)
-        # or another internal precondition (signing/certificates/command validation) - as opposed
-        # to the wrapped command failing on its own merits with an ordinary low exit code, which is
-        # just returned as-is: retrying that via osascript wouldn't fix a genuine command failure,
-        # and would only cost an extra administrator-password prompt for nothing.
-        _helper_error = __resolve_privileged_helper_errors(result.returncode)
-        if _helper_error is None:
-            return result
-        if result.returncode in _HELPER_REFUSAL_ERRORS:
-            # The helper refused this specific command on purpose - do NOT retry it through
-            # an administrator prompt (see _HELPER_REFUSAL_ERRORS). Return the helper's own
-            # result so callers see the sentinel code and fail cleanly.
-            logging.error(
-                f"Privileged Helper Tool refused to run {_command[0]} ({_helper_error}), "
-                "not retrying with administrator privileges."
-            )
-            return result
-        if result.returncode in _HELPER_PERMANENT_ERRORS:
-            _privileged_helper_unusable = True
-            logging.error(f"Privileged Helper Tool rejected this build ({_helper_error}), not using it for the rest of this session.")
-        else:
-            logging.error(f"Privileged Helper Tool failed ({_helper_error}).")
-    elif not Path(BRIDGEPATCHER_PRIVILEGED_HELPER).exists():
-        logging.warning(f"Privileged Helper Tool not found at {BRIDGEPATCHER_PRIVILEGED_HELPER}.")
-    sargs = []
-    for arg in _command:
-        if arg == _command[0]:
-            continue
-        sargs.append(arg)
-    elevated_without_pht = utilities.get_admin_permission(
-            action=_command[0],
-            args=sargs,
-            reason=reason,
-        )
-    return elevated_without_pht
+    result = _run_via_privileged_helper(_command, **kwargs)
+    if result is not None:
+        return result
+    # Native macOS prompt, but through the synchronous wrapper: calling
+    # utilities.get_admin_permission() directly returns as soon as the command has
+    # been *started*, always reports success and drops its output, so sequential
+    # root-patching steps (rm, then cp, then verify) raced each other.
+    return _run_via_authorization_services(_command, reason=reason, **kwargs)
 
 
 # Wrapper run as root by _run_via_authorization_services(). Constant script, the real
@@ -406,6 +422,44 @@ def applescript_quote(value) -> str:
     text = text.replace("\\", "\\\\").replace('"', '\\"')
     text = text.replace("\r", "\\r").replace("\n", "\\n")
     return text
+
+
+def applescript_icon_clause(icon_path) -> str:
+    """
+    Build the 'with icon POSIX file "..."' fragment for a 'display dialog' call.
+
+    Two things this deliberately does NOT do, both of which used to break dialogs:
+
+      1. It does not hand AppleScript an HFS path. The previous form,
+         str(icon_path).replace("/", ":")[1:], produced "Users:me:...icns" - an HFS
+         path whose first component is read as the VOLUME name, so it resolved
+         against a non-existent volume "Users". 'with icon POSIX file "/Users/..."'
+         takes the POSIX path as-is.
+      2. It does not reference a file that isn't there. A missing icon makes
+         'display dialog' raise, and every caller wraps that in a try/except -
+         so a cosmetic problem silently swallows the whole dialog. Returning an
+         empty clause loses the icon and keeps the dialog.
+
+    Returns:
+        str: the clause including its leading space, or "" if no usable icon exists.
+    """
+    try:
+        path = Path(icon_path)
+        if not path.is_file():
+            logging.warning(f"Dialog icon missing, continuing without it: {path}")
+            return ""
+    except Exception:
+        return ""
+
+    # A quote or backslash would break out of the AppleScript string literal.
+    # Nothing in our own bundle contains either; drop the icon rather than
+    # building a script we cannot escape correctly.
+    if '"' in str(path) or "\\" in str(path):
+        logging.warning("Dialog icon path contains characters that cannot be quoted, continuing without it")
+        return ""
+
+    return f' with icon POSIX file "{path}"'
+
 
 # How long a single 'hdiutil attach' may take before it is treated as hung. Attaching
 # with -noverify does not read the whole image, so even the ~1 GB Universal-Binaries.dmg
@@ -574,16 +628,39 @@ def mount_dmg(
     if password:
         attach = 'printf "%s" "$1" | ' + attach + ' -stdinpass'
     sh_cmd = 'export LC_ALL=C; /usr/bin/xattr -d com.apple.quarantine "$2" 2>/dev/null; ' + attach
-    elevated_cmd = [sh_cmd, "--", password or "", str(dmg_path), str(mount_point), str(shadow_path) if shadow_path else ""]
+    # "/bin/sh -c" is required: _run_via_authorization_services() executes its argv
+    # as-is, so without it the script text itself was run as a program path and failed
+    # with exit 127 "No such file or directory" after every correct password.
+    elevated_cmd = ["/bin/sh", "-c", sh_cmd, "--", password or "", str(dmg_path), str(mount_point), str(shadow_path) if shadow_path else ""]
 
     def _combined_output(elevated_stdout, elevated_stderr) -> tuple:
         """Keep both attempts in the result: the unprivileged error alone hid what the elevated one said."""
         out = b"Unprivileged attempt:\n" + (stdout or b"(no output)") + b"\nElevated attempt:\n" + (_to_bytes(elevated_stdout) or b"(no output)")
         return out, _to_bytes(elevated_stderr)
 
+    # Privileged Helper Tool first: it elevates without any password prompt, the same
+    # way every other root-patching step already does through run_as_root(). This path
+    # used to go straight to Authorization Services, so even with a working helper the
+    # Universal-Binaries.dmg mount was the one step that asked for the password.
+    helper_result = _mount_dmg_via_privileged_helper(dmg_path, mount_point, shadow_path, password)
+    if helper_result is not None:
+        if helper_result.returncode != 0:
+            out, err = _combined_output(helper_result.stdout, helper_result.stderr)
+            return subprocess.CompletedProcess(args=cmd, returncode=helper_result.returncode, stdout=out, stderr=err)
+        if not _wait_until_mounted(mount_point):
+            logging.error("- hdiutil attach via the Privileged Helper Tool reported success, but the mount point is not mounted")
+            _log_attached_images()
+            out, err = _combined_output(helper_result.stdout, helper_result.stderr)
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout=out,
+                stderr=err + b"\nhdiutil attach via the Privileged Helper Tool did not mount the image",
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=_to_bytes(helper_result.stdout), stderr=_to_bytes(helper_result.stderr))
+
     try:
         result = _run_via_authorization_services(
             elevated_cmd,
+            reason=admin_password_prompt,
             capture_output=True,
             timeout=HDIUTIL_ATTACH_TIMEOUT,
         )
@@ -601,21 +678,7 @@ def mount_dmg(
         # args=cmd: elevated_cmd carries the passphrase, and callers log the result
         return subprocess.CompletedProcess(args=cmd, returncode=result.returncode, stdout=out, stderr=err)
 
-    is_mounted = False
-    resolved_mount = mount_point.resolve()
-    for _ in range(10):
-        if os.path.ismount(mount_point) or os.path.ismount(resolved_mount):
-            is_mounted = True
-            break
-        try:
-            if any(not item.name.startswith(".") for item in mount_point.iterdir()):
-                is_mounted = True
-                break
-        except (OSError, PermissionError):
-            pass
-        time.sleep(0.2)
-
-    if not is_mounted:
+    if not _wait_until_mounted(mount_point):
         # hdiutil reported success, yet nothing is mounted where we asked (Issue #553).
         # Record where the image actually ended up, if anywhere.
         logging.error("- Elevated hdiutil attach reported success, but the mount point is not mounted")
@@ -626,6 +689,75 @@ def mount_dmg(
             stderr=err + b"\nElevated hdiutil attach did not mount the image",
         )
     return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=_to_bytes(result.stdout), stderr=_to_bytes(result.stderr))
+
+
+def _wait_until_mounted(mount_point: Path) -> bool:
+    """Give an elevated attach up to ~2 seconds to show up at 'mount_point'."""
+    resolved_mount = mount_point.resolve()
+    for _ in range(10):
+        if os.path.ismount(mount_point) or os.path.ismount(resolved_mount):
+            return True
+        try:
+            if any(not item.name.startswith(".") for item in mount_point.iterdir()):
+                return True
+        except (OSError, PermissionError):
+            pass
+        time.sleep(0.2)
+    return False
+
+
+def _mount_dmg_via_privileged_helper(dmg_path: Path, mount_point: Path, shadow_path: Optional[Path], password: Optional[str]) -> Optional[subprocess.CompletedProcess]:
+    """
+    Elevated 'hdiutil attach' through the Privileged Helper Tool - no password prompt.
+
+    hdiutil is called directly rather than through '/bin/sh -c': the helper's DEBUG
+    allowlist refuses 'sh -c', and release builds have no reason to need it. The
+    passphrase reaches hdiutil's '-stdinpass' over stdin, which the helper's NSTask
+    inherits, so it never appears in an argument list. The helper is a setuid child of
+    this process, so - unlike security_authtrampoline - it stays in the user's login
+    session, which hdiutil's own authentication depends on (see mount_dmg()).
+
+    Returns None when the caller should fall back to the administrator prompt: no
+    usable helper, or the helper failed on its own (see _run_via_privileged_helper()).
+    """
+    if os.geteuid() == 0:
+        return None  # already root: the unprivileged attempt was the privileged one
+
+    # The copy inside the app bundle is root-owned, so its quarantine attribute can only
+    # be removed as root. Best effort: a DEBUG helper refuses xattr, and a quarantine
+    # that stays put is reported by hdiutil itself below.
+    if _has_quarantine(Path(dmg_path)):
+        _run_via_privileged_helper(
+            ["/usr/bin/xattr", "-d", "com.apple.quarantine", str(dmg_path)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15,
+        )
+
+    attach = ["/usr/bin/hdiutil", "attach", "-noverify", str(dmg_path), "-mountpoint", str(mount_point), "-nobrowse"]
+    if shadow_path:
+        attach.extend(["-shadow", str(shadow_path)])
+    if password:
+        attach.append("-stdinpass")
+
+    try:
+        result = _run_via_privileged_helper(
+            attach,
+            input=password.encode() if password else None,
+            stdin=None if password else subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            timeout=HDIUTIL_ATTACH_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as error:
+        logging.error(f"- hdiutil attach via the Privileged Helper Tool did not finish within {HDIUTIL_ATTACH_TIMEOUT} seconds")
+        _log_attached_images()
+        return subprocess.CompletedProcess(args=attach, returncode=1, stdout=_to_bytes(error.stdout), stderr=b"hdiutil attach timed out")
+    except OSError as error:
+        # e.g. the timeout's kill() hitting a now-root process: report, don't prompt.
+        logging.error(f"- hdiutil attach via the Privileged Helper Tool failed: {error}")
+        return subprocess.CompletedProcess(args=attach, returncode=1, stdout=b"", stderr=str(error).encode())
+
+    if result is not None and result.returncode == 0:
+        logging.info("- Attached via the Privileged Helper Tool")
+    return result
 
 
 def _to_bytes(value) -> bytes:

@@ -52,7 +52,7 @@ def is_unsupported_t2_mac(model: str) -> bool:
     """
     True if `model` is a T2 Mac that Apple does not support on macOS Tahoe
     (e.g. Macmini8,1, MacBookPro16,3, iMacPro1,1). Such models only ever use
-    OCLP to run Tahoe and newer, so they must always be treated as a Tahoe target,
+    BridgePatcher to run Tahoe and newer, so they must always be treated as a Tahoe target,
     regardless of which macOS the build host is currently running.
 
     Indexes smbios_dictionary directly on purpose: every model in T2Macs must have
@@ -352,7 +352,7 @@ class BuildSecurity:
                     # Its own boot-args are for testing only (-t2tahoefixupoff / -t2off,
                     # -t2tahoefixupdbg / -t2dbg, -t2tahoefixupbeta / -t2beta,
                     # -t2tahoeforce, -t2tahoedormant, -t2cspage, -t2noimg4fix, -t2noacmfix,
-                    # t2tahoe-bridge=, t2tahoe-board=), so OCLP doesn't add any. The old
+                    # t2tahoe-bridge=, t2tahoe-board=), so BridgePatcher doesn't add any. The old
                     # SpoofVMM args (-spoofvmmbid etc.) are scrubbed in build.py.
 
                 if self.constants.t2_installer_workaround is True:

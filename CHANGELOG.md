@@ -59,6 +59,7 @@ fixes the following vulnerabilities:
 - an attacker could set up a fake site or a typosquatting site claiming to be the T2 team or Dortania team to spread malware by not warning that their site is unofficial
 Impact: an attacker could trick users into trusting a typosquatting site whose installer has been tampered and they added malware to it without any warning. This is fixed by when installing the application, it checks if the SHA256 certificates match the official ones and if not, display a warning that it could be malicious like this:
 <img width="532" height="460" alt="Bildschirmfoto 2026-10-31 um 17 37 34" src="https://github.com/user-attachments/assets/21a4467f-2240-4f45-8710-f4387c150528" />
+
 - fixes a vulnerability where the updater doesn’t check the SHA256 certificats
 Impact: a half downloaded update could still apply, or worse, an attacker could hijack the DNS server to launch MiTM attacks and redirect the updater to a malicious website who is pretending to be GitHub. This vulnerability is fixed by ensuring that:
 1. Before offering the update, the updater checks if the SHA256 certificates are published
@@ -71,6 +72,13 @@ Impact: a half downloaded update could still apply, or worse, an attacker could 
 - fixes a vulnerability where when downloading the Universal-Binaries.dmg, the SHA256 certificates of the patchset doesn’t get checked, even though it is published
 Impact: an attacker could launch a MiTM attack by compromising the DNS server to point to a malicious website that pretends to be GitHub to install low level malware instead. This vulnerability is fixed by checking the SHA256 certificates if ever the patcher needs to download Universal-Binaries.dmg (e.g the built in one got corrupted)
 
+- fixes a vulnerability that got reintroduced in 1900019.17 and 1900019.18 where an attacker could create an identical password prompt to the patcher's own in a malicious application to launch a phishing attack (thx @gandolf243):
+<img width="418" height="219" alt="image" src="https://github.com/user-attachments/assets/50d1ac16-24df-46ed-b1b8-41f613138bf2" />
+
+Impact: an attacker could abuse this vulnerable password prompt to impersonate the patcher to launch a phishing attack, which could lead to an attacker to gain access to the victim's computer. This vulnerability is fixed by using the macOS's password prompt instead to ensure an attacker can't impersonate the application to launch attacks.
+- fixes root patching failing with "Critical resources missing" after entering the correct password in the macOS password prompt: the elevated mount of Universal-Binaries.dmg ran its shell script as a program path instead of through /bin/sh (return code 127, "No such file or directory"). Privileged commands run without the Privileged Helper Tool (e.g. on unsigned builds) now also wait for the command to finish and report its real exit code and output, instead of reporting success as soon as it was started
+- fixes root patching asking for the administrator password to mount Universal-Binaries.dmg even though the Privileged Helper Tool is installed and working: the elevated mount now goes through the helper like every other root patching step, and the macOS password prompt is only used when the helper is missing or rejects the build
+- fixes the License tab in Settings not finding LICENSE.txt in the built app: it looked in a Resources folder next to the temporary payloads directory instead of inside BridgePatcher.app. The build now also checks that LICENSE.txt is inside the app (Contents/Resources, linked into Contents/Frameworks), copies it in if PyInstaller didn't, and fails if it is still missing. If the file can't be found at runtime, the License tab shows where to find the license instead of failing
 
 
 ## 4.0.0.1900019 - 4.0.0 alpha 19.19

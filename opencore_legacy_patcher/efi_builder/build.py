@@ -80,7 +80,7 @@ class BuildOpenCore:
             # to run first (in practice firmware.py's _dual_dp_handling()), dozens of frames away
             # from the actual cause. Catch it once, here, with a message that says what to do.
             if self.model not in smbios_data.smbios_dictionary:
-                logging.error(f"- Model '{self.model}' is not a Mac model OpenCore Legacy Patcher has SMBIOS data for")
+                logging.error(f"- Model '{self.model}' is not a Mac model BridgePatcher has SMBIOS data for")
                 logging.error("- Cannot build an EFI for it. If this host is a VM or Hackintosh, pick a real target Mac model in Settings first")
                 raise ValueError(f"Unsupported build model: {self.model}")
 
@@ -209,7 +209,7 @@ class BuildOpenCore:
                     if target_arg not in self.config["NVRAM"]["Delete"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]:
                         self.config["NVRAM"]["Delete"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"].append(target_arg)
 
-                # Ensure OCLP tracking deletion list
+                # Ensure BridgePatcher's tracking variables (OCLP-*) are in the deletion list
                 if "4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102" not in self.config["NVRAM"]["Delete"]:
                     self.config["NVRAM"]["Delete"]["4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"] = []
                 for del_key in ["OCLP-Version", "OCLP-Model", "OCLP-Settings", "OCLP-Spoofed-SN", "OCLP-Spoofed-MLB", "revcpu", "revcpuname", "revblock", "revpatch"]:
@@ -234,7 +234,7 @@ class BuildOpenCore:
                 ])
 
                 # -ibtcompatbeta used to be appended here. It belongs to IntelBluetoothFirmware/
-                # IntelBTPatcher, which OCLP doesn't ship (T2 Macs use Broadcom Bluetooth), so
+                # IntelBTPatcher, which BridgePatcher doesn't ship (T2 Macs use Broadcom Bluetooth), so
                 # nothing ever read it. It is now scrubbed like the other dead args above.
                 self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = scrubbed_args.strip()
 

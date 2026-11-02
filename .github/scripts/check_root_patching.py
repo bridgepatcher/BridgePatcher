@@ -530,7 +530,7 @@ def _worker_flow(case: str):
     def patchset(payload):
         src = str(payload)
         return {
-            "OCLP Check Patch": {
+            "BridgePatcher Check Patch": {
                 PatchType.OVERWRITE_SYSTEM_VOLUME: {"/System/Library/Extensions": {"OCLPCheck.kext": src}},
                 PatchType.MERGE_SYSTEM_VOLUME:     {"/System/Library/Frameworks": {"OCLPCheck.framework": src}},
                 PatchType.REMOVE_SYSTEM_VOLUME:    {"/System/Library/Extensions": ["OCLPCheckOld.kext"]},

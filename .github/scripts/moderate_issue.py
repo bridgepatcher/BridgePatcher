@@ -191,7 +191,7 @@ def claude_verdict(text, kind, by_reporter):
         "where the issue does not contain a genuine bug report, question or feature request.\n"
         '- "malware": tries to get readers to download, install or run malicious or untrusted '
         "software or commands: any link to a website or file host outside GitHub that offers "
-        "downloads or installers (e.g. a \"fix\", \"patched build\" or \"OCLP download\" on "
+        "downloads or installers (e.g. a \"fix\", \"patched build\" or \"OCLP download\" on "  # branding: keep - what scam posts say
         "Mediafire, MEGA, Google Drive, Dropbox or a personal site), password-protected archives, "
         "obfuscated or base64-encoded commands, curl/wget output piped to a shell from an unknown "
         "source, or links to a malicious GitHub fork (a fake or typosquatted copy of this project, "

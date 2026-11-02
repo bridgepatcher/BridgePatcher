@@ -68,7 +68,7 @@ class BuildWirelessNetworking:
                         if arg.split("=")[0] not in current_boot_args:
                             current_boot_args = f"{current_boot_args} {arg}".strip()
                     self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = current_boot_args
-            # This works around OCLP spoofing the Wifi card and therefore unable to actually detect the correct device
+            # This works around BridgePatcher spoofing the Wifi card and therefore unable to actually detect the correct device
             if self.computer.wifi.chipset == device_probe.Broadcom.Chipsets.AirportBrcmNIC and self.constants.validate is False and self.computer.wifi.country_code:
                 support.BuildSupport(self.model, self.constants, self.config).enable_kext("AirportBrcmFixup.kext", self.constants.airportbcrmfixup_version, self.constants.airportbcrmfixup_path)
                 logging.info(f"- Setting Wireless Card's Country Code: {self.computer.wifi.country_code}")

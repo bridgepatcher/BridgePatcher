@@ -239,7 +239,7 @@ class InitializeLoggingSupport:
         Start logging, used as easily identifiable start point in logs
         """
 
-        str_msg = f"# OpenCore Legacy Patcher ({self.constants.patcher_version}) #"
+        str_msg = f"# {self.constants.patcher_name} ({self.constants.patcher_version}) #"
         str_len = len(str_msg)
 
         logging.info('#' * str_len)
@@ -275,7 +275,7 @@ class InitializeLoggingSupport:
             if self.constants.cli_mode is True:
                 return
 
-            error_msg = "OpenCore Legacy Patcher encountered the following internal error:\n\n"
+            error_msg = f"{self.constants.patcher_name} encountered the following internal error:\n\n"
             error_msg += f"{type.__name__}: {value}"
             if tb:
                 error_msg += f"\n\n{traceback.extract_tb(tb)[-1]}"

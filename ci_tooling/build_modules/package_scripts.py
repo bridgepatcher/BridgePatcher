@@ -782,9 +782,9 @@ class GenerateScripts:
         _script += self.__generate_shebang()
 
         _script += self._generate_header_bar()
-        _script += "# OpenCore Legacy Patcher Uninstall Script\n"
+        _script += "# BridgePatcher Uninstall Script\n"
         _script += self._generate_header_bar()
-        _script += "# Remove OpenCore Legacy Patcher files and directories.\n"
+        _script += "# Remove BridgePatcher files and directories.\n"
         _script += self._generate_header_bar()
         _script += "\n\n"
 

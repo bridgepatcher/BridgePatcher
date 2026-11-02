@@ -38,7 +38,7 @@ APP_INSTALL_DIRECTORY:     str = "/Library/Application Support/albert-mueller/Op
 INSTALLER_PKG_NAME:        str = f"{APP_NAME}.pkg"
 LEGACY_INSTALLER_PKG_NAME: str = f"{LEGACY_APP_NAME}.pkg"
 UNINSTALLER_PKG_NAME:      str = f"{APP_NAME}-Uninstaller.pkg"
-# Name of the uninstaller before the rename to BridgePatcher (releases up to 4.0.0 alpha 20)
+# Name of the uninstaller before the rename to BridgePatcher (releases up to 4.0.0 alpha 19)
 LEGACY_UNINSTALLER_PKG_NAME: str = "OpenCore-Patcher-Uninstaller.pkg"
 
 
@@ -48,7 +48,7 @@ class Constants:
         # Wenn eine Version mit s endet, es heißt, dass sie noch nicht fertig ist.
         self.patcher_version:                 str = "4.0.0.2000000.2"
         self.patcher_version_label=self.patcher_version
-        self.patcher_support_pkg_version:     str = "2.2u"  # PatcherSupportPkg (needs a 2.11 release built from bridgepatcher/PatcherSupportPkg master: GMA X3100 + non-metal screen saver payloads)
+        self.patcher_support_pkg_version:     str = "2.5"
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
 
         # Application identity
@@ -250,7 +250,7 @@ class Constants:
         self.should_nuke_kdks:          bool = True  #  Determine if KDKs should be nuked if unused in /L*/D*/KDKs
         self.launcher_binary:            str = None  #  Determine launch binary path (ie. Python vs PyInstaller)
         self.launcher_script:            str = None  #  Determine launch file path   (None if PyInstaller)
-        self.booted_oc_disk:             str = None  #  Determine current disk OCLP booted from
+        self.booted_oc_disk:             str = None  #  Determine current disk BridgePatcher's OpenCore booted from
         self.unpack_thread                   = None  #  Determine if unpack thread finished (threading.Thread)
         self.update_stage:               int = 0  #     Determine update stage (see gui_support.py)
         self.log_filepath:              Path = None  #  Path to log file

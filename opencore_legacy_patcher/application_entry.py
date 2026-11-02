@@ -29,9 +29,9 @@ from .support import (
 )
 
 
-class OpenCoreLegacyPatcher:
+class BridgePatcher:
     """
-    Initial entry point for starting OpenCore Legacy Patcher
+    Initial entry point for starting BridgePatcher
     """
 
     def __init__(self) -> None:
@@ -321,4 +321,4 @@ def main():
     """
     Main entry point
     """
-    OpenCoreLegacyPatcher()
+    BridgePatcher()

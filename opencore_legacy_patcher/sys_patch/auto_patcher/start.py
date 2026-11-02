@@ -53,8 +53,8 @@ class StartAutomaticPatching:
         Conditions for running:
             - Verify running GUI (TUI users can write their own scripts)
             - Verify the Snapshot Seal is intact (if not, assume user is running patches)
-            - Verify this model needs patching (if not, assume user upgraded hardware and OCLP was not removed)
-            - Verify there are no updates for OCLP (ensure we have the latest patch sets)
+            - Verify this model needs patching (if not, assume user upgraded hardware and BridgePatcher was not removed)
+            - Verify there are no updates for BridgePatcher (ensure we have the latest patch sets)
 
         If all these tests pass, start Root Patcher
 
@@ -79,7 +79,7 @@ class StartAutomaticPatching:
                     logging.info("- Cannot run patching")
                     return
 
-                logging.info("- Determined patching is possible, checking for OCLP updates")
+                logging.info("- Determined patching is possible, checking for BridgePatcher updates")
                 patch_string = ""
                 for patch in patches:
                     if patches[patch] is True and not patch.startswith("Settings") and not patch.startswith("Validation"):
@@ -304,7 +304,7 @@ class StartAutomaticPatching:
 
     def _determine_if_versions_match(self):
         """
-        Determine if the booted version of OCLP matches the installed version
+        Determine if the booted version of BridgePatcher matches the installed version
 
         ie. Installed app is 0.2.0, but EFI version is 0.1.0
 
@@ -312,7 +312,7 @@ class StartAutomaticPatching:
             bool: True if versions match, False if not
         """
 
-        logging.info("- Checking booted vs installed OCLP Build")
+        logging.info("- Checking booted vs installed BridgePatcher Build")
         if self.constants.computer.oclp_version is None:
             logging.info("- Booted version not found")
             return True

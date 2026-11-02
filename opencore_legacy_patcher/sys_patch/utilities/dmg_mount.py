@@ -31,8 +31,10 @@ class PatcherSupportPkgMount:
         # HFS conversion (replace("/", ":")[1:]) produced a path whose first component
         # AppleScript reads as a volume name, so it never resolved - see
         # subprocess_wrapper.applescript_icon_clause().
+        # Only used for the DortaniaInternal 'display dialog' prompts below. Administrator
+        # authentication for the mounts goes through Authorization Services (mount_dmg()),
+        # which shows its own system dialog, so there is no admin prompt icon to set here.
         self.icon_path = self.constants.app_icon_path
-        subprocess_wrapper.set_admin_prompt_icon(self.icon_path)
 
     def _run_hdiutil(self, dmg_path: Path, mount_point: Path, shadow_path: Path = None, password: str = None, retry_on_auth_error: bool = False) -> subprocess.CompletedProcess:
         """Helper to standardize hdiutil execution using -stdinpass, with elevation on failure"""
@@ -130,10 +132,14 @@ class PatcherSupportPkgMount:
                 logging.exception("Stack Trace:")
                 return False
 
-        expected_sha256 = patcher_support_pkg_data.expected_universal_binaries_sha256(self.constants.patcher_support_pkg_version)
-        if expected_sha256 is None:
-            logging.error(f"- No SHA256 is pinned for PatcherSupportPkg {self.constants.patcher_support_pkg_version}, refusing to download an image that can't be verified")
-            logging.error("- Add it to datasets/patcher_support_pkg_data.py, or run './Build-Project.command --run-as-individual-steps --prepare-assets' once.")
+        try:
+            expected_sha256 = patcher_support_pkg_data.expected_universal_binaries_sha256(
+                self.constants.patcher_support_pkg_version, self.constants.url_patcher_support_pkg
+            )
+        except patcher_support_pkg_data.ChecksumLookupError as error:
+            logging.error(f"- Can't determine the SHA256 of PatcherSupportPkg {self.constants.patcher_support_pkg_version}, refusing to download an image that can't be verified")
+            logging.error(f"- {error}")
+            logging.error("- Run './Build-Project.command --run-as-individual-steps --prepare-assets' once, or try again later.")
             return False
 
         url = f"{self.constants.url_patcher_support_pkg.rstrip('/')}/{self.constants.patcher_support_pkg_version}/Universal-Binaries.dmg"
@@ -162,7 +168,7 @@ class PatcherSupportPkgMount:
         # -noverify) or the root volume.
         actual_sha256 = self._sha256_of_file(partial_path)
         if actual_sha256 != expected_sha256:
-            logging.error("- Downloaded Universal-Binaries.dmg doesn't match the pinned SHA256, discarding it")
+            logging.error("- Downloaded Universal-Binaries.dmg doesn't match the release SHA256, discarding it")
             logging.error(f"- Expected: {expected_sha256}")
             logging.error(f"- Got:      {actual_sha256}")
             partial_path.unlink(missing_ok=True)
@@ -227,7 +233,7 @@ class PatcherSupportPkgMount:
         msg = "Welcome to the DortaniaInternal Program, please provide the decryption key." if attempt == 0 else f"Decryption failed. {2 - attempt} attempts remaining."
         try:
             return applescript.AppleScript(
-                f'set theResult to display dialog "{subprocess_wrapper.applescript_quote(msg)}" default answer "" with hidden answer with title "OpenCore Legacy Patcher"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}\nreturn the text returned of theResult'
+                f'set theResult to display dialog "{subprocess_wrapper.applescript_quote(msg)}" default answer "" with hidden answer with title "{subprocess_wrapper.applescript_quote(self.constants.patcher_name)}"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}\nreturn the text returned of theResult'
             ).run()
         except Exception as e:
             logging.error(f"- Failed to prompt for decryption key: {e}")
@@ -235,10 +241,10 @@ class PatcherSupportPkgMount:
             return ""
 
     def _display_authentication_error(self) -> None:
-        applescript.AppleScript(f'display dialog "Failed to mount DortaniaInternal resources, please file an internal radar." with title "OpenCore Legacy Patcher"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}').run()
+        applescript.AppleScript(f'display dialog "Failed to mount DortaniaInternal resources, please file an internal radar." with title "{subprocess_wrapper.applescript_quote(self.constants.patcher_name)}"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}').run()
 
     def _display_too_many_attempts(self) -> None:
-        applescript.AppleScript(f'display dialog "Failed to mount DortaniaInternal resources, too many incorrect passwords." with title "OpenCore Legacy Patcher"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}').run()
+        applescript.AppleScript(f'display dialog "Failed to mount DortaniaInternal resources, too many incorrect passwords." with title "{subprocess_wrapper.applescript_quote(self.constants.patcher_name)}"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}').run()
 
     def _resources_already_available(self) -> bool:
         """Whether Universal-Binaries is genuinely usable, rather than merely present.

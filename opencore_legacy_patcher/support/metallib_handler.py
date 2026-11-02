@@ -18,8 +18,8 @@ from ..datasets import os_data
 # Packages built from github.com/pyquick/MetallibSupportPkg (which METALLIB_API_LINK below
 # points at) install themselves under the "Pyquick" vendor folder, see cli.py: build_pkg():
 #   f"/Library/Application Support/Pyquick/MetallibSupportPkg/{name}"
-# METALLIB_INSTALL_PATH_LEGACY is kept around purely so metallibs installed by older OCLP
-# releases (which sourced packages from the original Dortania-maintained project) are still
+# METALLIB_INSTALL_PATH_LEGACY is kept around purely so metallibs installed by older
+# releases of BridgePatcher or Dortania's OCLP (which sourced packages from the original Dortania-maintained project) are still
 # recognised, avoiding an unnecessary re-download.
 METALLIB_INSTALL_PATH:        str  = "/Library/Application Support/Pyquick/MetallibSupportPkg"
 METALLIB_INSTALL_PATH_LEGACY: str  = "/Library/Application Support/Dortania/MetallibSupportPkg"

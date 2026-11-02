@@ -29,7 +29,7 @@ from pathlib import Path
 from datetime import datetime
 from urllib.parse import urlparse, urlunparse
 
-# To allow easy importing of OpenCore Legacy Patcher's utilities
+# To allow easy importing of BridgePatcher's utilities
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from opencore_legacy_patcher.support import (

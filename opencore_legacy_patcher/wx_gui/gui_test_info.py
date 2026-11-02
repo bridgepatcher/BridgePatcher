@@ -1,5 +1,5 @@
 """
-gui_test_info.py: Dialog for displaying detailed explanations of all OCLP test levels and patches
+gui_test_info.py: Dialog for displaying detailed explanations of all BridgePatcher test levels and patches
 """
 
 import wx
@@ -148,7 +148,7 @@ OPENCORE BUILD LEVELS (PROFILES)
 4. 🧪 [LEVEL-C] EXPERIMENTAL SPOOF T2:
    • Purpose: Spoofs the SMBIOS to 'MacBookPro16,1' / 'MacBookPro16,2' (T2 Mac)
      to verify the behavior of the Tahoe installer and kernel.
-   • T2 Bypass: Bypasses the T2 abort block within the OCLP app.
+   • T2 Bypass: Bypasses the T2 abort block within BridgePatcher.
    • Includes all Level C boot-args (dart=0, agdpmod=ignore, cryptex=0).
 
 ------------------------------------------------------------

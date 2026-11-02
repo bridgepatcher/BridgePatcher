@@ -29,7 +29,7 @@ jobs:
 
             // Apple Silicon indicators
             const appleSilicon = /\b(apple\s*silicon|arm64|aarch64|M[1-9](\s*(pro|max|ultra))?)\b/i;
-            // OpenCore / OCLP indicators
+            // OpenCore / OCLP indicators (branding: keep - what users write)
             const openCore = /\b(open\s*core|oclp|opencore\s*legacy\s*patcher|hackintosh)\b/i;
 
             if (!appleSilicon.test(text) || !openCore.test(text)) {
@@ -55,7 +55,7 @@ jobs:
               '',
               '**OpenCore only works on Intel Macs.** Apple Silicon Macs (M1, M2, M3, M4 and later) ' +
               'use a completely different boot chain (iBoot instead of UEFI), so OpenCore and ' +
-              'OpenCore Legacy Patcher cannot boot or run on them.',
+              'BridgePatcher cannot boot or run on them.',
               '',
               'If you are on an Intel Mac and this reply was triggered by mistake, just let us know and we will reopen the discussion.',
             ].join('\n');

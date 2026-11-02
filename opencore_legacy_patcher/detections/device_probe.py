@@ -974,8 +974,8 @@ class Computer:
             return
 
         if sys_plist:
-            if "OpenCore Legacy Patcher" in sys_plist:
-                self.oclp_sys_version = sys_plist["OpenCore Legacy Patcher"]
+            if "OpenCore Legacy Patcher" in sys_plist:  # branding: keep - root patch manifest key, read by older versions
+                self.oclp_sys_version = sys_plist["OpenCore Legacy Patcher"]  # branding: keep - root patch manifest key, read by older versions
             if "Time Patched" in sys_plist:
                 self.oclp_sys_date = sys_plist["Time Patched"]
             if "Commit URL" in sys_plist:

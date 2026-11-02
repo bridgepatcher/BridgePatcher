@@ -36,7 +36,7 @@ MAX_CHANGED_LINES = 40
 MAX_FILES = 10
 CONTEXT_LINES = 25
 
-SYSTEM = """You fix errors that a static checker (compile() + pyflakes) found in OpenCore Legacy Patcher, a Python app that patches macOS on unsupported Macs.
+SYSTEM = """You fix errors that a static checker (compile() + pyflakes) found in BridgePatcher, a Python app that patches macOS on unsupported Macs.
 Each error makes the code fail when it runs (NameError, ImportError, SyntaxError, ...). Fix the cause with the smallest correct change:
 an undefined name is usually a typo, a missing import, a leftover line from an earlier edit (e.g. unreachable code after a return) or a variable that was renamed.
 Never silence the checker (no try/except around the error, no `# noqa`, no dummy definitions like `x = None` just to make a name exist), never change behaviour beyond the fix, no refactoring, keep the style.

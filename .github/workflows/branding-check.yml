@@ -1,0 +1,56 @@
+name: Branding check
+
+# Fails when this project is called by a name that isn't its own: Dortania's app name
+# ("OpenCore Legacy Patcher", "OpenCoreLegacyPatcher"), the abbreviation "OCLP", or its former
+# name ("OpenCore Legacy Patcher T2", "OCLP-T2") - in app strings, comments, scripts, docs,
+# issue forms and bot replies. Each finding is annotated on its line in "Files changed".
+# Rules: .github/scripts/branding_check.py. License Guard runs the same rules in its full audit.
+#
+# Allowed: naming Dortania's project ("Dortania's OpenCore Legacy Patcher"), copyright and
+# credit lines, OCLP-* identifiers (NVRAM keys, file names) and lines marked "branding: keep".
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: branding-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  branding:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # PRs: the merge commit and its first parent (the base branch tip), to tell
+          # which files the PR changes.
+          fetch-depth: 2
+          persist-credentials: false
+
+      # PRs run the base branch's rules, so a PR can't weaken the check it is judged by.
+      # Falls back to the PR's copy only while the base branch doesn't have the script yet.
+      - name: Get the rules
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          script=.github/scripts/branding_check.py
+          if [ -n "$BASE_REF" ] && git fetch --no-tags --depth=1 origin "$BASE_REF" 2>/dev/null \
+              && git show "FETCH_HEAD:$script" > "$RUNNER_TEMP/branding_check.py" 2>/dev/null; then
+            echo "Using $script from $BASE_REF"
+          else
+            cp "$script" "$RUNNER_TEMP/branding_check.py"
+          fi
+
+      - name: Check names
+        env:
+          # PRs: only files the PR changes fail the check, the rest show up as warnings.
+          CHANGED_SINCE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+        run: |
+          python3 -I "$RUNNER_TEMP/branding_check.py" ${CHANGED_SINCE:+--changed-since "$CHANGED_SINCE"}
