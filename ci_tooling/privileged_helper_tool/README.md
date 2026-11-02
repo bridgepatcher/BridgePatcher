@@ -76,7 +76,9 @@ cd ci_tooling/privileged_helper_tool
 The script asks for three things: a **new password** for the signing keychain (choose one that is *not* your login
 password), the same password again to unlock it, and once more so `codesign` may use the key.
 
-The identity goes into its own keychain, `~/Library/Keychains/oclp-signing.keychain-db` - **not** the login keychain.
+The identity goes into its own keychain, `~/Library/Keychains/bridgepatcher-signing.keychain-db` - **not** the login keychain.
+A keychain created before the rename to BridgePatcher (`oclp-signing.keychain-db`, certificate "OCLP Self Signed") keeps
+being used by the scripts and `Build-Project.command` as long as no `bridgepatcher-signing.keychain-db` exists.
 Only `codesign` may use the key, the keychain locks after 5 minutes idle and on sleep, and `Build-Project.command`
 locks it after every build.
 
@@ -91,7 +93,7 @@ new one.
 Check that exactly one identity is found:
 
 ```
-security find-identity -v -p codesigning | grep "OCLP Self Signed"
+security find-identity -v -p codesigning | grep "BridgePatcher Self Signed"
 ```
 
 If it shows up twice, `codesign` reports "ambiguous" - run `./create-signing-certificate.sh --force`, or sign with
@@ -126,7 +128,7 @@ packages. macOS asks for the signing keychain password when `codesign` first nee
 again afterwards). If you have more than one code signing identity, pick it explicitly:
 
 ```
-python3 Build-Project.command --application-signing-identity "OCLP Self Signed"
+python3 Build-Project.command --application-signing-identity "BridgePatcher Self Signed"
 ```
 
 A self signed *code signing* certificate cannot sign installer packages (that needs a "Developer ID Installer"
@@ -141,9 +143,9 @@ Only needed if you rebuild the helper without rebuilding the app. The app must a
 certificate, or the helper will refuse it (error 167).
 
 ```
-security unlock-keychain ~/Library/Keychains/oclp-signing.keychain-db
-codesign -f -s "OCLP Self Signed" --options runtime io.github.bridgepatcher.privileged-helper
-security lock-keychain ~/Library/Keychains/oclp-signing.keychain-db
+security unlock-keychain ~/Library/Keychains/bridgepatcher-signing.keychain-db
+codesign -f -s "BridgePatcher Self Signed" --options runtime io.github.bridgepatcher.privileged-helper
+security lock-keychain ~/Library/Keychains/bridgepatcher-signing.keychain-db
 codesign --verify --strict -vv io.github.bridgepatcher.privileged-helper
 sudo ./install.sh                      # refuses unsigned/ad-hoc binaries, sets root:wheel 4755
 ```
@@ -153,7 +155,7 @@ macOS 10.15 and older: add `--timestamp=none` to `codesign`.
 Signing the app by hand works the same way, but needs `--deep`, the hardened runtime and the entitlements:
 
 ```
-codesign -f --deep -s "OCLP Self Signed" --options runtime \
+codesign -f --deep -s "BridgePatcher Self Signed" --options runtime \
   --entitlements ../entitlements/entitlements.plist ../../dist/BridgePatcher.app
 ```
 
@@ -176,8 +178,8 @@ right-click > Open, or on macOS 15 and newer System Settings > Privacy & Securit
 Keep the key off the machine between builds (optional, recommended):
 
 ```
-./create-signing-certificate.sh --export /Volumes/USB/oclp-signing.p12   # offers to delete the keychain
-./create-signing-certificate.sh --import /Volumes/USB/oclp-signing.p12   # before the next build
+./create-signing-certificate.sh --export /Volumes/USB/bridgepatcher-signing.p12   # offers to delete the keychain
+./create-signing-certificate.sh --import /Volumes/USB/bridgepatcher-signing.p12   # before the next build
 ```
 
 The SHA-1 stays the same after export/import, so app and helper keep working.

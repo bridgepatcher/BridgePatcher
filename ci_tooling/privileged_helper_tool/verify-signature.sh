@@ -15,16 +15,29 @@
 #
 # Usage:
 #   ./verify-signature.sh [app] [helper] [expected SHA-1]
-#   OCLP_CERT_SHA1=<sha1> ./verify-signature.sh
+#   BRIDGEPATCHER_CERT_SHA1=<sha1> ./verify-signature.sh
+#   (OCLP_CERT_SHA1 / OCLP_CERT_NAME / OCLP_CLIENT_ID: names before the rename, still read)
 # ------------------------------------------------------
 
-CERT_NAME="${OCLP_CERT_NAME:-OCLP Self Signed}"
-CLIENT_ID="${OCLP_CLIENT_ID:-com.bridgepatcher.bridgepatcher}"
-SIGNING_KEYCHAIN="${HOME}/Library/Keychains/oclp-signing.keychain-db"
+CERT_NAME="${BRIDGEPATCHER_CERT_NAME:-${OCLP_CERT_NAME:-BridgePatcher Self Signed}}"  # OCLP_*: legacy variable names
+CLIENT_ID="${BRIDGEPATCHER_CLIENT_ID:-${OCLP_CLIENT_ID:-com.bridgepatcher.bridgepatcher}}"  # OCLP_*: legacy variable names
+SIGNING_KEYCHAIN="${HOME}/Library/Keychains/bridgepatcher-signing.keychain-db"
+# Keychain and certificate name of setups from before the rename to BridgePatcher
+LEGACY_SIGNING_KEYCHAIN="${HOME}/Library/Keychains/oclp-signing.keychain-db"
+LEGACY_CERT_NAME="OCLP Self Signed"
+if [[ ! -f "$SIGNING_KEYCHAIN" && -f "$LEGACY_SIGNING_KEYCHAIN" ]]; then
+    SIGNING_KEYCHAIN="$LEGACY_SIGNING_KEYCHAIN"
+fi
+# No name given and the new one isn't in the keychain
+certNameGiven="${BRIDGEPATCHER_CERT_NAME:-$OCLP_CERT_NAME}"  # OCLP_*: legacy variable names
+if [[ -z "$certNameGiven" && -f "$SIGNING_KEYCHAIN" ]] \
+   && ! /usr/bin/security find-certificate -c "$CERT_NAME" "$SIGNING_KEYCHAIN" >/dev/null 2>&1; then
+    CERT_NAME="$LEGACY_CERT_NAME"
+fi
 
-appPath="${1:-/Library/Application Support/albert-mueller/OpenCore-Patcher-T2/BridgePatcher.app}"
+appPath="${1:-/Library/Application Support/albert-mueller/BridgePatcher/BridgePatcher.app}"
 helperPath="${2:-/Library/PrivilegedHelperTools/com.bridgepatcher.privileged-helper}"
-expectedSHA1="${3:-$OCLP_CERT_SHA1}"
+expectedSHA1="${3:-${BRIDGEPATCHER_CERT_SHA1:-$OCLP_CERT_SHA1}}"  # OCLP_*: legacy variable names
 expectedSHA1="${expectedSHA1:u}"
 
 failed=0
@@ -59,7 +72,7 @@ echo
 echo "Leaf certificate SHA-1"
 echo "  app:      ${appSHA1:-<none>}"
 echo "  helper:   ${helperSHA1:-<none>}"
-echo "  expected: ${expectedSHA1:-<unknown - pass it as 3rd argument or OCLP_CERT_SHA1>}"
+echo "  expected: ${expectedSHA1:-<unknown - pass it as 3rd argument or BRIDGEPATCHER_CERT_SHA1>}"
 echo
 
 [[ -z "$appSHA1" || "$appSHA1" != "$helperSHA1" ]] && \
