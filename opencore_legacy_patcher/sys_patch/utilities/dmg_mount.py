@@ -231,7 +231,7 @@ class PatcherSupportPkgMount:
         msg = "Welcome to the DortaniaInternal Program, please provide the decryption key." if attempt == 0 else f"Decryption failed. {2 - attempt} attempts remaining."
         try:
             return applescript.AppleScript(
-                f'set theResult to display dialog "{subprocess_wrapper.applescript_quote(msg)}" default answer "" with hidden answer with title "OpenCore Legacy Patcher"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}\nreturn the text returned of theResult'
+                f'set theResult to display dialog "{subprocess_wrapper.applescript_quote(msg)}" default answer "" with hidden answer with title "{subprocess_wrapper.applescript_quote(self.constants.patcher_name)}"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}\nreturn the text returned of theResult'
             ).run()
         except Exception as e:
             logging.error(f"- Failed to prompt for decryption key: {e}")
@@ -239,10 +239,10 @@ class PatcherSupportPkgMount:
             return ""
 
     def _display_authentication_error(self) -> None:
-        applescript.AppleScript(f'display dialog "Failed to mount DortaniaInternal resources, please file an internal radar." with title "OpenCore Legacy Patcher"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}').run()
+        applescript.AppleScript(f'display dialog "Failed to mount DortaniaInternal resources, please file an internal radar." with title "{subprocess_wrapper.applescript_quote(self.constants.patcher_name)}"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}').run()
 
     def _display_too_many_attempts(self) -> None:
-        applescript.AppleScript(f'display dialog "Failed to mount DortaniaInternal resources, too many incorrect passwords." with title "OpenCore Legacy Patcher"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}').run()
+        applescript.AppleScript(f'display dialog "Failed to mount DortaniaInternal resources, too many incorrect passwords." with title "{subprocess_wrapper.applescript_quote(self.constants.patcher_name)}"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}').run()
 
     def _resources_already_available(self) -> bool:
         """Whether Universal-Binaries is genuinely usable, rather than merely present.

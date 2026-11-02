@@ -101,7 +101,7 @@ class HardwarePatchsetValidation(StrEnum):
     NVDA_DRV_MISSING              = "Validation: nvda_drv(_vrl) variable missing"
     PATCHING_NOT_POSSIBLE         = "Validation: Patching not possible"
     UNPATCHING_NOT_POSSIBLE       = "Validation: Unpatching not possible"
-    REPATCHING_NOT_SUPPORTED      = "Validation: Revert first to update or reinstall OCLP patches"
+    REPATCHING_NOT_SUPPORTED      = "Validation: Revert first to update or reinstall BridgePatcher patches"
     ROOT_VOLUME_DIRTY             = "Validation: The system volume was modified outside of the patcher. Revert the root patches, restart your Mac and patch again."
 
 
@@ -134,7 +134,7 @@ WIRELESS_PATCHSET_KEYS: set = {
 # Metadata keys written alongside the patchsets.
 # Keep in sync with 'SysPatchHelpers.generate_patchset_plist()'.
 MANIFEST_METADATA_KEYS: set = {
-    "OpenCore Legacy Patcher",
+    "OpenCore Legacy Patcher",  # branding: keep - root patch manifest key, read by older versions
     "PatcherSupportPkg",
     "Time Patched",
     "Commit URL",
@@ -338,7 +338,7 @@ class HardwarePatchsetDetection:
         if self._xnu_major < os_data.big_sur.value:
             return False
 
-        # OpenCore Legacy Patcher exposes whether it patched APFS.kext to allow for FileVault
+        # BridgePatcher exposes whether it patched APFS.kext to allow for FileVault
         nvram = utilities.get_nvram("OCLP-Settings", "4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102", decode=True)
         if nvram:
             if "-allow_fv" in nvram:
@@ -366,7 +366,7 @@ class HardwarePatchsetDetection:
         # URL, so also compare the versions. Merging a newer payload set over an older
         # one leaves files of both on the volume.
         for key, running in [
-            ("OpenCore Legacy Patcher", f"v{self._constants.patcher_version}"),
+            ("OpenCore Legacy Patcher", f"v{self._constants.patcher_version}"),  # branding: keep - root patch manifest key, read by older versions
             ("PatcherSupportPkg",       f"v{self._constants.patcher_support_pkg_version}"),
         ]:
             recorded = oclp_plist.get(key)
@@ -410,7 +410,7 @@ class HardwarePatchsetDetection:
             return False
 
         if "Broken" in str(info.get("Sealed", "")):
-            logging.error("The system volume's seal is broken without OpenCore Legacy Patcher patches recorded, unpatching is required")
+            logging.error("The system volume's seal is broken without BridgePatcher patches recorded, unpatching is required")
             return True
 
         return False

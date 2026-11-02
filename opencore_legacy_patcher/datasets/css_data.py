@@ -1,7 +1,7 @@
 """
 css_data.py: CSS data for project's update window
 
-Comprised of https://github.com/sindresorhus/github-markdown-css and additions for OCLP
+Comprised of https://github.com/sindresorhus/github-markdown-css and additions for BridgePatcher
 """
 
 

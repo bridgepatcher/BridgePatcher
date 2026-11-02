@@ -222,7 +222,7 @@ DerivedData/
 build/
 
 # ==========================================
-# OCLP-Specific ones (CRITICAL)
+# BridgePatcher-specific ones (CRITICAL)
 # ==========================================
 .DS_Store
 OCLP-GUI.command

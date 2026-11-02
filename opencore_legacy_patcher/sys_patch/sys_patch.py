@@ -347,7 +347,7 @@ class PatchSysVolume:
         self._delete_nonmetal_enforcement()
         self._delete_nonmetal_defaults()
 
-        # Clean up any lingering OCLP manifests across root mount and Data volume
+        # Clean up any lingering root patch manifests across root mount and Data volume
         for manifest_path in [
             Path("/Library/Application Support/Dortania/OpenCore-Legacy-Patcher.plist"),
             Path("/Library/Application Support/Dortania/OpenCore-Legacy-Patcher-Lifecycle.plist"),

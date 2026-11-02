@@ -65,7 +65,7 @@ class GeminiWebView(wx.Frame):
     WKNavigationAction.shouldPerformDownload() inside its
     WKNavigationDelegate callback, but that property was only added in
     macOS 11.3 (Big Sur) - see WebKit's WKNavigationAction.h. On older
-    hosts (e.g. macOS 10.13 High Sierra, still a supported OCLP host
+    hosts (e.g. macOS 10.13 High Sierra, still a supported BridgePatcher host
     OS) the call raises before the callback invokes its
     decisionHandler, which PyObjC then reports on the object's next
     dealloc as:
@@ -467,7 +467,7 @@ class CheckProperties:
             # which is what an earlier revision got wrong: it was part of the condition above, so
             # enabling the checkbox skipped this block entirely and the `allow_oc_everywhere is True`
             # fallthrough further down returned True even with Host Model selected (custom_model
-            # empty). That toggle means "let me build for a Mac that doesn't need OCLP" - it cannot
+            # empty). That toggle means "let me build for a Mac that doesn't need BridgePatcher" - it cannot
             # conjure a build target for a machine that isn't a Mac at all. A Host Model build on
             # such a host runs against the host's own model, which smbios_data has no entry for,
             # and dies with a bare KeyError in efi_builder/firmware.py's _dual_dp_handling() -
@@ -538,7 +538,7 @@ class CheckProperties:
         #
         # This used to additionally require allow_oc_everywhere ("Allow native models"), which
         # was wrong twice over. That toggle means "let me build for a Mac that doesn't need
-        # OCLP" - a statement about BUILD targets, unrelated to patching this host's own root
+        # BridgePatcher" - a statement about BUILD targets, unrelated to patching this host's own root
         # volume - and leaving it at its default (False) left the Root Patching button greyed
         # out on every Hackintosh, with no hint that an unrelated checkbox in OpenCore settings
         # was what unlocked it. The build side is untouched: host_can_build() still refuses a
