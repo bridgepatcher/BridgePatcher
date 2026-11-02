@@ -59,6 +59,7 @@ fixes the following vulnerabilities:
 - an attacker could set up a fake site or a typosquatting site claiming to be the T2 team or Dortania team to spread malware by not warning that their site is unofficial
 Impact: an attacker could trick users into trusting a typosquatting site whose installer has been tampered and they added malware to it without any warning. This is fixed by when installing the application, it checks if the SHA256 certificates match the official ones and if not, display a warning that it could be malicious like this:
 <img width="532" height="460" alt="Bildschirmfoto 2026-10-31 um 17 37 34" src="https://github.com/user-attachments/assets/21a4467f-2240-4f45-8710-f4387c150528" />
+
 - fixes a vulnerability where the updater doesn’t check the SHA256 certificats
 Impact: a half downloaded update could still apply, or worse, an attacker could hijack the DNS server to launch MiTM attacks and redirect the updater to a malicious website who is pretending to be GitHub. This vulnerability is fixed by ensuring that:
 1. Before offering the update, the updater checks if the SHA256 certificates are published
@@ -73,6 +74,7 @@ Impact: an attacker could launch a MiTM attack by compromising the DNS server to
 
 - fixes a vulnerability that got reintroduced in 1900019.17 and 1900019.18 where an attacker could create an identical password prompt to the patcher's own in a malicious application to launch a phishing attack (thx @gandolf243):
 <img width="418" height="219" alt="image" src="https://github.com/user-attachments/assets/50d1ac16-24df-46ed-b1b8-41f613138bf2" />
+
 Impact: an attacker could abuse this vulnerable password prompt to impersonate the patcher to launch a phishing attack, which could lead to an attacker to gain access to the victim's computer. This vulnerability is fixed by using the macOS's password prompt instead to ensure an attacker can't impersonate the application to launch attacks.
 
 
