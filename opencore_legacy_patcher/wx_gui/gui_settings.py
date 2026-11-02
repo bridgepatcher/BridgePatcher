@@ -548,16 +548,39 @@ Hardware Information:
             if child.GetLabel() == "License":
                 title = child
                 break
-        if self.constants.launcher_script or not self.constants.launcher_binary:
-            license_path = Path(self.constants.current_path) / Path("LICENSE.txt")
-        else:
-            license_path = Path(self.constants.current_path) / Path("Resources") / Path("LICENSE.txt")
-        with open(str(license_path), "r") as f:
-            license = f.read()
+        license = self._read_license()
         self.license_view = wx.TextCtrl(panel, value=license, pos=(-1, title.GetPosition()[1] + 30), size=(712, 508),
                                      style=wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_RICH2 | wx.BORDER_NONE | wx.HSCROLL | wx.VSCROLL | wx.TE_DONTWRAP)
         self.license_view.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
         self.license_view.SetScrollbar(wx.HORIZONTAL, 0, 600, 1200)
+    def _read_license(self) -> str:
+        """
+        Locate the LICENSE.txt shipped with the patcher.
+
+        Not based on current_path: in the built app that is first Contents/Frameworks
+        and, once payloads.dmg is mounted, a temporary directory (reroute_payloads.py),
+        so "<current_path>/Resources/LICENSE.txt" never existed. PyInstaller puts the
+        file in Contents/Resources and links it into Contents/Frameworks, next to
+        payloads.dmg; from source it sits in the repository root. Both are
+        original_path, with Contents/Resources checked as well in case the link is missing.
+        """
+        candidates = [Path(self.constants.original_path) / "LICENSE.txt"]
+        if self.constants.launcher_binary and not self.constants.launcher_script:
+            candidates.append(Path(self.constants.launcher_binary).resolve().parent.parent / "Resources" / "LICENSE.txt")
+
+        for license_path in candidates:
+            try:
+                with open(license_path, "r", encoding="utf-8") as f:
+                    return f.read()
+            except OSError:
+                continue
+
+        logging.error(f"LICENSE.txt not found, looked in: {', '.join(str(c) for c in candidates)}")
+        return (
+            "LICENSE.txt could not be found in this copy of BridgePatcher.\n\n"
+            "The license is available at https://github.com/bridgepatcher/BridgePatcher/blob/main/LICENSE.txt"
+        )
+
     def _populate_oc_build_override(self, panel: wx.Panel) -> None:
         oc_build_box: wx.Choice = None
         for child in panel.GetChildren():
