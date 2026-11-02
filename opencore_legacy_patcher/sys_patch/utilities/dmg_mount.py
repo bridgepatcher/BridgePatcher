@@ -31,8 +31,10 @@ class PatcherSupportPkgMount:
         # HFS conversion (replace("/", ":")[1:]) produced a path whose first component
         # AppleScript reads as a volume name, so it never resolved - see
         # subprocess_wrapper.applescript_icon_clause().
+        # Only used for the DortaniaInternal 'display dialog' prompts below. Administrator
+        # authentication for the mounts goes through Authorization Services (mount_dmg()),
+        # which shows its own system dialog, so there is no admin prompt icon to set here.
         self.icon_path = self.constants.app_icon_path
-        subprocess_wrapper.set_admin_prompt_icon(self.icon_path)
 
     def _run_hdiutil(self, dmg_path: Path, mount_point: Path, shadow_path: Path = None, password: str = None, retry_on_auth_error: bool = False) -> subprocess.CompletedProcess:
         """Helper to standardize hdiutil execution using -stdinpass, with elevation on failure"""
