@@ -35,6 +35,10 @@ BRIDGEPATCHER_PRIVILEGED_HELPER_EXPECTED_MODE = 0o4755
 # convenience/exposure trade-off, not a secure-memory guarantee; the process already
 # held the password transiently for the sudo-based DMG mounts before this change.
 _sudo_elevation_failed = False
+# Set once the helper has reported a non-transient failure (signing/certificates), so we
+# stop invoking it for every single command of the session. run_as_root() declares this
+# 'global' and reads it before ever assigning it, so it must exist at module level.
+_privileged_helper_unusable = False
 
 
 class PrivilegedHelperErrorCodes(enum.IntEnum):
@@ -406,6 +410,44 @@ def applescript_quote(value) -> str:
     text = text.replace("\\", "\\\\").replace('"', '\\"')
     text = text.replace("\r", "\\r").replace("\n", "\\n")
     return text
+
+
+def applescript_icon_clause(icon_path) -> str:
+    """
+    Build the 'with icon POSIX file "..."' fragment for a 'display dialog' call.
+
+    Two things this deliberately does NOT do, both of which used to break dialogs:
+
+      1. It does not hand AppleScript an HFS path. The previous form,
+         str(icon_path).replace("/", ":")[1:], produced "Users:me:...icns" - an HFS
+         path whose first component is read as the VOLUME name, so it resolved
+         against a non-existent volume "Users". 'with icon POSIX file "/Users/..."'
+         takes the POSIX path as-is.
+      2. It does not reference a file that isn't there. A missing icon makes
+         'display dialog' raise, and every caller wraps that in a try/except -
+         so a cosmetic problem silently swallows the whole dialog. Returning an
+         empty clause loses the icon and keeps the dialog.
+
+    Returns:
+        str: the clause including its leading space, or "" if no usable icon exists.
+    """
+    try:
+        path = Path(icon_path)
+        if not path.is_file():
+            logging.warning(f"Dialog icon missing, continuing without it: {path}")
+            return ""
+    except Exception:
+        return ""
+
+    # A quote or backslash would break out of the AppleScript string literal.
+    # Nothing in our own bundle contains either; drop the icon rather than
+    # building a script we cannot escape correctly.
+    if '"' in str(path) or "\\" in str(path):
+        logging.warning("Dialog icon path contains characters that cannot be quoted, continuing without it")
+        return ""
+
+    return f' with icon POSIX file "{path}"'
+
 
 # How long a single 'hdiutil attach' may take before it is treated as hung. Attaching
 # with -noverify does not read the whole image, so even the ~1 GB Universal-Binaries.dmg
