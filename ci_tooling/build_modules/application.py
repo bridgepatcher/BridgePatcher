@@ -8,9 +8,9 @@ import base64
 import json
 from pathlib import Path
 
-from opencore_legacy_patcher.volume import generate_copy_arguments
-from opencore_legacy_patcher import constants
-from opencore_legacy_patcher.support import subprocess_wrapper, image_handler
+from bridgepatcher.volume import generate_copy_arguments
+from bridgepatcher import constants
+from bridgepatcher.support import subprocess_wrapper, image_handler
 
 
 class GenerateApplication:
@@ -269,7 +269,7 @@ class GenerateApplication:
         """
         repository_root = Path(__file__).resolve().parents[2]
         readme_file = repository_root / "README.md"
-        about_file_path = repository_root / "opencore_legacy_patcher" / "wx_gui" / "gui_about.py"
+        about_file_path = repository_root / "bridgepatcher" / "wx_gui" / "gui_about.py"
         if not readme_file.exists():
             raise FileNotFoundError(f"README.md not found: {readme_file}")
         if not about_file_path.exists():
@@ -318,7 +318,7 @@ class GenerateApplication:
         Remove hardcoded README from the about frame logic
         """
         repository_root = Path(__file__).resolve().parents[2]
-        about_file_path = repository_root / "opencore_legacy_patcher" / "wx_gui" / "gui_about.py"
+        about_file_path = repository_root / "bridgepatcher" / "wx_gui" / "gui_about.py"
         with open(about_file_path, "w", encoding="utf-8") as f:
             f.write(about_file)
 

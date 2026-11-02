@@ -10,7 +10,7 @@
 	<string>com.bridgepatcher.bridgepatcher.update-check</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/Library/Application Support/albert-mueller/OpenCore-Patcher-T2/BridgePatcher.app/Contents/MacOS/BridgePatcher</string>
+		<string>/Library/Application Support/albert-mueller/BridgePatcher/BridgePatcher.app/Contents/MacOS/BridgePatcher</string>
 		<string>--check_updates</string>
 	</array>
 	<key>LimitLoadToSessionType</key>

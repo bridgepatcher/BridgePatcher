@@ -244,7 +244,7 @@ from ci_tooling.build_modules import (
     hash as hash_pkg,
     print_scripts
 )
-from opencore_legacy_patcher import constants
+from bridgepatcher import constants
 
 
 # One more with --legacy-installer (signing OpenCore-Patcher-T2.pkg), set in main()
@@ -302,7 +302,11 @@ def available_codesigning_identities() -> list:
     return identities
 
 
-SIGNING_KEYCHAIN = Path.home() / "Library/Keychains/oclp-signing.keychain-db"
+SIGNING_KEYCHAIN = Path.home() / "Library/Keychains/bridgepatcher-signing.keychain-db"
+# Keychain name of setups from before the rename to BridgePatcher, used while it is the one that exists
+LEGACY_SIGNING_KEYCHAIN = Path.home() / "Library/Keychains/oclp-signing.keychain-db"
+if not SIGNING_KEYCHAIN.exists() and LEGACY_SIGNING_KEYCHAIN.exists():
+    SIGNING_KEYCHAIN = LEGACY_SIGNING_KEYCHAIN
 
 
 def lock_signing_keychain() -> None:

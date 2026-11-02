@@ -16,7 +16,7 @@ logging.basicConfig(
     stream=sys.stdout
 )
 
-from opencore_legacy_patcher import main
+from bridgepatcher import main
 
 if __name__ == '__main__':
     try:

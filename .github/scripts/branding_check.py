@@ -10,12 +10,13 @@ promote this fork, so the app, its scripts, docs, issue forms and bot replies mu
 Naming Dortania's project ("Dortania's OpenCore Legacy Patcher"), copyright and credit lines and the
 licence itself are fine.
 
-Technical identifiers keep their upstream names and are not matched, because changing them would
-break existing installs: NVRAM keys (OCLP-Version, OCLP-Settings, ...), file names
-(OpenCore-Legacy-Patcher.plist), bundle IDs (com.dortania.opencore-legacy-patcher), the Python
-package (opencore_legacy_patcher) and lowercase names (oclp_version). A line where the name is
-such an identifier anyway (e.g. the "OpenCore Legacy Patcher" key of the root patch manifest) can be
-marked with a "branding: keep" comment and a short reason.
+Technical identifiers don't use these names either: NVRAM keys are BridgePatcher-*, the root patch
+manifest is BridgePatcher.plist, the Python package is bridgepatcher, and so on. The old identifiers
+(OCLP-Version, OpenCore-Legacy-Patcher.plist, opencore_legacy_patcher, oclp_*, com.dortania.
+opencore-legacy-patcher, ...) may only appear where legacy installs are found, read, migrated or
+cleaned up. Such lines say so: they contain "legacy", "before the rename", "former" or "pre-rename"
+(the naming used for those constants and comments), or a "branding: legacy" / "branding: keep"
+comment with a short reason.
 
 Used by License Guard (full audit with PR comment / issue) and by the Branding check workflow
 (fast, inline annotations on the offending lines).
@@ -83,11 +84,19 @@ UPSTREAM_NAME_OK_RE = re.compile(
     r"|\b(?:modified|written|created|developed|ported) by\b")
 
 # 3) The abbreviation "OCLP" on its own. Not matched: OCLP-* / OCLP_* identifiers (NVRAM keys,
-#    OCLP_UUID), lowercase identifiers (oclp_version) and paths. Names of other people's forks
+#    OCLP_UUID), lowercase identifiers (booted_patcher_version) and paths. Names of other people's forks
 #    (OCLP-Plus, OCLP-Mod, OCLP-R) and the signing certificate's name are removed first.
 OCLP_RE = re.compile(r"(?<![\w./$-])OCLP(?![\w-])")
 OCLP_OTHER_RE = re.compile(r"(?i)OCLP[ -](?:Plus|Mod|R|GUI)\b|OCLP Self Signed")
 OCLP_OK_RE = re.compile(r"(?i)dortania|upstream|formerly|former names?|früher|ehemals|typosquat")
+
+# 4) Old technical identifiers: NVRAM keys (OCLP-Version), file and directory names
+#    (OpenCore-Legacy-Patcher.plist), the old Python package, oclp_* / oclp-* names and
+#    identifiers containing "opencore-legacy-patcher". Fine where legacy installs are handled.
+IDENT_RE = re.compile(r"(?i)(?<![\w])OCLP[-_][\w-]*|(?<![\w])oclp\w*|opencore[-_ ]?legacy[-_]patcher")
+IDENT_OTHER_RE = re.compile(r"(?i)OCLP[ -](?:Plus|Mod|R|GUI)\b|OCLP[- ]?T2|opencore[-_ ]legacy[-_ ]patcher[-_ ]?t2")
+IDENT_OK_RE = re.compile(r"(?i)legacy|before the rename|pre-rename|former|früher|ehemals|dortania|typosquat|upstream"
+                         r"|branding:\s*(?:keep|legacy)")
 
 RULES = {
     "old": ("Former project name (OpenCore Legacy Patcher T2 / OCLP-T2)",
@@ -97,7 +106,11 @@ RULES = {
                  "(e.g. \"Dortania's OpenCore Legacy Patcher 2.0.0\"). Copyright/credit lines are fine."),
     "abbrev": ("Abbreviation OCLP used for this project",
                "Say BridgePatcher, or \"Dortania's OCLP\" if Dortania's project is meant. "
-               "Identifiers like OCLP-Version are fine."),
+               "Identifiers like OCLP-Version are only fine where legacy installs are handled."),
+    "ident": ("Old technical identifier (OCLP-*, oclp_*, OpenCore-Legacy-Patcher*, opencore_legacy_patcher)",
+              "Use the BridgePatcher name (constants.NVRAM_PREFIX, constants.ROOT_PATCH_MANIFEST, bridgepatcher, ...). "
+              "If the line finds, reads, migrates or removes something of a legacy install, say so on the line "
+              "(e.g. a LEGACY_* constant or a \"branding: legacy\" comment)."),
 }
 
 
@@ -124,6 +137,10 @@ def scan_text(text):
             hits["upstream"].append((n, line))
         if OCLP_RE.search(OCLP_OTHER_RE.sub(" ", bare)) and not OCLP_OK_RE.search(bare):
             hits["abbrev"].append((n, line))
+        # Not reported again where one of the rules above already did
+        elif (IDENT_RE.search(IDENT_OTHER_RE.sub(" ", bare)) and not IDENT_OK_RE.search(bare)
+              and not (UPSTREAM_NAME_RE.search(bare) and not UPSTREAM_NAME_OK_RE.search(bare))):
+            hits["ident"].append((n, line))
     return {k: v for k, v in hits.items() if v}
 
 

@@ -1,0 +1,728 @@
+"""
+gui_update.py: Generate UI for updating the patcher
+"""
+
+import os
+import wx
+import sys
+import time
+import atexit
+import shutil
+import tempfile
+import logging
+import threading
+import subprocess
+
+from pathlib import Path
+
+from .. import constants
+
+from ..wx_gui import (
+    gui_download,
+    gui_support
+)
+from ..support import (
+    network_handler,
+    updates,
+    subprocess_wrapper,
+    global_settings
+)
+
+
+class UpdateFrame(wx.Frame):
+    """
+    Create a frame for updating the patcher
+    """
+    def __init__(self, parent: wx.Frame, title: str, global_constants: constants.Constants, screen_location: wx.Point, url: str = "", version_label: str = "", changelog: str = "", mandatory: bool = False, sha256: str = "") -> None:
+        # CORRECTED: Always call the super-class constructor first to register the window correctly
+        super().__init__(parent, title=title, size=(350, 300), style=wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX))
+
+        logging.info("Initializing Update Frame")
+
+        # Handle the parent/child UI logic after the super-class is initialized
+        self.parent: wx.Frame = parent
+        # Remember which children were actually visible before hiding them, so a
+        # cancelled update restores exactly that state instead of un-hiding widgets
+        # that were deliberately hidden by the caller.
+        self._hidden_children: list = []
+        if parent:
+            visible_children = [child for child in parent.GetChildren() if child.IsShown()]
+            # Only plain widgets get hidden and restored later. Top-level windows owned
+            # by the parent (e.g. the Settings sheet the manual "Check for updates"
+            # came from) must not be re-shown with Show(): a window-modal sheet comes
+            # back as a detached window behind the main menu. The user left them by
+            # choosing to update, so close them for good - a cancelled update returns
+            # to the main menu, not to Settings.
+            for child in visible_children:
+                if isinstance(child, wx.TopLevelWindow):
+                    logging.info(f"Closing {child.__class__.__name__} '{child.GetTitle()}' before updating")
+                    child.Hide()
+                    wx.CallAfter(self._destroy_window, child)
+                    continue
+                self._hidden_children.append(child)
+                child.Hide()
+            parent.Hide()
+        else:
+            gui_support.GenerateMenubar(self, global_constants).generate()
+
+        self.title: str = title
+        self.constants: constants.Constants = global_constants
+        # Set by the automatic check once the user's snooze has run out, see
+        # updates.snooze_has_expired(): the update can no longer be postponed by
+        # cancelling the download or the administrator prompt.
+        self.mandatory: bool = mandatory
+        self.screen_location: wx.Point = screen_location
+        if parent:
+            self.parent.Centre()
+            self.screen_location = parent.GetScreenPosition()
+        else:
+            self.Centre()
+            self.screen_location = self.GetScreenPosition()
+
+        if url == "" or version_label == "":
+            dict = updates.CheckBinaryUpdates(self.constants).check_binary_updates()
+            if dict:
+                version_label = dict["Version"]
+                url = dict["Link"]
+                sha256 = dict.get("SHA256") or ""
+                if not changelog:
+                    changelog = dict.get("Changelog") or ""
+            else:
+                logging.error("Failed to receive update info")
+                logging.exception("Stack Trace:")
+                wx.MessageBox("Failed to get update info", "Critical Error")
+                sys.exit(3)
+        self.version_label = version_label
+        self.url = url
+        # SHA256 the release published for this package when the update was offered
+        # (updates.py only offers updates that have one). Checked again before the
+        # download starts and against the downloaded file before installing.
+        self.expected_sha256: str = str(sha256 or "").lower()
+        # Release notes of the version being installed, shown in the download window.
+        # Same cut as gui_main_menu.py: the asset table at the end is not useful here.
+        self.changelog = str(changelog).split("## Asset Information")[0] if changelog else ""
+
+        # Our own releases ship a raw "BridgePatcher.pkg" asset (or, before the rename,
+        # "OpenCore-Patcher-T2.pkg" - see updates.py),
+        # while the upstream Dortania nightly.link fallback (gui_macos_configeration.py)
+        # still ships the original "OpenCore-Patcher.pkg" zipped up - keep expecting
+        # whichever one this URL actually points to instead of hardcoding one name.
+        #
+        # The update is downloaded into its own private temp directory instead of
+        # self.constants.payload_path. payload_path only becomes writable once
+        # reroute_payloads.py has mounted payloads.dmg with a shadow overlay, and
+        # this path used to be computed here in __init__ BEFORE the
+        # is_unpack_finished() wait further down - so whenever the update window
+        # opened before the background mount had finished (or the mount failed /
+        # the admin prompt was cancelled), payload_path still pointed into the
+        # app bundle itself (.../BridgePatcher.app/Contents/Frameworks/payloads).
+        # For the installed copy under /Library/Application Support that
+        # directory is root-owned and does not exist, so mkdir() failed with
+        # "[Errno 13] Permission denied" and the download aborted with
+        # "Could not prepare working directory". The update package has nothing
+        # to do with the payloads, so it should not depend on that mount at all.
+        self.update_work_dir = Path(tempfile.mkdtemp(prefix=f"{constants.APP_NAME}-update-"))
+        atexit.register(shutil.rmtree, self.update_work_dir, ignore_errors=True)
+        self.pkg_download_path = self.update_work_dir / ("OpenCore-Patcher.pkg" if self.url.endswith(".zip") else constants.INSTALLER_PKG_NAME)
+        # The download is written here and _extract_update() reads it back from the
+        # same path. These used to be two different hardcoded names
+        # ("OpenCore-Patcher-T2.pkg.zip" vs "OpenCore-Patcher.pkg.zip"), so the ZIP
+        # route could never extract and then failed in the installer step.
+        self.download_path = Path(f"{self.pkg_download_path}.zip") if self.url.endswith(".zip") else self.pkg_download_path
+        # Filled in by the worker threads, read by _workflow_thread()
+        self._install_status: str = ""
+        self._install_error: str = ""
+
+        logging.info(f"Update URL: {url}")
+        logging.info(f"Update Version: {version_label}")
+
+        self.frame: wx.Frame = wx.Frame(
+            parent=parent if parent else self,
+            title=self.title,
+            size=(350, 130),
+            pos=self.screen_location,
+            style=wx.DEFAULT_FRAME_STYLE ^ wx.RESIZE_BORDER ^ wx.MAXIMIZE_BOX
+        )
+
+        # The shared download dialog owns download progress and cancellation.
+        try:
+            self.title_label = wx.StaticText(self.frame, label="Preparing download...", pos=(-1, 1))
+            self.title_label.SetFont(gui_support.font_factory(19, wx.FONTWEIGHT_BOLD))
+            self.title_label.Centre(wx.HORIZONTAL)
+        except Exception as e:
+            logging.error("Failed to download the update")
+            logging.exception("Stack Trace:")
+            wx.MessageBox("Failed to download the update", "Critical Error")
+            sys.exit(3)
+
+        self.progress_bar = wx.Gauge(self.frame, range=100, pos=(10, 50), size=(300, 20))
+        self.progress_bar.Centre(wx.HORIZONTAL)
+        self.progress_bar_animation = gui_support.GaugePulseCallback(self.constants, self.progress_bar)
+
+        # Instantiating timer variables for the exit countdown
+        self.timer_countdown = 5
+        self.exit_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self._on_exit_timer_tick, self.exit_timer)
+
+        # Wait for payloads to mount if they haven't already
+        # Without this, if the GUI starts before the background unpack thread finishes,
+        # self.constants.payload_path will still point to the read-only DMG inside the app bundle
+        # instead of the writable /var/folders/... overlay.
+        while gui_support.PayloadMount(self.constants, self).is_unpack_finished() is False:
+            wx.Yield()
+            time.sleep(self.constants.thread_sleep_interval)
+
+        # Don't start downloading a package that can't be verified afterwards: the
+        # release must (still) publish a SHA256 for it, and it must be the one the
+        # update was offered with - otherwise the release changed in the meantime.
+        published, checksum_error = updates.published_sha256(self.url)
+        if published is not None and self.expected_sha256 and published != self.expected_sha256:
+            checksum_error = (
+                "The SHA256 checksum published for this update changed after the update was offered "
+                f"(offered: {self.expected_sha256}, now: {published})."
+            )
+            published = None
+        if published is None:
+            logging.error(f"Not downloading the update, it can't be verified: {checksum_error}")
+            wx.MessageBox(
+                f"The update to {self.version_label} was not downloaded because it can't be verified.\n\n"
+                f"{checksum_error}\n\n"
+                "Please try again later, or download the update manually from GitHub.",
+                "Update Not Verified",
+                wx.OK | wx.ICON_ERROR
+            )
+            if self._return_to_parent():
+                return
+            sys.exit(3)
+        self.expected_sha256 = published
+
+        download_obj = network_handler.DownloadObject(self.url, self.download_path)
+        download_frame = gui_download.DownloadFrame(
+            self.frame,
+            title=self.title,
+            global_constants=self.constants,
+            download_obj=download_obj,
+            item_name=self.version_label,
+            download_icon=str(self.constants.app_icon_path),
+            changelog=self.changelog,
+            allow_cancel=not self.mandatory,
+            cancel_message=(
+                "Are you sure you want to cancel the update?\n\n"
+                "Staying on an older version of BridgePatcher means you "
+                "won't get the latest fixes, which can include security fixes. "
+                "Running outdated software may leave your Mac exposed to known vulnerabilities "
+                "that attackers could exploit."
+            )
+        )
+
+        if download_obj.download_complete is not True:
+            # Neither a cancelled nor a failed download is a reason to quit: nothing
+            # has been changed on disk, so hand control back to the window we came
+            # from. DownloadFrame already reported genuine errors to the user.
+            if download_frame.user_cancelled:
+                logging.info("User cancelled the update download, returning")
+            else:
+                logging.error("It failed to download the update")
+            if self._return_to_parent():
+                return
+            # Parentless updater (auto patcher path): nothing to return to.
+            sys.exit(3)
+
+        self.frame.Centre()
+        self.frame.Show()
+        self.progress_bar_animation.start_pulse()
+
+        # Start the remaining update workflow on a background thread.
+        threading.Thread(target=self._workflow_thread, daemon=True).start()
+
+    def _workflow_thread(self) -> None:
+        """
+        Background orchestrator thread. Keeps tasks entirely off the main loop,
+        preventing GUI lockups and avoiding hazardous wx.Yield use.
+
+        The worker functions report their outcome through self._install_status
+        instead of calling sys.exit(): sys.exit() inside a thread only ends that
+        thread, so previously a failed install still fell through to
+        "Update complete!" and tried to launch an app that was never installed,
+        racing the error dialog.
+        """
+        # --- Phase 0: Verification ---
+        # Nothing is extracted, installed or handed to the macOS Installer unless the
+        # downloaded file matches the SHA256 its release publishes right now.
+        logging.info("Verify update")
+        wx.CallAfter(self._update_status_label, "Verifying update...")
+        try:
+            verified, verify_error = self._verify_download()
+        except Exception as error:
+            logging.exception("Stack Trace:")
+            verified, verify_error = False, f"The downloaded update couldn't be checked: {error}"
+        if not verified:
+            logging.error(f"Not installing the update, verification failed: {verify_error}")
+            for _path in (self.download_path, self.pkg_download_path):
+                try:
+                    Path(_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            wx.CallAfter(self._handle_verification_failure, verify_error)
+            return
+
+        # --- Phase 1: Extraction ---
+        logging.info("Extract update")
+        wx.CallAfter(self._update_status_label, "Extracting update...")
+        try:
+            extracted = self._extract_update()
+        except Exception:
+            logging.exception("Stack Trace:")
+            extracted = False
+        if not extracted:
+            logging.error("It failed to extract the update, so it can't be installed.")
+            message = self._install_error or "Failed to extract the update. If you continue to have this issue, please manually download the update."
+            wx.CallAfter(self._handle_fatal_failure, message, "Critical Error!")
+            return
+
+        # --- Phase 2: Installation ---
+        logging.info("Updating")
+        wx.CallAfter(self._update_status_label, "Installing update...")
+        try:
+            self._install_update()
+        except Exception:
+            logging.error("The update could not be installed.")
+            logging.exception("Stack Trace:")
+            self._install_status = "failed"
+
+        if self._install_status == "ok":
+            wx.CallAfter(self._finalize_ui_and_start_countdown)
+        elif self._install_status == "cancelled":
+            wx.CallAfter(self._handle_fatal_failure, "User cancelled update", "Update Cancelled", True)
+        else:
+            wx.CallAfter(self._hand_off_to_installer_app)
+
+    # =========================================================================
+    # ATOMIC MAIN-THREAD UI MUTATORS (Prevents race conditions / split events)
+    # =========================================================================
+
+    @staticmethod
+    def _destroy_window(window: wx.Window) -> None:
+        try:
+            window.Destroy()
+        except RuntimeError:
+            # Already gone (e.g. closed by its own code in the meantime)
+            pass
+
+    def _return_to_parent(self) -> bool:
+        """
+        Tear the updater down and restore the window it was launched from.
+
+        Returns False if there is nothing to go back to (updater started without a
+        parent frame); the caller then has to handle termination itself.
+        """
+        if not self.parent:
+            return False
+
+        try:
+            self.progress_bar_animation.stop_pulse()
+        except RuntimeError:
+            pass
+        if self.exit_timer.IsRunning():
+            self.exit_timer.Stop()
+
+        for child in self._hidden_children:
+            try:
+                child.Show()
+            except RuntimeError:
+                continue
+        try:
+            self.parent.Show()
+            self.parent.Raise()
+        except RuntimeError:
+            # Parent went away while we were updating - nothing left to return to.
+            return False
+
+        wx.CallAfter(self.frame.Destroy)
+        wx.CallAfter(self.Destroy)
+        return True
+
+    def _update_status_label(self, message: str) -> None:
+        """Safely alters text components atomically on the main thread."""
+        self.title_label.SetLabel(message)
+        self.title_label.Centre(wx.HORIZONTAL)
+
+    def _handle_fatal_failure(self, error_msg: str, title: str, is_cancelled: bool = False, is_handoff: bool = False) -> None:
+        """
+        Executes atomically on the main thread to completely clean up UI elements
+        and handle script termination instantly, preventing thread race conditions.
+        """
+        if is_cancelled or is_handoff:
+            wx.MessageBox(error_msg, title, wx.OK | wx.ICON_INFORMATION)
+        else:
+            wx.MessageBox(error_msg, title, wx.OK | wx.ICON_ERROR)
+
+        self.progress_bar_animation.stop_pulse()
+        self.progress_bar.Hide()
+
+        # A mandatory update must not be postponed by dismissing the admin prompt
+        # either - that would just be the "Cancel -> Yes" loophole one step later.
+        # The update cannot be forced without the password, so the patcher closes
+        # instead of returning to the main menu; the next launch asks again.
+        if is_cancelled and self.mandatory:
+            wx.MessageBox(
+                "This update is required because the snooze period has ended or an online "
+                "service the patcher depends on is no longer available.\n\n"
+                f"{self.constants.patcher_name} will now close. The update will be offered again the next time you open it.",
+                "Update Required",
+                wx.OK | wx.ICON_WARNING
+            )
+            logging.info("Mandatory update cancelled at the admin prompt, closing the app")
+            sys.exit(3)
+
+        # A cancelled install (user dismissed the admin prompt) leaves the system
+        # untouched, so return to the main menu instead of taking the app down.
+        if is_cancelled and self._return_to_parent():
+            logging.info("Aktualisierung abgebrochen, zurueck zum Hauptmenü")
+            logging.info("Update cancelled, returning to the main menu")
+            return
+
+        logging.info("Die App wird geschlossen")
+        logging.info("Closing the app")
+        sys.exit(3)
+
+    def _handle_verification_failure(self, error_msg: str) -> None:
+        """
+        Main thread: the downloaded update didn't pass the SHA256 check and was deleted.
+
+        Nothing was installed, so return to the window the update came from instead of
+        closing the app - also for a mandatory update, which can't be installed from
+        this download anyway; the next check offers it again.
+        """
+        wx.MessageBox(
+            f"The update to {self.version_label} was not installed because it couldn't be verified, "
+            f"and the downloaded file was deleted.\n\n{error_msg}\n\n"
+            "Please try again later, or download the update manually from GitHub.",
+            "Update Not Verified",
+            wx.OK | wx.ICON_ERROR
+        )
+        self.progress_bar_animation.stop_pulse()
+        self.progress_bar.Hide()
+        if self._return_to_parent():
+            return
+        sys.exit(3)
+
+    def _finalize_ui_and_start_countdown(self) -> None:
+        """Reconstructs the interface layout and initializes the exit timer safely."""
+        if self.mandatory:
+            try:
+                updates.clear_snooze()
+            except Exception:
+                logging.exception("Failed to clear the expired snooze")
+        self.title_label.SetLabel("Update complete!")
+        self.title_label.Centre(wx.HORIZONTAL)
+
+        self.progress_bar_animation.stop_pulse()
+        self.progress_bar.Hide()
+
+        installed_label = wx.StaticText(self.frame, label=f"{self.version_label} has been installed:", pos=(-1, 35))
+        installed_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_BOLD))
+        installed_label.Centre(wx.HORIZONTAL)
+
+        installed_path_label = wx.StaticText(self.frame, label=str(self._installed_app_path().parent), pos=(-1, installed_label.GetPosition().y + 20))
+        installed_path_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
+        installed_path_label.Centre(wx.HORIZONTAL)
+
+        self.launch_label = wx.StaticText(self.frame, label="Launching update shortly...", pos=(-1, installed_path_label.GetPosition().y + 30))
+        self.launch_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
+        self.launch_label.Centre(wx.HORIZONTAL)
+
+        self.frame.SetSize((-1, self.launch_label.GetPosition().y + 60))
+
+        # Fire and forget launch execution thread
+        thread = threading.Thread(target=self._launch_update)
+        thread.start()
+
+        # Fire non-blocking main loop timer event every 1 second (1000ms)
+        self.exit_timer.Start(1000)
+
+    def _on_exit_timer_tick(self, event: wx.TimerEvent) -> None:
+        """Non-blocking timer callback driven directly by native OS event loop."""
+        if self.timer_countdown > 0:
+            self.launch_label.SetLabel(f"Closing old process in {self.timer_countdown} seconds")
+            self.launch_label.Centre(wx.HORIZONTAL)
+            self.timer_countdown -= 1
+        else:
+            self.exit_timer.Stop()
+            sys.exit(0)
+
+    # =========================================================================
+    # SYSTEM ACTIONS (Executed inside sub-threads safely)
+    # =========================================================================
+
+    def _verify_download(self) -> tuple:
+        """
+        Check the downloaded file against the SHA256 its release publishes
+
+        The checksum files are fetched again right before installing, so a release
+        whose checksums were removed or changed after the download started is not
+        installed either.
+
+        Returns:
+            (True, "") if verified, (False, reason) otherwise
+        """
+        if not Path(self.download_path).is_file():
+            return False, "The downloaded file is missing."
+
+        published, checksum_error = updates.published_sha256(self.url)
+        if published is None:
+            return False, checksum_error
+        if self.expected_sha256 and published != self.expected_sha256:
+            return False, (
+                "The SHA256 checksum published for this update changed during the download "
+                f"(expected: {self.expected_sha256}, now: {published})."
+            )
+
+        actual = updates.sha256_of_file(self.download_path)
+        logging.info(f"SHA256 of the downloaded update: {actual}")
+        if actual != published:
+            return False, (
+                "The downloaded file doesn't match the SHA256 checksum published for this release "
+                f"(expected: {published}, got: {actual}). It may have been corrupted or tampered with."
+            )
+        logging.info("Update verified: SHA256 matches the published checksum")
+        return True, ""
+
+    def _extract_update(self) -> bool:
+        logging.debug("Extracting update...")
+        if not self.url.endswith(".zip"):
+            return True
+        logging.info("Extracting update")
+        if Path(self.pkg_download_path).exists():
+            subprocess.run(["/bin/rm", "-rf", str(self.pkg_download_path)])
+
+        result = subprocess.run(
+            ["/usr/bin/ditto", "-xk", str(self.download_path), str(self.update_work_dir)], capture_output=True
+        )
+        if result.returncode != 0 or not self.pkg_download_path.exists():
+            logging.error("Failed to extract update.")
+            subprocess_wrapper.log(result)
+            self._install_error = f"Failed to extract update. Error: {self._to_text(result.stderr) or 'package not found in archive'}"
+            return False
+        return True
+
+    @staticmethod
+    def _to_text(value) -> str:
+        """run_as_root() can hand back bytes, str or None depending on the elevation path."""
+        if value is None:
+            return ""
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return str(value)
+
+    def _installed_app_candidates(self) -> list:
+        """
+        Bundles the downloaded package may install, newest naming first
+
+        Our packages install BridgePatcher.app. A release from before the rename,
+        reachable through a channel switch, still installs OpenCore-Patcher-T2.app,
+        and an upstream Dortania ZIP installs OpenCore-Patcher.app. Releases from
+        before the install directory was renamed install into the old directory.
+        Resolved, so the compatibility links the packages leave behind are not
+        counted twice.
+        """
+        if self.url.endswith(".zip"):
+            _names = ["OpenCore-Patcher.app"]
+        else:
+            _names = [constants.APP_BUNDLE_NAME, constants.LEGACY_APP_BUNDLE_NAME]
+
+        _candidates = []
+        for _directory in self._install_directories():
+            for _name in _names:
+                _path = Path(_directory) / _name
+                try:
+                    _path = _path.resolve()
+                except OSError:
+                    pass
+                if _path not in _candidates:
+                    _candidates.append(_path)
+        return _candidates
+
+    @staticmethod
+    def _info_plist_ctime(app_path: Path) -> float:
+        try:
+            return (app_path / "Contents" / "Info.plist").stat().st_ctime
+        except OSError:
+            return -1.0
+
+    def _installed_app_path(self) -> Path:
+        """
+        The bundle the update installed: the most recently written candidate
+        """
+        _candidates = self._installed_app_candidates()
+        _newest = max(_candidates, key=self._info_plist_ctime)
+        return _newest if self._info_plist_ctime(_newest) >= 0 else _candidates[0]
+
+    def _installer_running(self) -> bool:
+        """
+        True while any process that is installing our package is alive.
+
+        Plain substring match over `ps` instead of `pgrep -f "installer -pkg <path>"`:
+        the Authorization Services fallback starts /usr/libexec/security_authtrampoline
+        first, whose argv ("... /usr/sbin/installer auth 3 -pkg <path> ...") does not
+        contain "installer -pkg" until it has exec()ed the real installer, and the
+        re.escape()d pattern was not a reliable POSIX ERE for pgrep either.
+        """
+        result = subprocess.run(["/bin/ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True)
+        if result.returncode != 0:
+            return False
+        own_pid = str(os.getpid())
+        pkg_path = str(self.pkg_download_path)
+        for line in result.stdout.splitlines():
+            pid, _, command = line.strip().partition(" ")
+            if pid == own_pid:
+                continue
+            if pkg_path in command and "installer" in command:
+                return True
+        return False
+
+    def _app_was_rewritten(self, started: float) -> bool:
+        # st_ctime changes on every write, even though the installer keeps the payload's mtime.
+        return any(self._info_plist_ctime(_app) >= started - 5 for _app in self._installed_app_candidates())
+
+    def _wait_for_install(self, started: float, timeout: int = 900, start_grace: int = 30) -> bool:
+        """
+        Wait until the package install has really finished and report whether the
+        new bundle landed on disk.
+
+        The Authorization Services fallback in run_as_root() (utilities.get_admin_permission)
+        returns right after spawning the installer, with returncode 0 and no exit status.
+        The old check returned as soon as pgrep found nothing - which was usually the case
+        right after spawning, before the installer existed - and then looked at Info.plist
+        while the install was still running. That reported a failure and opened the macOS
+        Installer even though the update went on to install fine in the background.
+
+        For the synchronous paths (helper tool, already root) the installer has exited and
+        the bundle is rewritten by the time we get here, so this returns immediately.
+        """
+        deadline = time.time() + timeout
+        start_deadline = time.time() + start_grace
+        seen_running = False
+        while time.time() < deadline:
+            if self._installer_running():
+                seen_running = True
+            elif self._app_was_rewritten(started):
+                # Installer process gone and the new bundle is on disk: done.
+                return True
+            elif seen_running or time.time() >= start_deadline:
+                # It ran and exited without installing, or never started at all.
+                return False
+            time.sleep(1)
+        logging.error("Timed out waiting for the installer to finish")
+        return False
+
+    def _install_update(self) -> None:
+        logging.info(f"Installing update: {self.pkg_download_path}")
+        started = time.time()
+        result = subprocess_wrapper.run_as_root(["/usr/sbin/installer", "-pkg", str(self.pkg_download_path), "-target", "/"], capture_output=True)
+        output = f"{self._to_text(result.stdout)}\n{self._to_text(result.stderr)}"
+
+        if result.returncode != 0:
+            # osascript and Authorization Services say "canceled", our own paths "cancelled"
+            if "user cancel" in output.lower():
+                logging.info("User cancelled update")
+                self._install_status = "cancelled"
+                return
+            if result.returncode in subprocess_wrapper._HELPER_REFUSAL_ERRORS:
+                # Expected with a Debug build of the Privileged Helper Tool, which refuses
+                # /usr/sbin/installer by design, and refusals are final (no other root path
+                # is tried, see run_as_root()). Not an error: the macOS Installer takes over.
+                logging.info("Privileged Helper Tool does not run /usr/sbin/installer in this build, handing the update to the macOS Installer")
+            else:
+                logging.critical("The app failed to update via the builtin updater.")
+                subprocess_wrapper.log(result)
+            self._install_status = "handoff"
+            return
+
+        # Only trust the result once the installer has finished and the new bundle
+        # is actually on disk.
+        if not self._wait_for_install(started):
+            logging.error(f"Installer reported success, but {self._installed_app_path() / 'Contents' / 'Info.plist'} was not (re)written")
+            self._install_status = "handoff"
+            return
+
+        # Installed successfully - the running build now belongs to the selected
+        # update channel, so later checks compare versions normally again.
+        try:
+            self.constants.installed_update_channel = self.constants.update_channel
+            global_settings.GlobalEnviromentSettings().write_property("UpdateChannelInstalled", self.constants.update_channel)
+        except Exception as e:
+            logging.error(f"Failed to store installed update channel: {e}")
+        self._install_status = "ok"
+
+    def _hand_off_to_installer_app(self) -> None:
+        """
+        Main thread: the update could not be installed silently, so open it in the
+        macOS Installer instead, which asks for authorization itself.
+
+        The package is copied out of update_work_dir first: that directory is a
+        temporary directory removed when this app quits, which happens right after
+        the package has been handed to the Installer.
+        """
+        target = Path.home() / "Downloads" / f"{constants.APP_NAME}-{self.version_label}.pkg"
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                target.unlink()
+            shutil.copy2(self.pkg_download_path, target)
+            opened = subprocess.run(["/usr/bin/open", "-a", "Installer", str(target)], capture_output=True).returncode == 0
+        except Exception:
+            logging.exception("Failed to hand the update to the macOS Installer")
+            opened = False
+
+        if opened:
+            logging.info(f"Opened {target} in the macOS Installer")
+            self._handle_fatal_failure(
+                f"The update could not be installed automatically, so it was opened in the macOS Installer.\n\n"
+                f"Follow the steps there to finish updating. BridgePatcher will now close so it can be replaced.\n\n"
+                f"A copy of the package was saved to {target}.",
+                "Finish Updating in the Installer",
+                is_handoff=True,
+            )
+        else:
+            self._handle_fatal_failure(
+                f"Failed to install update automatically. Please visit {self.constants.repo_link.rstrip('/')}/releases "
+                f"to manually download the package and perform an in-place upgrade.",
+                "Critical Error!",
+            )
+
+    def _install_directories(self) -> list:
+        """
+        Directories the downloaded update may install into, current first
+
+        Our PKG installs to its own directory, or to the directory it had before
+        the rename for releases from before then (reachable through a channel
+        switch); an upstream Dortania ZIP still lands in theirs (see
+        pkg_download_path above).
+        """
+        if self.url.endswith(".zip"):
+            return ["/Library/Application Support/Dortania"]
+        return [constants.APP_INSTALL_DIRECTORY, constants.LEGACY_APP_INSTALL_DIRECTORY]
+
+    def _launch_update(self) -> None:
+        # Same reasoning as _installed_app_candidates(): our releases install as
+        # "BridgePatcher.app", releases from before the rename as
+        # "OpenCore-Patcher-T2.app" and an upstream Dortania nightly as "OpenCore-Patcher.app".
+        _app_path = self._installed_app_path()
+        try:
+            logging.info(f"Aktualisierung beginnen: '{_app_path}'")
+            logging.info(f"Launching update: '{_app_path}'")
+            # Launch whichever executable the freshly installed bundle actually contains:
+            # BridgePatcher now, OpenCore-Patcher-T2 before the rename, OpenCore-Patcher
+            # in even older T2 releases and in Dortania's app.
+            _macos_dir = _app_path / "Contents" / "MacOS"
+            _executable = _macos_dir / constants.APP_EXECUTABLE_NAME
+            for _name in (constants.APP_EXECUTABLE_NAME, constants.LEGACY_APP_EXECUTABLE_NAME, "OpenCore-Patcher"):
+                if (_macos_dir / _name).exists():
+                    _executable = _macos_dir / _name
+                    break
+            subprocess.Popen([str(_executable), "--update_installed"])
+        except Exception as e:
+            logging.error("Das Starten des Aktualisierung durch den Builtin-Update-Instrument hat fehlgeschlagen.")
+            logging.error("Launching the update via the builtin updater failed.")
+            logging.exception("Stack Trace:")

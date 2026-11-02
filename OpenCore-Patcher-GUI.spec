@@ -14,7 +14,7 @@ except NameError:
 
 sys.path.append(str(SPEC_DIR))
 
-from opencore_legacy_patcher import constants
+from bridgepatcher import constants
 
 block_cipher = None
 
