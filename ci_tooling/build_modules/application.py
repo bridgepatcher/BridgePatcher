@@ -230,6 +230,39 @@ class GenerateApplication:
         rich.print(f"Embedded {len(images)} icons into {assets_file}")
 
 
+    def _embed_license(self) -> None:
+        """
+        Make sure LICENSE.txt is inside the app, where the Settings License tab reads it
+        (Contents/Resources, linked into Contents/Frameworks) - shipping it is also a
+        condition of the BSD license. The spec lists it as a data file, but nothing
+        checked that it actually arrived, so a build without it only showed up as a
+        broken License tab. Copy it in if PyInstaller didn't, and fail the build if
+        it is still missing.
+        """
+        license_source = Path(__file__).resolve().parents[2] / "LICENSE.txt"
+        if not license_source.is_file():
+            raise FileNotFoundError(f"LICENSE.txt not found: {license_source}")
+
+        contents = self._application_output / "Contents"
+        resources_license = contents / "Resources" / "LICENSE.txt"
+        frameworks_license = contents / "Frameworks" / "LICENSE.txt"
+
+        if not resources_license.is_file():
+            rich.print("[yellow]LICENSE.txt was not bundled by PyInstaller, copying it into Contents/Resources[/yellow]")
+            resources_license.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(license_source, resources_license)
+
+        if not frameworks_license.is_file() and frameworks_license.parent.is_dir():
+            if frameworks_license.is_symlink():
+                frameworks_license.unlink()
+            frameworks_license.symlink_to(Path("..") / "Resources" / "LICENSE.txt")
+
+        if resources_license.read_bytes() != license_source.read_bytes():
+            raise RuntimeError(f"LICENSE.txt in {resources_license} does not match {license_source}")
+
+        rich.print(f"Embedded LICENSE.txt into {resources_license}")
+
+
     def embed_readme(self) -> str:
         """
         Embed README into the about frame logic for the application build.
@@ -309,3 +342,4 @@ class GenerateApplication:
 
         self._embed_git_data()
         self._embed_resources()
+        self._embed_license()
