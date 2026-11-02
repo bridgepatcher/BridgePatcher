@@ -1,5 +1,5 @@
 """
-updates.py: Check for OpenCore Legacy Patcher binary updates
+updates.py: Check for BridgePatcher binary updates
 
 Call check_binary_updates() to determine if any updates are available
 Returns dict with Link and Version of the latest binary update if available
@@ -256,7 +256,7 @@ class CheckBinaryUpdates:
 
     def check_binary_updates(self, manual: bool = False, include_prerelease: Optional[bool] = None) -> Optional[dict]:
         """
-        Check if any updates are available for the OpenCore Legacy Patcher binary.
+        Check if any updates are available for the BridgePatcher binary.
         Automatic checks respect the snooze window; manual checks bypass it so
         the user can still force a refresh when they choose to.
 

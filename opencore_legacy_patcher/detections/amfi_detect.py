@@ -125,7 +125,7 @@ class AmfiConfigurationDetection:
 
     def _parse_oclp_configuration(self) -> None:
         """
-        Parse the OCLP configuration
+        Parse BridgePatcher's configuration (OCLP-Settings NVRAM variable)
         """
 
         if "-allow_amfi" in self.oclp_args:

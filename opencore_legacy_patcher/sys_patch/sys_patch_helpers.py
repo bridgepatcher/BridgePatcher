@@ -200,7 +200,7 @@ class SysPatchHelpers:
             metallib_used_string = str(metallib_used)
 
         data = {
-            "OpenCore Legacy Patcher": f"v{self.constants.patcher_version}",
+            "OpenCore Legacy Patcher": f"v{self.constants.patcher_version}",  # branding: keep - root patch manifest key, read by older versions
             "PatcherSupportPkg": f"v{self.constants.patcher_support_pkg_version}",
             "Time Patched": f"{datetime.now().strftime('%B %d, %Y @ %H:%M:%S')}",
             "Commit URL": f"{self.constants.commit_info[2]}",
@@ -341,7 +341,7 @@ class SysPatchHelpers:
         """
         Fix GPUCompiler.framework's libraries to resolve linking issues
 
-        On 13.3 with 3802 GPUs, OCLP will downgrade GPUCompiler to resolve
+        On 13.3 with 3802 GPUs, BridgePatcher will downgrade GPUCompiler to resolve
         graphics support. However the binary hardcodes the library names,
         and thus we need to adjust the libraries to match (31001.669)
 

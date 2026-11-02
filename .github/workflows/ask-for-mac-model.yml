@@ -131,7 +131,7 @@ jobs:
             // ---- 3. Ask (or update the existing request) --------------------
             const text = [
               MARKER,
-              `Hi @${issue.user.login}, thanks for the report! We need to know **which Mac** this is about — the patches OpenCore Legacy Patcher applies depend on the exact model. Please edit your issue or reply below with your **model identifier**. You can get it by running this in Terminal:`,
+              `Hi @${issue.user.login}, thanks for the report! We need to know **which Mac** this is about — the patches BridgePatcher applies depend on the exact model. Please edit your issue or reply below with your **model identifier**. You can get it by running this in Terminal:`,
               '',
               '```sh',
               'sysctl -n hw.model',
