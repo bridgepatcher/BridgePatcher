@@ -71,6 +71,9 @@ Impact: a half downloaded update could still apply, or worse, an attacker could 
 - fixes a vulnerability where when downloading the Universal-Binaries.dmg, the SHA256 certificates of the patchset doesn’t get checked, even though it is published
 Impact: an attacker could launch a MiTM attack by compromising the DNS server to point to a malicious website that pretends to be GitHub to install low level malware instead. This vulnerability is fixed by checking the SHA256 certificates if ever the patcher needs to download Universal-Binaries.dmg (e.g the built in one got corrupted)
 
+- fixes a vulnerability that got reintroduced in 1900019.17 and 1900019.18 where an attacker could create an identical password prompt to the patcher's own in a malicious application to launch a phishing attack (thx @gandolf243):
+<img width="418" height="219" alt="image" src="https://github.com/user-attachments/assets/50d1ac16-24df-46ed-b1b8-41f613138bf2" />
+Impact: an attacker could abuse this vulnerable password prompt to impersonate the patcher to launch a phishing attack, which could lead to an attacker to gain access to the victim's computer. This vulnerability is fixed by using the macOS's password prompt instead to ensure an attacker can't impersonate the application to launch attacks.
 
 
 ## 4.0.0.1900019 - 4.0.0 alpha 19.19
