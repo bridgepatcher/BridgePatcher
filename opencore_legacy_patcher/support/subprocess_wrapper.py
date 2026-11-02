@@ -281,17 +281,11 @@ def run_as_root(*args, **kwargs):
             logging.error(f"Privileged Helper Tool failed ({_helper_error}).")
     elif not Path(BRIDGEPATCHER_PRIVILEGED_HELPER).exists():
         logging.warning(f"Privileged Helper Tool not found at {BRIDGEPATCHER_PRIVILEGED_HELPER}.")
-    sargs = []
-    for arg in _command:
-        if arg == _command[0]:
-            continue
-        sargs.append(arg)
-    elevated_without_pht = utilities.get_admin_permission(
-            action=_command[0],
-            args=sargs,
-            reason=reason,
-        )
-    return elevated_without_pht
+    # Native macOS prompt, but through the synchronous wrapper: calling
+    # utilities.get_admin_permission() directly returns as soon as the command has
+    # been *started*, always reports success and drops its output, so sequential
+    # root-patching steps (rm, then cp, then verify) raced each other.
+    return _run_via_authorization_services(_command, reason=reason, **kwargs)
 
 
 # Wrapper run as root by _run_via_authorization_services(). Constant script, the real
@@ -616,7 +610,10 @@ def mount_dmg(
     if password:
         attach = 'printf "%s" "$1" | ' + attach + ' -stdinpass'
     sh_cmd = 'export LC_ALL=C; /usr/bin/xattr -d com.apple.quarantine "$2" 2>/dev/null; ' + attach
-    elevated_cmd = [sh_cmd, "--", password or "", str(dmg_path), str(mount_point), str(shadow_path) if shadow_path else ""]
+    # "/bin/sh -c" is required: _run_via_authorization_services() executes its argv
+    # as-is, so without it the script text itself was run as a program path and failed
+    # with exit 127 "No such file or directory" after every correct password.
+    elevated_cmd = ["/bin/sh", "-c", sh_cmd, "--", password or "", str(dmg_path), str(mount_point), str(shadow_path) if shadow_path else ""]
 
     def _combined_output(elevated_stdout, elevated_stderr) -> tuple:
         """Keep both attempts in the result: the unprivileged error alone hid what the elevated one said."""
