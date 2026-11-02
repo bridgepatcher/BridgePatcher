@@ -405,8 +405,17 @@ class GaugePulseCallback:
             else:
                 self.gauge_value -= 1
 
-            wx.CallAfter(self.gauge.SetValue, self.gauge_value)
+            wx.CallAfter(self._set_gauge_value, self.gauge_value)
             time.sleep(0.005)
+
+
+    def _set_gauge_value(self, value: int) -> None:
+        # Runs on the main thread, possibly after the window owning the gauge was
+        # destroyed (eg. an error dialog closed it while updates were still queued).
+        # A dead wx object is falsy; calling into it raises RuntimeError.
+        if not self.gauge:
+            return
+        self.gauge.SetValue(value)
 
 
 def end_window_modal(dialog: wx.Dialog) -> None:
