@@ -52,7 +52,7 @@ class MainFrame(wx.Frame):
 
         # FIX: Absicherung gegen Thread-Races & Verwaiste Fenster-Referenzen
         self.exiting_app: bool = False
-        self.active_gemini_frame: wx.Frame = None
+        self.active_chatgpt_frame: wx.Frame = None
 
         self.constants.update_stage = gui_support.AutoUpdateStages.INACTIVE
 

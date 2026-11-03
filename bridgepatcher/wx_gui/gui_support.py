@@ -56,10 +56,10 @@ def update_dock_icon(global_constants: constants.Constants) -> None:
         logging.exception("Failed to update Dock icon")
 
 
-class GeminiWebView(wx.Frame):
+class ChatGPTWebView(wx.Frame):
     """
-    Small floating window embedding the Gemini web app, used by the
-    "Ask Gemini" buttons throughout the GUI.
+    Small floating window embedding the ChatGPT web app, used by the
+    "Ask ChatGPT" buttons throughout the GUI.
 
     Deliberately implemented with wx.html2.WebView (wxWidgets' own
     native web view wrapper) rather than the third-party 'pywebview'
@@ -79,13 +79,13 @@ class GeminiWebView(wx.Frame):
 
     The requested `size` is clamped to the current display's usable work
     area (screen minus menu bar/Dock) before showing the WebView. A fixed
-    size (e.g. the 500x850 used by the Help menu's "Ask Gemini" button)
+    size (e.g. the 500x850 used by the Help menu's "Ask ChatGPT" button)
     can be taller than the available screen height on a smaller display -
     a VM's virtual display in particular - which otherwise makes the
     window look like it's swallowing the whole screen with no visible
     margin and nothing else reachable behind it.
     """
-    def __init__(self, parent: wx.Frame, title: str = "Gemini AI Assistant", url: str = "https://gemini.google.com", size: tuple = (1000, 700)) -> None:
+    def __init__(self, parent: wx.Frame, title: str = "ChatGPT", url: str = "https://chatgpt.com", size: tuple = (1000, 700)) -> None:
         super().__init__(parent, title=title, size=size)
 
         display_index = wx.Display.GetFromWindow(self)

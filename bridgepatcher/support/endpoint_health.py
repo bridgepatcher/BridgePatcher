@@ -89,7 +89,7 @@ def _endpoint_groups(global_constants: constants.Constants) -> dict:
         "KDK catalog":          [kdk_handler.KDK_API_LINK],
         "AppleDB installer catalog": [products_appledb.APPLEDB_API_URL],
         "Project website":      [global_constants.guide_link],
-        "Gemini help":          [global_constants.gemini_link],
+        "ChatGPT help":         [global_constants.chatgpt_link],
     }
     return {name: [url for url in urls if url] for name, urls in groups.items() if any(urls)}
 
