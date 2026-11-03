@@ -1,6 +1,8 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
-## 4.0.0.2000000.2 - 4.0.0 alpha 20 RC 2
+## 4.0.0.2000000.4 - 4.0.0 alpha 20 RC 4
 This version:
+- stops injecting the `cryptex=0` boot-arg on Macs without AVX2 (Ivy Bridge and older, e.g. MacBookPro7,1). It was added for every macOS version, although only meant for macOS 26 Tahoe, and is suspected of stopping older macOS versions from booting. Dortania's upstream boots Tahoe on these Macs without it (CryptexFixup handles them). EFIs that still carry it get it removed when rebuilt
+- pre-Sandy Bridge Macs (e.g. MacBookPro7,1) now get the macOS 26 Tahoe build of NoAVXFSCompressionTypeZlib (26.7, from Dortania upstream) on Tahoe. The 12.6 build is now limited to macOS 13 Ventura - 15 Sequoia (MaxKernel 24.99.99) instead of also loading on Tahoe
 - renames OpenCore Legacy Patcher T2 to BridgePatcher. One of the reasons for this rename is that it confuses users that this is Dortania’s official project and open issues inside the wrong repository. Attackers would love this patcher to be called OpenCore Legacy Patcher T2 to exploit for impersonation and malware delivery, I already documented a case where attackers intentionally confused users that this is Dortania’s official project to deliver malware over a malvertising website. 
 - replaces Dortania’s icons with our own ones
 - now includes the license of the patcher inside the binary itself
@@ -28,6 +30,7 @@ This version:
 - the About screen no longer loads an image from Dortania’s servers
 - removes the analytics and crash reporting inherited from Dortania’s OpenCore Legacy Patcher. The patcher no longer contains any code that sends information about your Mac (hashed system UUID, app and macOS version, Mac model, GPUs, firmware vendor and the country set in System Settings) to an analytics server, and the "Allow Reporting" setting is gone. Leftover reporting settings from older versions are removed on launch, the build scripts no longer embed an analytics key or server, and the privacy policy has been updated accordingly
 - the Help menu no longer links to the Discord server; support is now offered through GitHub Discussions and GitHub Issues of this project
+- replaces "Ask Gemini" with "Ask ChatGPT": the Help menu button and the button in the build and OpenCore installation error dialogs now open ChatGPT (chatgpt.com) instead of Gemini. As before, ChatGPT opens in a small window on macOS Big Sur and newer and in the default web browser on older macOS versions, and the build or installation log is copied to the clipboard so it can be pasted into ChatGPT. The update check for online services the patcher depends on now checks ChatGPT instead of Gemini
 - the copyright notice now updates its end year automatically and credits Dortania and the OpenCore Legacy Patcher contributors alongside this fork
 - removes outdated, unused T2TahoeFixup versions to reduce the size of the patcher
 - the installer, uninstaller and AutoPkg-Assets packages now show BridgePatcher's own icon in their background (in the box, in the trash can and behind the badge) instead of Dortania's OpenCore Legacy Patcher icon
@@ -42,6 +45,8 @@ This version:
 - fixes USB port mapping for USB 1.1 (UHCI) Macs on macOS Sequoia and older (and Tahoe): MacBook3,1, MacBook4,1 and MacBookAir1,1 now get a full USB map (EHCI and UHCI companion controllers, same as Dortania upstream) instead of only USB power settings, applied from macOS El Capitan on. These three models and MacBookPro3,1 were also missing from the list of Macs that get USB-Map.kext, so their map was never added unless SMBIOS spoofing was used; MacBookPro3,1's map now applies from macOS Sierra on
 
   Testers confirm Stage 1 completes again, but the MobileSoftwareUpdate Error 81 in Stage 2 (#639) is not fixed yet. Thanks @matteoiacca
+- on T2 Macs, updates T2TahoeFixup.kext to 1.0.24 to address the Stage 2 Error -81 testers still hit with 1.0.23 (#639). `hookGetEOSDeviceType()` returned 0 for every caller in 1.0.23 to prevent boot display stalls, which made Language Chooser and UpdateBrainService believe the Mac has no T2 chip ("System doesn't have bridgeOS") and send UpdateBrainService down the non-T2 code path, which doesn't exist for these Macs. 1.0.24 only returns 0 to `kernel_task` during early boot and returns 0x20000 (kEOSDeviceTypeCoprocessor2) to userland daemons, so the installer recognizes the bridgeOS coprocessor and picks the T2 manifest. Thanks @matteoiacca, and @cmbuggit, @m0rtiis1 and @andi1963 for testing and sharing their logs
+- on T2 Macs, EFIs built for macOS Tahoe now also set `csr-active-config` to `03080000` in the security step. Without `CSR_ALLOW_UNAUTHENTICATED_ROOT` (0x800), authenticated-root stays enabled, so APFS and UpdateBrainService require Apple's sealed snapshot verification and Stage 2 fails at `MSU: Starting prepare` with Error -81. The value was already set later in the build for every T2 Mac, but an error earlier in that step could silently drop it, so the Tahoe path now sets it on its own as well. If you edit your config.plist by hand, make sure NVRAM > Add > 7C436110-AB2A-4BBB-A880-FE41995C9F82 contains `csr-active-config` = `03080000` (Data). Thanks @andi1963 for spotting it
 - the T2 Installer Workaround no longer adds `-t2tahoeforce` on the T2 Macs macOS Tahoe supports natively (MacBookPro16,1, 16,2, 16,4, iMac20,1, iMac20,2 and MacPro7,1), and removes it if it's left over. `-t2tahoeforce` makes T2TahoeFixup skip its native model check and turns its installer hooks on anyway, which would undo the Stage 1 fix of 1.0.22 on MacBookPro16,1 and 16,4. All other T2 Macs keep `-t2tahoeforce` as before. `-wegoff`/`-igfxvesa` and `-amfipassbeta` are unchanged
 - removes the stickers in the OpenCore Build completely, not just in Settings
 - fixes a bug where in validation.py it unmounts the volume twice (the second time it would fail) because in except Exception as e it unmounted once, then a second time it unmounted again in the finally block
@@ -60,6 +65,7 @@ This version:
 - fixes root patching asking for the administrator password to mount Universal-Binaries.dmg even though the Privileged Helper Tool is installed and working: the elevated mount now goes through the helper like every other root patching step, and the macOS password prompt is only used when the helper is missing or rejects the build
 - fixes the License tab in Settings not finding LICENSE.txt in the built app: it looked in a Resources folder next to the temporary payloads directory instead of inside BridgePatcher.app. The build now also checks that LICENSE.txt is inside the app (Contents/Resources, linked into Contents/Frameworks), copies it in if PyInstaller didn't, and fails if it is still missing. If the file can't be found at runtime, the License tab shows where to find the license instead of failing
 - adds Reset SIP button inside the patcher, so if a user accidentally changes the value or an attacker tricked them into doing so to execute a malicious application trying to mess with core system files, instead of guessing the default values, now all they need to do is to click Reset SIP to reset back to defaults
+- removes Matteo's Metallibs API
 
 In the repository:
 - License Guard now also finds Dortania's icon when it is only part of a larger image (scaled, rotated, placed in a box or partly covered by a badge, as in the old package backgrounds), and checks the images stored inside design files such as .afdesign, .psd and .pdf. The reference icon is read from Dortania's repository during the check, so no copy of it is stored here
@@ -93,6 +99,9 @@ Impact: an attacker could launch a MiTM attack by compromising the DNS server to
 <img width="418" height="219" alt="image" src="https://github.com/user-attachments/assets/50d1ac16-24df-46ed-b1b8-41f613138bf2" />
 
 Impact: an attacker could abuse this vulnerable password prompt to impersonate the patcher to launch a phishing attack, which could lead to an attacker to gain access to the victim's computer. This vulnerability is fixed by using the macOS's password prompt instead to ensure an attacker can't impersonate the application to launch attacks.
+
+- fixes a vulnerability where running the patcher from source disabled update checks completely, so a from-source session was never told that a newer version exists
+Impact: an attacker could abuse this on a typosquatting website or a fake GitHub page by telling users to run the patcher from source, keeping them on an outdated or tampered copy without ever being notified about updates. This vulnerability is fixed by always checking for updates, also when running from source. When running from source, only automatic updates are disabled: a new version is always offered through the update dialog and never downloaded and installed without asking
 
 
 ## 4.0.0.1900019 - 4.0.0 alpha 19.19

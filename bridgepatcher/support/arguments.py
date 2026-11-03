@@ -162,9 +162,6 @@ class arguments:
         """
         logging.info("Background update check")
 
-        if self.constants.launcher_script is not None:
-            logging.info("- Running from source, skipping")
-            return
         if self._other_instance_running():
             # The open app checks on its own; the next interval tries again.
             logging.info("- The patcher is already running, skipping")

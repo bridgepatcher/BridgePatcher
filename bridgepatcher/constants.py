@@ -74,7 +74,7 @@ class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
         # Wenn eine Version mit s endet, es heißt, dass sie noch nicht fertig ist.
-        self.patcher_version:                 str = "4.0.0.2000000.3"
+        self.patcher_version:                 str = "4.0.0.2000000.4"
         self.patcher_version_label=self.patcher_version
         self.patcher_support_pkg_version:     str = "2.5"
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
@@ -95,7 +95,7 @@ class Constants:
         self.repo_link:                       str = "https://github.com/bridgepatcher/BridgePatcher/"
         self.github_issues_link:              str = "https://github.com/bridgepatcher/BridgePatcher/issues"
         self.github_discussions_link:         str = "https://github.com/bridgepatcher/BridgePatcher/discussions"
-        self.gemini_link:                     str = "https://gemini.google.com"
+        self.chatgpt_link:                    str = "https://chatgpt.com"
 
         # Update channels (Settings > App > "Update Channel")
         # Decide which GitHub repository the in-app updater pulls releases from.
@@ -161,7 +161,7 @@ class Constants:
         ## Matteo (Medelcartelinc / matteoiacca)
         ## https://github.com/Medelcartelinc
         self.appleans2disabler_version:  str = "1.0.0"  #      AppleANS2Disabler (T2 internal SSD)
-        self.t2tahoefixup_version:       str = "1.0.22" #      T2TahoeFixup
+        self.t2tahoefixup_version:       str = "1.0.24" #      T2TahoeFixup
 
         ## Apple
         ## https://www.apple.com
@@ -174,6 +174,7 @@ class Constants:
         self.apple_raid_version:    str = "1.0.0"  #  AppleRAIDCard
         self.apfs_zlib_version:     str = "12.3.1"  # NoAVXFSCompressionTypeZlib
         self.apfs_zlib_v2_version:  str = "12.6"  #   NoAVXFSCompressionTypeZlib (patched with AVXpel)
+        self.apfs_zlib_tahoe_version: str = "26.7"  # NoAVXFSCompressionTypeZlib for macOS Tahoe (patched with AVXpel)
         self.multitouch_version:    str = "1.0.0"  #  AppleUSBMultitouch
         self.topcase_version:       str = "1.0.0"  #  AppleUSBTopCase
         self.topcase_inj_version:   str = "1.0.0"  #  AppleTopCaseInjector
@@ -627,6 +628,10 @@ class Constants:
     @property
     def apfs_zlib_v2_path(self):
         return self.payload_kexts_path / Path(f"Misc/NoAVXFSCompressionTypeZlib-AVXpel-v{self.apfs_zlib_v2_version}.zip")
+
+    @property
+    def apfs_zlib_tahoe_path(self):
+        return self.payload_kexts_path / Path(f"Misc/NoAVXFSCompressionTypeZlib-AVXpel-Tahoe-v{self.apfs_zlib_tahoe_version}.zip")
 
     @property
     def multitouch_path(self):
