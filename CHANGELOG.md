@@ -82,6 +82,7 @@ fixes the following vulnerabilities:
 - a 0 day vulnerability where an attacker could set up a fake site or a typosquatting site claiming to be the T2 team or Dortania team to spread malware by not warning that their site is unofficial
 Impact: an attacker could trick users into trusting a typosquatting site whose installer has been tampered and they added malware to it without any warning. This is fixed by when installing the application, it checks if the SHA256 certificates match the official ones and if not, display a warning that it could be malicious like this:
 <img width="532" height="460" alt="Bildschirmfoto 2026-10-31 um 17 37 34" src="https://github.com/user-attachments/assets/21a4467f-2240-4f45-8710-f4387c150528" />
+This vulnerability is exploited in the wild by attackers who have set up lookalike typosquatting repositories before an update for this patch could be shipped.
 
 - fixes a vulnerability where the updater doesn’t check the SHA256 certificats
 Impact: a half downloaded update could still apply, or worse, an attacker could hijack the DNS server to launch MiTM attacks and redirect the updater to a malicious website who is pretending to be GitHub. This vulnerability is fixed by ensuring that:
