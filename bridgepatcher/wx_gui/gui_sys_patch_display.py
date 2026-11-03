@@ -174,17 +174,31 @@ class SysPatchDisplayFrame(wx.Frame):
 
         patched_with_other_build: bool = bool(self.manifest_metadata) and self.manifest_metadata.get("Commit URL") != self.constants.commit_info[2]
 
-        # Reverting needs SIP lowered, and something to revert in the first place.
+        # Reverting needs SIP lowered, a Mac that needs root patches at all, and something
+        # to revert in the first place.
         #
-        # Only the SIP half used to be checked, so an unpatched Mac was shown "No patches
-        # required" next to an enabled 'Revert Root Patches' button, which then went on to
-        # revert a snapshot that was never created. A root volume with a broken seal still
-        # counts as revertible even without a manifest: going back to the last sealed
-        # snapshot is precisely how that state is fixed.
-        root_volume_dirty: bool = patches.get(HardwarePatchsetValidation.ROOT_VOLUME_DIRTY, False) is True
-        has_root_patches:  bool = self.root_volume_patched or root_volume_dirty
-        can_unpatch:       bool = not patches[HardwarePatchsetValidation.UNPATCHING_NOT_POSSIBLE] and has_root_patches
-        if has_root_patches is False:
+        # Only the SIP half used to be checked, so a Mac that never needs root patches was
+        # shown "No patches required" next to an enabled 'Revert Root Patches' button.
+        #
+        # 'available_patchsets' lists every patchset detected for this hardware, including
+        # the ones the user deselected in 'Configure Patches' - a deselected patchset still
+        # means the Mac needs root patches, so it keeps the button available. When it is
+        # empty, this Mac needs no root patches and there is nothing for a revert to undo.
+        #
+        # A root volume with a broken seal still counts as revertible even without a
+        # manifest: going back to the last sealed snapshot is precisely how that state is
+        # fixed.
+        needs_root_patches: bool = bool(self.available_patchsets)
+        root_volume_dirty:  bool = patches.get(HardwarePatchsetValidation.ROOT_VOLUME_DIRTY, False) is True
+        has_root_patches:   bool = self.root_volume_patched or root_volume_dirty
+        can_unpatch:        bool = (
+            not patches[HardwarePatchsetValidation.UNPATCHING_NOT_POSSIBLE]
+            and needs_root_patches
+            and has_root_patches
+        )
+        if needs_root_patches is False:
+            logging.info("This Mac needs no root patches, nothing to revert")
+        elif has_root_patches is False:
             logging.info("No root patches installed, nothing to revert")
 
         if not selected_patchsets:
