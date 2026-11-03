@@ -303,15 +303,19 @@ AGDPSupport = [
 ]
 
 Missing_USB_Map = [
+    "MacBook3,1",
+    "MacBook4,1",
     "MacBook5,1",
     "MacBook5,2",
     "MacBook6,1",
     "MacBook7,1",
+    "MacBookAir1,1",
     "MacBookAir2,1",
     "MacBookAir3,1",
     "MacBookAir3,2",
     "MacBookAir4,1",
     "MacBookAir4,2",
+    "MacBookPro3,1",
     "MacBookPro4,1",
     "MacBookPro5,1",
     "MacBookPro5,2",
@@ -344,6 +348,17 @@ Missing_USB_Map = [
     "Xserve3,1",
 ]
 
+# Subset of Missing_USB_Map that only ever shipped a stub USB map (dropped before or with
+# the El Capitan IOUSBHostFamily rewrite), so the map is needed from El Capitan on. All of
+# them route USB 1.1 devices through UHCI companion controllers, whose ports stay unmapped
+# without it. Used for USB-Map.kext's MinKernel, same as Dortania upstream
+# (datasets/usb_map_data.py, os_data.el_capitan).
+Missing_USB_Map_Since_El_Capitan = [
+    "MacBook3,1",
+    "MacBook4,1",
+    "MacBookAir1,1",
+]
+
 # Subset of Missing_USB_Map whose native USB map was already dropped in macOS Sierra.
 # Every other Missing_USB_Map model lost its map in macOS Mojave. Used for USB-Map.kext's
 # MinKernel, same split as Dortania upstream (datasets/usb_map_data.py).
@@ -351,6 +366,7 @@ Missing_USB_Map_Since_Sierra = [
     "MacBook5,1",
     "MacBook5,2",
     "MacBookAir2,1",
+    "MacBookPro3,1",
     "MacBookPro4,1",
     "MacBookPro5,1",
     "MacBookPro5,2",

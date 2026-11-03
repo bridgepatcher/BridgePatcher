@@ -395,6 +395,8 @@ class BuildMiscellaneous:
                     if m1 and not spoofing:
                         if self.model in model_array.Missing_USB_Map_Ventura:
                             m1["MinKernel"] = "22.0.0"
+                        elif self.model in model_array.Missing_USB_Map_Since_El_Capitan:
+                            m1["MinKernel"] = "15.0.0"
                         elif self.model in model_array.Missing_USB_Map_Since_Sierra:
                             m1["MinKernel"] = "16.0.0"
                         elif self.model in model_array.Missing_USB_Map:
