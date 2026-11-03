@@ -94,6 +94,9 @@ Impact: an attacker could launch a MiTM attack by compromising the DNS server to
 
 Impact: an attacker could abuse this vulnerable password prompt to impersonate the patcher to launch a phishing attack, which could lead to an attacker to gain access to the victim's computer. This vulnerability is fixed by using the macOS's password prompt instead to ensure an attacker can't impersonate the application to launch attacks.
 
+- fixes a vulnerability where running the patcher from source disabled update checks completely, so a from-source session was never told that a newer version exists
+Impact: an attacker could abuse this on a typosquatting website or a fake GitHub page by telling users to run the patcher from source, keeping them on an outdated or tampered copy without ever being notified about updates. This vulnerability is fixed by always checking for updates, also when running from source. When running from source, only automatic updates are disabled: a new version is always offered through the update dialog and never downloaded and installed without asking
+
 
 ## 4.0.0.1900019 - 4.0.0 alpha 19.19
 I have a critical warning to you: as of the time of writing, attackers have set up a malicious website called https://en.soydemac.com/  that tricks into that Dortania has added support for unsupported T2 Macs and tricks people into believing that this project is Dortania's official one to launch SEO poisoning attacks. Also, that website is full of fake news. Also, that webstie is also a malvertising website whose ads deliver from phishing websites to malware payloads that hijack your search engine to an attacker controlled search engine. More here: https://oclp-t2.github.io/issues/599.html on this patcher's page or https://github.com/oclp-t2/OpenCore-Legacy-Patcher-T2/issues/599 in GitHub.

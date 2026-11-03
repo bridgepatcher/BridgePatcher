@@ -509,8 +509,14 @@ class MainFrame(wx.Frame):
             # While a service the patcher depends on is gone (endpoint_health.updates_forced()),
             # "Turn Off Auto Updates" is ignored and the update behaves as if the snooze
             # deadline had passed - the fix for the dead service can only arrive this way.
+            # Running from source (launcher_script is only set then, see
+            # application_entry.py) always asks too, even when forced: the silent
+            # path installs the packaged app, which is not what is running here.
+            # Only the automatic installation is off from source - the check
+            # itself still runs, so the user is always told about new versions.
             forced = endpoint_health.updates_forced()
-            ask_first = manual or channel_switch or (self.constants.auto_update is False and not forced)
+            from_source = self.constants.launcher_script is not None
+            ask_first = manual or channel_switch or from_source or (self.constants.auto_update is False and not forced)
             # Automatic check after the snooze ran out: the update may not be
             # postponed again by cancelling it (see updates.snooze_has_expired()).
             mandatory = not ask_first and (updates.snooze_has_expired() or forced)
