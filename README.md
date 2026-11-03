@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>BridgePatcher — T1 & T2 macOS Tahoe Edition</h1>
+  <h1>BridgePatcher</h1>
   <p><b>Developed & Maintained by <a href="https://github.com/albert-mueller">albert-mueller (Albert Müller)</a> in the <a href="https://github.com/bridgepatcher">bridgepatcher</a> organization, with community contributions</b></p>
   <p><i>Restoring full graphics acceleration, Broadcom Wi-Fi, audio routing, and T1/T2 security on macOS 26 Tahoe & macOS 15 Sequoia</i></p>
 </div>
