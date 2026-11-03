@@ -1,6 +1,6 @@
 # Build from source
 
-BridgePatcher at its core is a Python-based GUI/CLI-based application. In turn, to run the project from source, you simply need to invoke the OpenCore-Patcher-GUI.command file via Python.
+BridgePatcher at its core is a Python-based GUI/CLI-based application. In turn, to run the project from source, you simply need to invoke the BridgePatcher-GUI.command file via Python.
 
 For developers wishing to validate mainline changes, you may use this link: [GUI (Graphical Based App)](https://github.com/bridgepatcher/BridgePatcher/releases)
 

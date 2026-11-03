@@ -96,7 +96,7 @@ jobs:
           git fetch --no-tags --depth 1 origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/origin/pr-head"
           mkdir pr
           mkdir -p pr/docs
-          for f in LICENSE.txt OpenCore-Patcher-GUI.spec README.md docs/README.md; do
+          for f in LICENSE.txt BridgePatcher-GUI.spec README.md docs/README.md; do
             git show "origin/pr-head:$f" > "pr/$f" 2>/dev/null || rm -f "pr/$f"
           done
 

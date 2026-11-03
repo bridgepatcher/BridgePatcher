@@ -7,7 +7,7 @@ This script checks that the end result still meets Dortania's BSD 4-Clause terms
   1. LICENSE.txt contains Dortania's complete, current license text (condition 1).
      Compared line by line against the live upstream file; year bumps and whitespace are
      ignored, so Dortania changing "2020-2025" to "2020-2026" doesn't fail the check.
-  2. OpenCore-Patcher-GUI.spec still bundles LICENSE.txt into the app (condition 2).
+  2. BridgePatcher-GUI.spec still bundles LICENSE.txt into the app (condition 2).
   3. README.md still shows the acknowledgement from condition 3, and so does docs/README.md
      (the old website homepage) while it exists.
   4. The website (https://bridgepatcher.github.io/) shows it too: it lists the patcher's features,
@@ -35,7 +35,7 @@ UPSTREAM_URL = "https://raw.githubusercontent.com/dortania/OpenCore-Legacy-Patch
 ACKNOWLEDGEMENT = "This product includes software developed by Dortania and OpenCore Legacy Patcher contributors."
 
 LICENSE_PATH = "LICENSE.txt"
-SPEC_PATH = "OpenCore-Patcher-GUI.spec"
+SPEC_PATH = "BridgePatcher-GUI.spec"
 README_PATH = "README.md"
 DOCS_README_PATH = "docs/README.md"
 WEBSITE_URL = "https://bridgepatcher.github.io/"

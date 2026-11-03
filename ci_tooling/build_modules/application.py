@@ -45,7 +45,7 @@ class GenerateApplication:
         if self._application_output.exists():
             shutil.rmtree(self._application_output)
 
-        _args = self._pyinstaller + ["./OpenCore-Patcher-GUI.spec", "--noconfirm"]
+        _args = self._pyinstaller + ["./BridgePatcher-GUI.spec", "--noconfirm"]
         if self._reset_pyinstaller_cache:
             _args.append("--clean")
 
