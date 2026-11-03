@@ -60,6 +60,7 @@ This version:
 - fixes root patching asking for the administrator password to mount Universal-Binaries.dmg even though the Privileged Helper Tool is installed and working: the elevated mount now goes through the helper like every other root patching step, and the macOS password prompt is only used when the helper is missing or rejects the build
 - fixes the License tab in Settings not finding LICENSE.txt in the built app: it looked in a Resources folder next to the temporary payloads directory instead of inside BridgePatcher.app. The build now also checks that LICENSE.txt is inside the app (Contents/Resources, linked into Contents/Frameworks), copies it in if PyInstaller didn't, and fails if it is still missing. If the file can't be found at runtime, the License tab shows where to find the license instead of failing
 - adds Reset SIP button inside the patcher, so if a user accidentally changes the value or an attacker tricked them into doing so to execute a malicious application trying to mess with core system files, instead of guessing the default values, now all they need to do is to click Reset SIP to reset back to defaults
+- removes Matteo's Metallibs API
 
 In the repository:
 - License Guard now also finds Dortania's icon when it is only part of a larger image (scaled, rotated, placed in a box or partly covered by a badge, as in the old package backgrounds), and checks the images stored inside design files such as .afdesign, .psd and .pdf. The reference icon is read from Dortania's repository during the check, so no copy of it is stored here
