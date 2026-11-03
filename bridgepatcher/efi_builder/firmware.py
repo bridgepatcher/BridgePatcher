@@ -227,6 +227,9 @@ class BuildFirmware:
         if smbios_data.smbios_dictionary[self.model]["CPU Generation"] < cpu_data.CPUGen.sandy_bridge.value:
             support.BuildSupport(self.model, self.constants, self.config).enable_kext("NoAVXFSCompressionTypeZlib.kext", self.constants.apfs_zlib_version, self.constants.apfs_zlib_path)
             support.BuildSupport(self.model, self.constants, self.config).enable_kext("NoAVXFSCompressionTypeZlib-AVXpel.kext", self.constants.apfs_zlib_v2_version, self.constants.apfs_zlib_v2_path)
+            # macOS 26 Tahoe needs its own build: the 12.6 kext above is capped at MaxKernel 24.99.99
+            # (Sequoia), the Tahoe one starts at MinKernel 25.0.0. Same split as Dortania upstream.
+            support.BuildSupport(self.model, self.constants, self.config).enable_kext("NoAVXFSCompressionTypeZlib-AVXpel-Tahoe.kext", self.constants.apfs_zlib_tahoe_version, self.constants.apfs_zlib_tahoe_path)
 
         # HID patches
         if smbios_data.smbios_dictionary[self.model]["CPU Generation"] <= cpu_data.CPUGen.penryn.value:

@@ -1,6 +1,8 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
 ## 4.0.0.2000000.3 - 4.0.0 alpha 20 RC 3
 This version:
+- stops injecting the `cryptex=0` boot-arg on Macs without AVX2 (Ivy Bridge and older, e.g. MacBookPro7,1). It was added for every macOS version, although only meant for macOS 26 Tahoe, and is suspected of stopping older macOS versions from booting. Dortania's upstream boots Tahoe on these Macs without it (CryptexFixup handles them). EFIs that still carry it get it removed when rebuilt
+- pre-Sandy Bridge Macs (e.g. MacBookPro7,1) now get the macOS 26 Tahoe build of NoAVXFSCompressionTypeZlib (26.7, from Dortania upstream) on Tahoe. The 12.6 build is now limited to macOS 13 Ventura - 15 Sequoia (MaxKernel 24.99.99) instead of also loading on Tahoe
 - renames OpenCore Legacy Patcher T2 to BridgePatcher. One of the reasons for this rename is that it confuses users that this is Dortania’s official project and open issues inside the wrong repository. Attackers would love this patcher to be called OpenCore Legacy Patcher T2 to exploit for impersonation and malware delivery, I already documented a case where attackers intentionally confused users that this is Dortania’s official project to deliver malware over a malvertising website. 
 - replaces Dortania’s icons with our own ones
 - now includes the license of the patcher inside the binary itself
