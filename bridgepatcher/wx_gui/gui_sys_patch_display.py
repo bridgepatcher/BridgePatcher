@@ -21,7 +21,7 @@ from ..wx_gui import (
     gui_sys_patch_start,
 )
 
-from ..support import global_settings
+from ..support import global_settings, utilities
 
 
 class SysPatchDisplayFrame(wx.Frame):
@@ -64,6 +64,10 @@ class SysPatchDisplayFrame(wx.Frame):
         # own metadata (patcher version, date, commit URL).
         self.installed_patchsets: list = []
         self.manifest_metadata:   dict = {}
+
+        # Whether any patcher manifest exists on the system or Data volume, ie. there
+        # is something for 'Revert Root Patches' to undo.
+        self.root_volume_patched: bool = False
 
         self.frame_modal = wx.Dialog(self.frame, title=title, size=(360, 200))
 
@@ -122,6 +126,10 @@ class SysPatchDisplayFrame(wx.Frame):
             # tell a patched Mac apart from an unpatched one (#387).
             self.installed_patchsets = detection.installed_patchsets
             self.manifest_metadata   = detection.manifest_metadata
+            # 'manifest_metadata' only covers the manifest on the booted system volume.
+            # A revert also cleans up manifests a legacy install or Dortania's patcher
+            # left behind, so look for any of those as well.
+            self.root_volume_patched = bool(self.manifest_metadata) or utilities.find_any_patcher_manifest() is not None
 
         thread = threading.Thread(target=_fetch_patches, args=(self,))
         thread.start()
@@ -166,7 +174,18 @@ class SysPatchDisplayFrame(wx.Frame):
 
         patched_with_other_build: bool = bool(self.manifest_metadata) and self.manifest_metadata.get("Commit URL") != self.constants.commit_info[2]
 
-        can_unpatch: bool = not patches[HardwarePatchsetValidation.UNPATCHING_NOT_POSSIBLE]
+        # Reverting needs SIP lowered, and something to revert in the first place.
+        #
+        # Only the SIP half used to be checked, so an unpatched Mac was shown "No patches
+        # required" next to an enabled 'Revert Root Patches' button, which then went on to
+        # revert a snapshot that was never created. A root volume with a broken seal still
+        # counts as revertible even without a manifest: going back to the last sealed
+        # snapshot is precisely how that state is fixed.
+        root_volume_dirty: bool = patches.get(HardwarePatchsetValidation.ROOT_VOLUME_DIRTY, False) is True
+        has_root_patches:  bool = self.root_volume_patched or root_volume_dirty
+        can_unpatch:       bool = not patches[HardwarePatchsetValidation.UNPATCHING_NOT_POSSIBLE] and has_root_patches
+        if has_root_patches is False:
+            logging.info("No root patches installed, nothing to revert")
 
         if not selected_patchsets:
             logging.info("No applicable patches available")
