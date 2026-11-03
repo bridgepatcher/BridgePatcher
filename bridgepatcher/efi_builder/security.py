@@ -345,6 +345,17 @@ class BuildSecurity:
                     logging.info("- Injecting T2TahoeFixup for macOS Tahoe bypass on T2")
                     support.BuildSupport(self.model, self.constants, self.config).enable_t2tahoefixup()
 
+                    # SIP 0x803 (CSR_ALLOW_UNTRUSTED_KEXTS | CSR_ALLOW_UNRESTRICTED_FS |
+                    # CSR_ALLOW_UNAUTHENTICATED_ROOT). Without CSR_ALLOW_UNAUTHENTICATED_ROOT,
+                    # authenticated-root stays enabled and APFS / UpdateBrainService insist on
+                    # Apple's sealed snapshot verification, failing Stage 2 at
+                    # "MSU: Starting prepare" with Error -81 (#639).
+                    # misc.py _t2_handling() also sets it for every T2 Mac, but build.py
+                    # swallows per-module exceptions, so an earlier failure in misc.py would
+                    # silently drop it. Set it here too so Tahoe targets always get it.
+                    logging.info("- Set SIP to allow unauthenticated root on T2 for macOS Tahoe (03080000)")
+                    self._set_nvram_value(APPLE_NVRAM_UUID, "csr-active-config", binascii.unhexlify("03080000"), overwrite=True)
+
                     # T2TahoeFixup (replaces SpoofVMM) needs no boot-args: it detects the
                     # T2 Macs Apple dropped from Tahoe by their bridge board itself, keeps
                     # the native board-id and only reports the J214kAP bridge-model /

@@ -1263,7 +1263,7 @@ class OCSettingsFrame(wx.Frame):
         safe_wrap_width = 480 - wx.SystemSettings.GetMetric(wx.SYS_VSCROLL_X) - 20
 
         # SIP customization has no effect on T2 Macs: OpenCore hardcodes
-        # csr-active-config to 0xFFF there regardless of these settings.
+        # csr-active-config to 03080000 (0x803) there regardless of these settings.
         if (self.constants.custom_model or self.constants.computer.real_model) in model_array.T2Macs:
             sip_unavailable_label = wx.StaticText(panel, label="Customizing SIP is not available for T2 Macs.", pos=(sip_title.GetPosition()[0] - 20, sip_title.GetPosition()[1] + 30))
             sip_unavailable_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
