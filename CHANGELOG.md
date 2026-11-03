@@ -1,5 +1,5 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
-## 4.0.0.2000000.4 - 4.0.0 alpha 20 RC 4
+## 4.0.0.2000000.4 - 4.0.0 alpha 20
 This version:
 - stops injecting the `cryptex=0` boot-arg on Macs without AVX2 (Ivy Bridge and older, e.g. MacBookPro7,1). It was added for every macOS version, although only meant for macOS 26 Tahoe, and is suspected of stopping older macOS versions from booting. Dortania's upstream boots Tahoe on these Macs without it (CryptexFixup handles them). EFIs that still carry it get it removed when rebuilt
 - pre-Sandy Bridge Macs (e.g. MacBookPro7,1) now get the macOS 26 Tahoe build of NoAVXFSCompressionTypeZlib (26.7, from Dortania upstream) on Tahoe. The 12.6 build is now limited to macOS 13 Ventura - 15 Sequoia (MaxKernel 24.99.99) instead of also loading on Tahoe
