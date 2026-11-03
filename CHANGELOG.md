@@ -100,7 +100,7 @@ Impact: an attacker could launch a MiTM attack by compromising the DNS server to
 
 Impact: an attacker could abuse this vulnerable password prompt to impersonate the patcher to launch a phishing attack, which could lead to an attacker to gain access to the victim's computer. This vulnerability is fixed by using the macOS's password prompt instead to ensure an attacker can't impersonate the application to launch attacks.
 
-- fixes a 0 day vulnerability where running the patcher from source disabled update checks completely, so a from-source session was never told that a newer version exists
+- fixes vulnerability where running the patcher from source disabled update checks completely, so a from-source session was never told that a newer version exists
 Impact: an attacker could abuse this on a typosquatting website or a fake GitHub page by telling users to run the patcher from source, keeping them on an outdated or tampered copy without ever being notified about updates. This vulnerability is fixed by always checking for updates, also when running from source. When running from source, only automatic updates are disabled: a new version is always offered through the update dialog and never downloaded and installed without asking
 
 
