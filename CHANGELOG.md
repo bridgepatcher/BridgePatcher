@@ -1,5 +1,5 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
-## 4.0.0.2000000.4 - 4.0.0 alpha 20 RC 4
+## 4.0.0.2000000.4 - 4.0.0 alpha 20
 This version:
 - stops injecting the `cryptex=0` boot-arg on Macs without AVX2 (Ivy Bridge and older, e.g. MacBookPro7,1). It was added for every macOS version, although only meant for macOS 26 Tahoe, and is suspected of stopping older macOS versions from booting. Dortania's upstream boots Tahoe on these Macs without it (CryptexFixup handles them). EFIs that still carry it get it removed when rebuilt
 - pre-Sandy Bridge Macs (e.g. MacBookPro7,1) now get the macOS 26 Tahoe build of NoAVXFSCompressionTypeZlib (26.7, from Dortania upstream) on Tahoe. The 12.6 build is now limited to macOS 13 Ventura - 15 Sequoia (MaxKernel 24.99.99) instead of also loading on Tahoe
@@ -79,9 +79,10 @@ In the repository:
 - README: removes Dortania’s logo and the Discord server, and links to GitHub Discussions for community support
 
 fixes the following vulnerabilities:
-- an attacker could set up a fake site or a typosquatting site claiming to be the T2 team or Dortania team to spread malware by not warning that their site is unofficial
+- a 0 day vulnerability where an attacker could set up a fake site or a typosquatting site claiming to be the T2 team or Dortania team to spread malware by not warning that their site is unofficial
 Impact: an attacker could trick users into trusting a typosquatting site whose installer has been tampered and they added malware to it without any warning. This is fixed by when installing the application, it checks if the SHA256 certificates match the official ones and if not, display a warning that it could be malicious like this:
 <img width="532" height="460" alt="Bildschirmfoto 2026-10-31 um 17 37 34" src="https://github.com/user-attachments/assets/21a4467f-2240-4f45-8710-f4387c150528" />
+This vulnerability is exploited in the wild by attackers who have set up lookalike typosquatting repositories before an update for this patch could be shipped.
 
 - fixes a vulnerability where the updater doesn’t check the SHA256 certificats
 Impact: a half downloaded update could still apply, or worse, an attacker could hijack the DNS server to launch MiTM attacks and redirect the updater to a malicious website who is pretending to be GitHub. This vulnerability is fixed by ensuring that:
@@ -100,7 +101,7 @@ Impact: an attacker could launch a MiTM attack by compromising the DNS server to
 
 Impact: an attacker could abuse this vulnerable password prompt to impersonate the patcher to launch a phishing attack, which could lead to an attacker to gain access to the victim's computer. This vulnerability is fixed by using the macOS's password prompt instead to ensure an attacker can't impersonate the application to launch attacks.
 
-- fixes a vulnerability where running the patcher from source disabled update checks completely, so a from-source session was never told that a newer version exists
+- fixes vulnerability where running the patcher from source disabled update checks completely, so a from-source session was never told that a newer version exists
 Impact: an attacker could abuse this on a typosquatting website or a fake GitHub page by telling users to run the patcher from source, keeping them on an outdated or tampered copy without ever being notified about updates. This vulnerability is fixed by always checking for updates, also when running from source. When running from source, only automatic updates are disabled: a new version is always offered through the update dialog and never downloaded and installed without asking
 
 
