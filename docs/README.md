@@ -21,7 +21,9 @@ features:
     details: "New life is breathed into your decade-old graphics card, WiFi, and Bluetooth chipsets. Even your upgraded hardware receives benefits by unlocking exciting features like Hardware Acceleration, AirDrop, Apple Watch Unlock, Sidecar, and much more!"
   - title: Unlock newer features
     details: "Unlock some newer features such as Sidecar, AirPlay to Mac, Night Shift, and Universal Control, even on natively supported models!"
-  - title: A helpful community
-    details: "Whether it's getting started or learning the specifics, you can always find answers with our amazing community of tinkerers, developers, and dreamers."
-footer: Copyright © Dortania 2020-2025 · T2 fork © 2026 Albert Müller and BridgePatcher contributors
+  - title: Help when you need it
+    details: "Whether it's getting started or learning the specifics, ask in BridgePatcher's GitHub Discussions, where users and maintainers of this project help each other."
+    link: https://github.com/bridgepatcher/BridgePatcher/discussions
+    linkText: Open the discussions
+footer: "This product includes software developed by Dortania and OpenCore Legacy Patcher contributors. Copyright © Dortania 2020-2025 · BridgePatcher © 2026 Albert Müller and BridgePatcher contributors"
 ---
