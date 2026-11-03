@@ -27,7 +27,7 @@ SYSROOT_FLAGS=
 ifneq ($(wildcard $(SDKROOT)/SDKSettings.plist),)
 SYSROOT_FLAGS= -isysroot $(SDKROOT)
 endif
-# Same minimum as the app (LSMinimumSystemVersion in OpenCore-Patcher-GUI.spec).
+# Same minimum as the app (LSMinimumSystemVersion in BridgePatcher-GUI.spec).
 # The arm64 slice is raised to macOS 11.0 by clang automatically.
 MACOS_MIN ?= 10.13.6
 PIN_FLAGS=

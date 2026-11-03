@@ -288,7 +288,7 @@ class CheckBinaryUpdates:
         apply them automatically").
         """
 
-        # Running from source (OpenCore-Patcher-GUI.command / python3 from the
+        # Running from source (BridgePatcher-GUI.command / python3 from the
         # Terminal) is deliberately NOT a reason to skip the check. That used to
         # return None for every automatic check, so a from-source session never
         # learned about updates at all - which a typosquatting site or a fake
