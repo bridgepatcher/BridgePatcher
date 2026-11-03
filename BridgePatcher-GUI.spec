@@ -32,7 +32,7 @@ if (SPEC_DIR / "DortaniaInternalResources.dmg").exists():
 datas.append((str(SPEC_DIR / "LICENSE.txt"), "."))
 
 
-a = Analysis([str(SPEC_DIR / 'OpenCore-Patcher-GUI.command')],
+a = Analysis([str(SPEC_DIR / 'BridgePatcher-GUI.command')],
              pathex=[],
              binaries=[],
              datas=datas,

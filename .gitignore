@@ -225,7 +225,6 @@ build/
 # BridgePatcher-specific ones (CRITICAL)
 # ==========================================
 .DS_Store
-BridgePatcher-GUI.command
 /payloads/Apple
 /payloads/*.zip
 /payloads/BuildManifest.plist

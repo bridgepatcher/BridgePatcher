@@ -102,7 +102,7 @@ class PatcherSupportPkgMount:
 
         The image is not tracked in git (see .gitignore) - it only lands next to the
         sources when Build-Project.command runs its asset step. A plain clone started
-        via OpenCore-Patcher-GUI.command therefore never has it, and root patching
+        via BridgePatcher-GUI.command therefore never has it, and root patching
         used to abort with "Patcher likely corrupted", which is misleading for a
         source run. Fetch it on demand in that case, from the same release the build
         script uses.

@@ -7,8 +7,14 @@ This script checks that the end result still meets Dortania's BSD 4-Clause terms
   1. LICENSE.txt contains Dortania's complete, current license text (condition 1).
      Compared line by line against the live upstream file; year bumps and whitespace are
      ignored, so Dortania changing "2020-2025" to "2020-2026" doesn't fail the check.
-  2. OpenCore-Patcher-GUI.spec still bundles LICENSE.txt into the app (condition 2).
-  3. README.md still shows the acknowledgement from condition 3.
+  2. BridgePatcher-GUI.spec still bundles LICENSE.txt into the app (condition 2).
+  3. README.md still shows the acknowledgement from condition 3, and so does docs/README.md
+     (the old website homepage) while it exists.
+  4. The website (https://bridgepatcher.github.io/) shows it too: it lists the patcher's features,
+     so it is advertising material under condition 3. Its pages are built from another repository
+     (bridgepatcher/bridgepatcher.github.io), so the deployed homepage is checked. Only when
+     CHECK_WEBSITE=1 (pushes, scheduled and manual runs - not pull requests, which can't change it).
+     If the site can't be reached, it's a warning, not a failure.
 
 Files are only read, never imported or executed, so a pull request's files can be
 checked safely by the base branch's copy of this script.
@@ -17,6 +23,7 @@ Usage: check_license_compliance.py [repo-root]     (default: current directory)
 """
 
 import ast
+import html
 import os
 import re
 import sys
@@ -28,8 +35,10 @@ UPSTREAM_URL = "https://raw.githubusercontent.com/dortania/OpenCore-Legacy-Patch
 ACKNOWLEDGEMENT = "This product includes software developed by Dortania and OpenCore Legacy Patcher contributors."
 
 LICENSE_PATH = "LICENSE.txt"
-SPEC_PATH = "OpenCore-Patcher-GUI.spec"
+SPEC_PATH = "BridgePatcher-GUI.spec"
 README_PATH = "README.md"
+DOCS_README_PATH = "docs/README.md"
+WEBSITE_URL = "https://bridgepatcher.github.io/"
 
 YEARS_RE = re.compile(r"\b(19|20)\d{2}(\s*[-–]\s*(19|20)\d{2})?")
 
@@ -83,16 +92,35 @@ def check_spec(root: Path, errors: list) -> None:
         errors.append((SPEC_PATH, "LICENSE.txt is no longer bundled into the app (BSD condition 2)"))
 
 
-def check_readme(root: Path, errors: list) -> None:
-    path = root / README_PATH
+def check_readme(root: Path, errors: list, rel: str = README_PATH, required: bool = True) -> None:
+    path = root / rel
     if not path.is_file():
-        errors.append((README_PATH, "README.md is missing"))
+        if required:
+            errors.append((rel, f"{rel} is missing"))
         return
     text = path.read_text(encoding="utf-8")
     # Markdown quotes and line wrapping don't matter, the sentence does.
     text = re.sub(r"(?m)^\s*>\s?", "", text)
     if norm(ACKNOWLEDGEMENT) not in norm(text):
-        errors.append((README_PATH, f'Acknowledgement missing (BSD condition 3): "{ACKNOWLEDGEMENT}"'))
+        errors.append((rel, f'Acknowledgement missing (BSD condition 3): "{ACKNOWLEDGEMENT}"'))
+
+
+def check_website(errors: list) -> None:
+    """The deployed homepage must show the acknowledgement (in the footer)."""
+    request = urllib.request.Request(WEBSITE_URL, headers={"User-Agent": "bridgepatcher-license-check"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            page = response.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, TimeoutError) as error:
+        print(f"::warning::Could not load the website {WEBSITE_URL} ({error}); website acknowledgement check skipped")
+        return
+    text = html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", page)))
+    if norm(ACKNOWLEDGEMENT) not in norm(text):
+        message = ("The website's homepage doesn't show the acknowledgement (BSD condition 3): "
+                   f'"{ACKNOWLEDGEMENT}". Add it to the footer in .vitepress/config.mts of '
+                   "bridgepatcher/bridgepatcher.github.io (if the site is showing its offline page, "
+                   "fix the License Guard findings there first).")
+        errors.append((WEBSITE_URL, message))
 
 
 def main() -> int:
@@ -101,6 +129,9 @@ def main() -> int:
     check_license(root, errors)
     check_spec(root, errors)
     check_readme(root, errors)
+    check_readme(root, errors, DOCS_README_PATH, required=False)
+    if os.environ.get("CHECK_WEBSITE") == "1":
+        check_website(errors)
 
     summary = ["## 📜 License compliance", ""]
     if errors:
@@ -110,7 +141,8 @@ def main() -> int:
             print(f"::error file={file}::{message}")
             summary.append(f"- `{file}`: {message}")
     else:
-        summary.append("✅ Dortania's license text is complete, LICENSE.txt is bundled into the app and the README acknowledgement is present.")
+        summary.append("✅ Dortania's license text is complete, LICENSE.txt is bundled into the app and the acknowledgement "
+                       "is present in the README" + (" and on the website." if os.environ.get("CHECK_WEBSITE") == "1" else "."))
         print("License compliance: all checks passed")
 
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")

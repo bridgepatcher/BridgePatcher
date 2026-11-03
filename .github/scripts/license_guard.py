@@ -216,6 +216,64 @@ def scan_discord(head, add):
                  "  Link this project's GitHub Discussions or Issues instead."])
 
 
+# Statements made in Dortania's name: Dortania as the one who condones, recommends, supports or
+# guarantees something in BridgePatcher's app, docs, issue forms or bot replies ("Dortania does not condone
+# piracy", "Dortania empfiehlt ..."). Copied from Dortania's docs, such a line makes this project speak for
+# Dortania, as if Dortania stood behind it (licence condition 4). Facts about Dortania's releases ("Dortania's
+# OpenCore Legacy Patcher 2.0.0 supports Sequoia", "the Dortania support folder") don't match: the verb must
+# follow Dortania (or "Dortania's team") directly. Same rule as the website's License Guard.
+_VOICE_VERBS = (r"condone|endorse|recommend|approve|guarantee|vouch|stand\s+behind|take\s+responsibility|warrant"
+                r"|permit|forbid|prohibit|duldet|billigt|empfiehlt|unterstützt|garantiert|übernimmt|haftet"
+                r"|erlaubt|verbietet|befürwortet|rät")
+DORTANIA_VOICE_RE = re.compile(
+    r"(?i)\bDortania(?:'s|s)?(?:\s+(?:team|maintainers|developers|devs|Team|Entwickler))?\s+"
+    r"(?:(?:(?:does|do|will|would|can|is|are)(?:\s+not|n't)|never|cannot)\s+(?:" + _VOICE_VERBS + r"|support)"
+    r"|(?:" + _VOICE_VERBS + r")|supports\b)\w*")
+# "Our community", "unsere Community", "join us": Dortania's docs and app say this about Dortania's community
+# and Discord (the website's homepage card and docs/README.md had it word for word). Fine when the same line
+# or the next COMMUNITY_LINK_LINES lines link BridgePatcher's own channels.
+COMMUNITY_RE = re.compile(
+    r"(?i)\b(?:our|unserer?[nmrs]?)\b(?:\s+[\w-]+){0,3}?\s+(?:community|discord|forum|support\s+(?:server|channel)"
+    r"|chat|subreddit|telegram|server)\b|\bjoin\s+us\b|\b(?:ask|contact|reach\s+out\s+to)\s+us\b")
+OWN_CHANNEL_RE = re.compile(
+    r"(?i)github\.com/bridgepatcher/|(?:^|[\s(\"':])/(?:de/)?(?:discussions|issues|announcements)/")
+COMMUNITY_LINK_LINES = 3
+URL_RE = re.compile(r"https?://[^\s\"'<>)\]]+|\]\([^)\s]*\)")
+
+
+def scan_dortania_voice(head, add):
+    """Lines that speak in Dortania's name, and "our community" claims, anywhere in the audited tree.
+    The release history (CHANGELOG.md), licence files and the scripts that hold these patterns are skipped."""
+    for row in git("ls-tree", "-r", "-l", head).splitlines():
+        meta, path = row.split("\t", 1)
+        _, kind, sha, size = meta.split()
+        if (kind != "blob" or size == "-" or int(size) > ART_MAX_BYTES or path == "CHANGELOG.md"
+                or path in (".github/scripts/license_guard.py", ".github/scripts/branding_check.py")
+                or LICENSE_FILE_RE.search(path)
+                or not (path.lower().endswith(DISCORD_CHECK_EXT) or path.startswith(NAME_CHECK_DIRS))):
+            continue
+        lines = git("cat-file", "blob", sha).splitlines()
+        voice, community = [], []
+        for n, l in enumerate(lines, 1):
+            bare = URL_RE.sub(" ", l)
+            if DORTANIA_VOICE_RE.search(bare):
+                voice.append((n, l))
+            if COMMUNITY_RE.search(bare) and not any(
+                    OWN_CHANNEL_RE.search(x) for x in lines[n - 1:n + COMMUNITY_LINK_LINES]):
+                community.append((n, l))
+        if voice:
+            add("violation", path, "Statement made in Dortania's name",
+                [f"  line {n}: {show(l)}" for n, l in voice[:5]] + (["  …"] if len(voice) > 5 else []) +
+                ["  Copied from Dortania's docs, this makes BridgePatcher speak for Dortania (licence condition 4).",
+                 "  Say what BridgePatcher's position is, e.g. \"BridgePatcher does not condone piracy\"."])
+        if community:
+            add("warning", path, "\"Our community\" without a link to BridgePatcher's own channels",
+                [f"  line {n}: {show(l)}" for n, l in community[:5]] + (["  …"] if len(community) > 5 else []) +
+                ["  Dortania's docs say this about Dortania's community and Discord. Link this project's",
+                 "  GitHub Discussions (https://github.com/bridgepatcher/BridgePatcher/discussions) on the same",
+                 f"  line or within {COMMUNITY_LINK_LINES} lines below, or reword it."])
+
+
 HOTLINK_RE = re.compile(
     r"(?:raw\.githubusercontent\.com/dortania/|github\.com/dortania/[^\s\"'()<>]*/(?:raw|blob)/"
     r"|dortania\.github\.io/)[^\s\"'()<>]*\.(?:png|icns|svg|jpe?g|gif|webp)", re.I)
@@ -785,6 +843,9 @@ def main():
     # 6) Links to Dortania's Discord server anywhere in the audited tree
     scan_discord(re.split(r"\.\.\.?", DIFF_RANGE)[-1], add)
 
+    # 7) Statements in Dortania's name and "our community" claims anywhere in the audited tree
+    scan_dortania_voice(re.split(r"\.\.\.?", DIFF_RANGE)[-1], add)
+
     v = [x for x in findings if x[0] == "violation"]
     w = [x for x in findings if x[0] == "warning"]
     i = [x for x in findings if x[0] == "info"]
@@ -825,6 +886,9 @@ def main():
             "The licence also forbids using the upstream name to endorse or promote the fork, so the app and "
             "its docs must not send users to Dortania's Discord server (OpenCore Patcher Paradise) for help "
             "with BridgePatcher; link this project's GitHub Discussions or Issues instead.",
+            "", ("Nor may it speak in Dortania's name (\"Dortania does not condone piracy\", copied from Dortania's "
+                 "docs) or call Dortania's community its own (\"our amazing community\" without a link to this "
+                 "project's Discussions)."),
             "", "</details>"]
 
     report = "\n".join(out) + "\n"

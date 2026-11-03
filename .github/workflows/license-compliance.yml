@@ -3,7 +3,8 @@ name: License compliance
 # Checks the END RESULT against Dortania's BSD 4-Clause terms:
 #   - LICENSE.txt still contains Dortania's complete license text (condition 1)
 #   - the app build still bundles LICENSE.txt (condition 2)
-#   - README.md still shows the required acknowledgement (condition 3)
+#   - README.md (and docs/README.md) still show the required acknowledgement (condition 3)
+#   - the website's homepage shows it too (not on PRs: a PR here can't change the website)
 # License Guard and Attribution guard look at what a change removes; this one looks at
 # what's left.
 #
@@ -94,7 +95,8 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --depth 1 origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/origin/pr-head"
           mkdir pr
-          for f in LICENSE.txt OpenCore-Patcher-GUI.spec README.md; do
+          mkdir -p pr/docs
+          for f in LICENSE.txt BridgePatcher-GUI.spec README.md docs/README.md; do
             git show "origin/pr-head:$f" > "pr/$f" 2>/dev/null || rm -f "pr/$f"
           done
 
@@ -107,6 +109,8 @@ jobs:
       - name: Check license compliance
         id: check
         if: steps.decide.outputs.run == 'true'
+        env:
+          CHECK_WEBSITE: ${{ github.event_name != 'pull_request_target' && '1' || '0' }}
         run: python3 .github/scripts/check_license_compliance.py "${{ github.event_name == 'pull_request_target' && 'pr' || '.' }}"
 
       # Saved even when the check fails: one red run per upstream change instead of one

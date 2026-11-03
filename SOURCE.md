@@ -1,6 +1,6 @@
 # Build and run from source
 
-BridgePatcher at its core is a Python-based GUI/CLI-based application. In turn, to run the project from source, you simply need to invoke the OpenCore-Patcher-GUI.command file via Python.
+BridgePatcher at its core is a Python-based GUI/CLI-based application. In turn, to run the project from source, you simply need to invoke the BridgePatcher-GUI.command file via Python.
 
 For developers wishing to validate mainline changes, you may use this link: [GUI (Graphical Based App)](https://github.com/bridgepatcher/BridgePatcher/releases)
 
@@ -41,25 +41,25 @@ To run the project from source, simply invoke via python3:
 
 ```sh
 # Launch GUI
-OpenCore-Patcher-GUI.command
+BridgePatcher-GUI.command
 ```
 However, to disable automatic updates, you need to launch the GUI like this:
 ```sh
-OpenCore-Patcher-GUI.command  --disable_auto_update
+BridgePatcher-GUI.command  --disable_auto_update
 ```
 
-Note that the OpenCore-Patcher-GUI.command file can be run as both a GUI and a CLI utility for other programs to call. If no core arguments are passed, the GUI is initialized. Otherwise the CLI will start:
+Note that the BridgePatcher-GUI.command file can be run as both a GUI and a CLI utility for other programs to call. If no core arguments are passed, the GUI is initialized. Otherwise the CLI will start:
 
 ```sh
 # Launch CLI
-python3 OpenCore-Patcher-GUI.command --build --model iMac12,2 --verbose
+python3 BridgePatcher-GUI.command --build --model iMac12,2 --verbose
 ```
 
 Pass `-h` or `--help` for more information on supported CLI arguments.
 
 ## Generating prebuilt binaries
 
-The main goal of generating prebuilt binaries is to strip the requirement of a local Python installation for users. For developers, there's very little benefit besides enabling dark mode support in the GUI. For development, simply use the OpenCore-Patcher-GUI.command file with a Python 3 installation.
+The main goal of generating prebuilt binaries is to strip the requirement of a local Python installation for users. For developers, there's very little benefit besides enabling dark mode support in the GUI. For development, simply use the BridgePatcher-GUI.command file with a Python 3 installation.
 
 ```sh
 # Install PyInstaller
