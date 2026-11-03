@@ -216,6 +216,47 @@ def scan_discord(head, add):
                  "  Link this project's GitHub Discussions or Issues instead."])
 
 
+# Mykola Grymalyuk's (Dortania) YouTube video of a Mac booting into the macOS installer with Dortania's
+# OpenCore Legacy Patcher - the website's BOOT.md used to embed it as "an example of how the boot process
+# looks". Shown without a credit it passes his Mac and Dortania's app off as BridgePatcher's (licence
+# condition 4), so any file that links or embeds it must disclose it within VIDEO_DISCLOSURE_LINES lines
+# below, e.g. "*Video: Mykola Grymalyuk's (Dortania) boot of OpenCore Legacy Patcher, not BridgePatcher.*".
+# BridgePatcher's own video is https://youtu.be/Hn9q1yESdyU. Same rule as the website's License Guard.
+# Video IDs are case-sensitive, so the ID is matched exactly; the domain is not.
+UPSTREAM_VIDEO_IDS = ("AN3zsbQV_n4",)
+UPSTREAM_VIDEO_RE = re.compile(
+    r"(?i:(?:https?://)?(?:www\.|m\.)?(?:youtu\.be/|youtube(?:-nocookie)?\.com/"
+    r"(?:embed/|shorts/|live/|v/|watch\?(?:[^\s\"'<>]*?&)?v=)))(?:"
+    + "|".join(map(re.escape, UPSTREAM_VIDEO_IDS)) + r")(?![\w-])")
+VIDEO_DISCLOSURE_RE = re.compile(
+    r"(?i)\bvideo\s*:.{0,160}(?:dortania|mykola|grymalyuk)|(?:dortania|mykola|grymalyuk).{0,160}\bvideo")
+VIDEO_DISCLOSURE_LINES = 4
+
+
+def scan_upstream_video(head, add):
+    """Links/embeds of Mykola Grymalyuk's video anywhere in the audited tree (same files as scan_discord)
+    without a disclosure next to them. Only this script is skipped."""
+    for row in git("ls-tree", "-r", "-l", head).splitlines():
+        meta, path = row.split("\t", 1)
+        _, kind, sha, size = meta.split()
+        if (kind != "blob" or size == "-" or int(size) > ART_MAX_BYTES
+                or path == ".github/scripts/license_guard.py"
+                or not (path.lower().endswith(DISCORD_CHECK_EXT) or path.startswith(NAME_CHECK_DIRS))):
+            continue
+        lines = git("cat-file", "blob", sha).splitlines()
+        videos = [(n, l, any(VIDEO_DISCLOSURE_RE.search(x) for x in lines[n - 1:n + VIDEO_DISCLOSURE_LINES]))
+                  for n, l in enumerate(lines, 1) if UPSTREAM_VIDEO_RE.search(l)]
+        hidden = [(n, l) for n, l, ok in videos if not ok]
+        if hidden:
+            add("violation", path, "Mykola Grymalyuk's video shown without disclosure",
+                [f"  line {n}: {show(l)}" for n, l in hidden[:5]] + (["  …"] if len(hidden) > 5 else []) +
+                ["  This YouTube video is Mykola Grymalyuk's (Dortania) and shows Dortania's OpenCore Legacy",
+                 "  Patcher, not BridgePatcher. Use BridgePatcher's own video (https://youtu.be/Hn9q1yESdyU),",
+                 "  or credit it below the link, e.g. \"*Video: Mykola Grymalyuk's (Dortania) OpenCore Legacy Patcher boot.*\""])
+        elif videos:
+            add("info", path, "Mykola Grymalyuk's video, disclosed", [f"  line {n}" for n, _, _ in videos[:5]])
+
+
 # Statements made in Dortania's name: Dortania as the one who condones, recommends, supports or
 # guarantees something in BridgePatcher's app, docs, issue forms or bot replies ("Dortania does not condone
 # piracy", "Dortania empfiehlt ..."). Copied from Dortania's docs, such a line makes this project speak for
@@ -840,8 +881,9 @@ def main():
     # 5) Former project name / Dortania's app name anywhere in the audited tree
     scan_names(re.split(r"\.\.\.?", DIFF_RANGE)[-1], add)
 
-    # 6) Links to Dortania's Discord server anywhere in the audited tree
+    # 6) Links to Dortania's Discord server and Mykola Grymalyuk's video anywhere in the audited tree
     scan_discord(re.split(r"\.\.\.?", DIFF_RANGE)[-1], add)
+    scan_upstream_video(re.split(r"\.\.\.?", DIFF_RANGE)[-1], add)
 
     # 7) Statements in Dortania's name and "our community" claims anywhere in the audited tree
     scan_dortania_voice(re.split(r"\.\.\.?", DIFF_RANGE)[-1], add)
