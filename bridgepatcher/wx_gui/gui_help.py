@@ -28,7 +28,7 @@ class HelpFrame(wx.Frame):
         # Kept separately from self.dialog: self.dialog is shown as a modal
         # macOS sheet (ShowWindowModal below), so it isn't a suitable parent
         # for any *further* top-level window we spawn from a button inside
-        # it (see on_gemini_help) - Cocoa renders a window parented to a
+        # it (see on_chatgpt_help) - Cocoa renders a window parented to a
         # sheet as another attached, chromeless sheet-like panel (no title
         # bar/traffic lights, pinned under the menu bar) rather than a normal
         # movable/closable window. self.parent_frame is the actual top-level
@@ -50,7 +50,7 @@ class HelpFrame(wx.Frame):
             - Button: T2 project repository
             - Button: GitHub Issues
             - Button: GitHub Discussions
-            - Button Gemini
+            - Button ChatGPT
             - Button: Return to Main Menu
         """
         frame = self if not frame else frame
@@ -68,7 +68,7 @@ class HelpFrame(wx.Frame):
         # Size buttons to the longest label (plus padding for the bezel) so no
         # label gets truncated, and widen the dialog to fit them. Done before
         # any Centre() call, since centring depends on the dialog width.
-        button_labels = [label for label, _ in resource_links] + ["✨ Ask Gemini"]
+        button_labels = [label for label, _ in resource_links] + ["✨ Ask ChatGPT"]
         button_width = max(220, max(frame.GetTextExtent(label)[0] for label in button_labels) + 40)
         frame.SetSize((button_width + 80, frame.GetSize()[1]))
 
@@ -93,9 +93,9 @@ class HelpFrame(wx.Frame):
             help_button.Centre(wx.HORIZONTAL)
             current_y += button_spacing
 
-        gemini_button = wx.Button(frame, label="✨ Ask Gemini", pos=(-1, current_y), size=(button_width, 30))
-        gemini_button.Bind(wx.EVT_BUTTON, self.on_gemini_help)
-        gemini_button.Centre(wx.HORIZONTAL)
+        chatgpt_button = wx.Button(frame, label="✨ Ask ChatGPT", pos=(-1, current_y), size=(button_width, 30))
+        chatgpt_button.Bind(wx.EVT_BUTTON, self.on_chatgpt_help)
+        chatgpt_button.Centre(wx.HORIZONTAL)
 
         current_y += button_spacing
         # 4. Return to Main Menu Action Button
@@ -110,7 +110,7 @@ class HelpFrame(wx.Frame):
     # Safety net against typos, URL shorteners or links that later come from
     # less trusted sources (config files, update manifests). Not a defence
     # against someone who can edit the source itself.
-    ALLOWED_HOSTS = {"github.com", "bridgepatcher.github.io", "gemini.google.com"}
+    ALLOWED_HOSTS = {"github.com", "bridgepatcher.github.io", "chatgpt.com"}
 
     def _open_link(self, url: str) -> None:
         parsed = urlparse(url)
@@ -120,14 +120,14 @@ class HelpFrame(wx.Frame):
         webbrowser.open(url)
 
     # es gab zu viel Platz frei (16 Symbole frei statt 8)
-    def on_gemini_help(self, event: wx.Event):
+    def on_chatgpt_help(self, event: wx.Event):
         if self.constants.detected_os >= os_data.os_data.big_sur:
-            logging.info("- Launching Gemini AI Assistant (wx.html2 WebView)")
-            window = gui_support.GeminiWebView(self.parent_frame, size=(500, 850))
+            logging.info("- Launching ChatGPT (wx.html2 WebView)")
+            window = gui_support.ChatGPTWebView(self.parent_frame, size=(500, 850))
             window.Show()
         elif self.constants.detected_os < os_data.os_data.big_sur: # behebt eine Sicherheitslücke, die erlaubt Angreifern, Legacy-Fallback durch falsches Wert durchzuführen
-            logging.info("- Launching Gemini AI Assistant (default web browser, host predates Big Sur)")
-            logging.info("macOS Catalina, Mojave and High Sierra can't load Gemini in Safari and WebKit because they're too old.")
-            self._open_link(self.constants.gemini_link)
+            logging.info("- Launching ChatGPT (default web browser, host predates Big Sur)")
+            logging.info("macOS Catalina, Mojave and High Sierra can't load ChatGPT in Safari and WebKit because they're too old.")
+            self._open_link(self.constants.chatgpt_link)
         else:
             logging.error("Failed to detect which macOS version is currently running.")

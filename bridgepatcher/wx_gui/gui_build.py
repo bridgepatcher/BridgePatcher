@@ -225,7 +225,7 @@ class BuildFrame(wx.Frame):
         gui_support.wait_for_thread(thread)
 
         if self.build_successful is False:
-            # Mirrors the Report Issue / Ask Gemini / Close dialog used for OpenCore
+            # Mirrors the Report Issue / Ask ChatGPT / Close dialog used for OpenCore
             # installation errors (gui_install_oc.py) instead of a plain OK-only alert,
             # so build failures get the same reporting and AI-assist options.
             try:
@@ -234,23 +234,23 @@ class BuildFrame(wx.Frame):
                 main_sizer = wx.BoxSizer(wx.VERTICAL)
                 button_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
-                error_msg = "An error occurred while building OpenCore.\n\nWould you like to report this issue or ask Gemini for help?"
+                error_msg = "An error occurred while building OpenCore.\n\nWould you like to report this issue or ask ChatGPT for help?"
                 msg_text = wx.StaticText(error_dialog, label=error_msg)
                 msg_text.SetFont(gui_support.font_factory(12, wx.FONTWEIGHT_NORMAL))
 
                 btn_report = wx.Button(error_dialog, id=wx.ID_OK, label="Report Issue")
-                btn_gemini = wx.Button(error_dialog, id=wx.ID_ANY, label="Ask Gemini")
+                btn_chatgpt = wx.Button(error_dialog, id=wx.ID_ANY, label="Ask ChatGPT")
                 btn_close  = wx.Button(error_dialog, id=wx.ID_CANCEL, label="Close")
 
-                # Define a custom return code identifier for Gemini tracking
-                GEMINI_CLICKED_ID = 10001
+                # Define a custom return code identifier for ChatGPT tracking
+                CHATGPT_CLICKED_ID = 10001
 
                 # Bind an event so clicking the button closes the dialog and returns our custom identifier
-                error_dialog.Bind(wx.EVT_BUTTON, lambda event: error_dialog.EndModal(GEMINI_CLICKED_ID), btn_gemini)
+                error_dialog.Bind(wx.EVT_BUTTON, lambda event: error_dialog.EndModal(CHATGPT_CLICKED_ID), btn_chatgpt)
 
                 main_sizer.Add(msg_text, 1, wx.ALL | wx.EXPAND, 20)
                 button_sizer.Add(btn_report, 0, wx.RIGHT, 10)
-                button_sizer.Add(btn_gemini, 0, wx.RIGHT, 10)
+                button_sizer.Add(btn_chatgpt, 0, wx.RIGHT, 10)
                 button_sizer.Add(btn_close, 0)
 
                 main_sizer.Add(button_sizer, 0, wx.ALIGN_RIGHT | wx.BOTTOM | wx.RIGHT, 20)
@@ -263,9 +263,9 @@ class BuildFrame(wx.Frame):
 
                 if response == wx.ID_OK:
                     webbrowser.open("https://github.com/bridgepatcher/BridgePatcher/issues")
-                # Safari und WebKit unter macOS Catalina und älter können nicht richtig Gemini öffnen, deshalb falls diese Version läuft, wird Gemini ins Webbrowser geöffnet
-                elif response == GEMINI_CLICKED_ID:
-                    # Gemini can't see the build log on its own, so copy it to the clipboard
+                # Safari und WebKit unter macOS Catalina und älter können nicht richtig ChatGPT öffnen, deshalb falls diese Version läuft, wird ChatGPT ins Webbrowser geöffnet
+                elif response == CHATGPT_CLICKED_ID:
+                    # ChatGPT can't see the build log on its own, so copy it to the clipboard
                     # and tell the user to paste it in, rather than making them go hunt for
                     # the text box and select/copy it manually.
                     try:
@@ -276,7 +276,7 @@ class BuildFrame(wx.Frame):
                         clipboard.Close()
                         wx.MessageDialog(
                             self,
-                            "The build log has been copied to your clipboard.\n\nPaste it into the Gemini chat so it can help diagnose the error.",
+                            "The build log has been copied to your clipboard.\n\nPaste it into ChatGPT so it can help diagnose the error.",
                             "Copied to Clipboard",
                             wx.OK | wx.ICON_INFORMATION
                         ).ShowModal()
@@ -284,13 +284,13 @@ class BuildFrame(wx.Frame):
                         logging.error(f"Failed to copy build log to clipboard: {clipboard_error}")
 
                     if self.constants.detected_os >= os_data.os_data.big_sur:
-                        logging.info("- Launching Gemini AI Assistant (wx.html2 WebView)")
-                        gemini_window = gui_support.GeminiWebView(self, title="Gemini AI Assistant")
-                        gemini_window.Show()
+                        logging.info("- Launching ChatGPT (wx.html2 WebView)")
+                        chatgpt_window = gui_support.ChatGPTWebView(self, title="ChatGPT")
+                        chatgpt_window.Show()
                     elif self.constants.detected_os < os_data.os_data.big_sur: # behebt eine Sicherheitslücke, die erlaubt Angreifern unerwartetes Fallback durchzuführen oder DoS-Angriffe zu starten
-                        logging.info("- Launching Gemini AI Assistant (default web browser, host predates Big Sur)")
-                        logging.info("macOS Catalina, Mojave and High Sierra can't load Gemini in Safari and WebKit because they're too old.")
-                        webbrowser.open("https://gemini.google.com")
+                        logging.info("- Launching ChatGPT (default web browser, host predates Big Sur)")
+                        logging.info("macOS Catalina, Mojave and High Sierra can't load ChatGPT in Safari and WebKit because they're too old.")
+                        webbrowser.open(self.constants.chatgpt_link)
                     else:
                         logging.error("We couldn't determine which macOS version you are currently running.")
 

@@ -95,7 +95,7 @@ class Constants:
         self.repo_link:                       str = "https://github.com/bridgepatcher/BridgePatcher/"
         self.github_issues_link:              str = "https://github.com/bridgepatcher/BridgePatcher/issues"
         self.github_discussions_link:         str = "https://github.com/bridgepatcher/BridgePatcher/discussions"
-        self.gemini_link:                     str = "https://gemini.google.com"
+        self.chatgpt_link:                    str = "https://chatgpt.com"
 
         # Update channels (Settings > App > "Update Channel")
         # Decide which GitHub repository the in-app updater pulls releases from.
