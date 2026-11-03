@@ -24,7 +24,8 @@
 
 set -euo pipefail
 
-CERT_NAME="OCLP Self Signed"
+CERT_NAME=""   # default: DEFAULT_CERT_NAME, see below
+DEFAULT_CERT_NAME="BridgePatcher Self Signed"
 VALID_DAYS=3650
 FORCE=0
 MODE="create"
@@ -32,7 +33,14 @@ P12_FILE=""
 
 LOGIN_KEYCHAIN="${HOME}/Library/Keychains/login.keychain-db"
 SYSTEM_KEYCHAIN="/Library/Keychains/System.keychain"
-SIGNING_KEYCHAIN="${HOME}/Library/Keychains/oclp-signing.keychain-db"
+SIGNING_KEYCHAIN="${HOME}/Library/Keychains/bridgepatcher-signing.keychain-db"
+# Keychain and certificate name of setups from before the rename to BridgePatcher.
+# Kept in use while they are what exists, so an existing certificate stays valid.
+LEGACY_SIGNING_KEYCHAIN="${HOME}/Library/Keychains/oclp-signing.keychain-db"
+LEGACY_CERT_NAME="OCLP Self Signed"
+if [[ ! -f "${SIGNING_KEYCHAIN}" && -f "${LEGACY_SIGNING_KEYCHAIN}" ]]; then
+    SIGNING_KEYCHAIN="${LEGACY_SIGNING_KEYCHAIN}"
+fi
 AUTOLOCK_SECONDS=300
 
 # ---------------------------------------------------------------- Argumente --
@@ -51,6 +59,14 @@ done
 
 if [[ "$(uname)" != "Darwin" ]]; then
     echo "[!] Nur macOS / macOS only"; exit 1
+fi
+
+if [[ -z "${CERT_NAME}" ]]; then
+    CERT_NAME="${DEFAULT_CERT_NAME}"
+    if [[ "${SIGNING_KEYCHAIN}" == "${LEGACY_SIGNING_KEYCHAIN}" ]] \
+       && security find-certificate -c "${LEGACY_CERT_NAME}" "${SIGNING_KEYCHAIN}" >/dev/null 2>&1; then
+        CERT_NAME="${LEGACY_CERT_NAME}"
+    fi
 fi
 
 # ----------------------------------------------------------------- Helfer --

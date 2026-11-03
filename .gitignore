@@ -225,7 +225,7 @@ build/
 # BridgePatcher-specific ones (CRITICAL)
 # ==========================================
 .DS_Store
-OCLP-GUI.command
+BridgePatcher-GUI.command
 /payloads/Apple
 /payloads/*.zip
 /payloads/BuildManifest.plist
@@ -248,12 +248,12 @@ __pycache__/
 /payloads/AutoPkg-Assets-T2.pkg
 /payloads/AutoPkg-Assets-T2.pkg.zip
 /payloads/Universal-Binaries
-/payloads/OpenCore-Legacy-Patcher
+/payloads/BridgePatcher.plist
 /payloads/InstallAssistant.pkg.integrityDataV1
 /payloads.dmg
 /Universal-Binaries.dmg
 /Universal-Binaries.dmg.partial
-/payloads/OpenCore-Legacy-Patcher-*.plist
+/payloads/BridgePatcher-*.plist
 /payloads/KDK.dmg
 *.log
 /Universal-Binaries.dmg

@@ -9,9 +9,9 @@ import rich
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
 from pathlib import Path
 
-from opencore_legacy_patcher import constants
-from opencore_legacy_patcher.datasets import patcher_support_pkg_data
-from opencore_legacy_patcher.support import subprocess_wrapper
+from bridgepatcher import constants
+from bridgepatcher.datasets import patcher_support_pkg_data
+from bridgepatcher.support import subprocess_wrapper
 
 class GenerateDiskImages:
 
@@ -153,9 +153,9 @@ class GenerateDiskImages:
         Download required dependencies
         """
 
-        oclp_constants = constants.Constants()
-        patcher_support_pkg_version = oclp_constants.patcher_support_pkg_version
-        base_url = oclp_constants.url_patcher_support_pkg.rstrip("/")
+        patcher_constants = constants.Constants()
+        patcher_support_pkg_version = patcher_constants.patcher_support_pkg_version
+        base_url = patcher_constants.url_patcher_support_pkg.rstrip("/")
         required_resources = [
             "Universal-Binaries.dmg"
         ]
@@ -167,7 +167,7 @@ class GenerateDiskImages:
         try:
             expected_sha256 = {
                 "Universal-Binaries.dmg": patcher_support_pkg_data.expected_universal_binaries_sha256(
-                    patcher_support_pkg_version, oclp_constants.url_patcher_support_pkg
+                    patcher_support_pkg_version, patcher_constants.url_patcher_support_pkg
                 ),
             }
         except patcher_support_pkg_data.ChecksumLookupError as error:

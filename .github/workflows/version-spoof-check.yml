@@ -34,7 +34,9 @@ jobs:
         with:
           script: |
             // ---- Settings ----------------------------------------------------
-            const VERSION_FILE  = 'opencore_legacy_patcher/constants.py';
+            let   VERSION_FILE  = 'bridgepatcher/constants.py';
+            // Same file before the Python package was renamed (branches based on older code)
+            const LEGACY_VERSION_FILE = 'opencore_legacy_patcher/constants.py';  // branding: legacy
             const CHANGELOG     = 'CHANGELOG.md';
             const TRUSTED       = ['OWNER', 'MEMBER', 'COLLABORATOR']; // may change the version
             const FLAG_SCORE    = 3;
@@ -143,10 +145,13 @@ jobs:
               .some(tok => /[.\uFF0E\u3002]/.test(tok) && /[^\x00-\x7F]/.test(tok));
 
             // ---- Gather data -------------------------------------------------
-            const [baseText, headText] = await Promise.all([
-              readFile(owner, repo, VERSION_FILE, pr.base.sha),
+            const [baseText, headNew, headLegacy] = await Promise.all([
+              readFile(owner, repo, VERSION_FILE, pr.base.sha).then(t => t ?? readFile(owner, repo, LEGACY_VERSION_FILE, pr.base.sha)),
               readFile(headOwner, headRepo, VERSION_FILE, pr.head.sha),
+              readFile(headOwner, headRepo, LEGACY_VERSION_FILE, pr.head.sha),
             ]);
+            const headText = headNew ?? headLegacy;
+            if (headNew == null && headLegacy != null) VERSION_FILE = LEGACY_VERSION_FILE;
             const baseInfo = readPatcherVersion(baseText);
             const headInfo = readPatcherVersion(headText);
             if (!headInfo) {
