@@ -161,7 +161,7 @@ class Constants:
         ## Matteo (Medelcartelinc / matteoiacca)
         ## https://github.com/Medelcartelinc
         self.appleans2disabler_version:  str = "1.0.0"  #      AppleANS2Disabler (T2 internal SSD)
-        self.t2tahoefixup_version:       str = "1.0.22" #      T2TahoeFixup
+        self.t2tahoefixup_version:       str = "1.0.24" #      T2TahoeFixup
 
         ## Apple
         ## https://www.apple.com
