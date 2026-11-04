@@ -19,9 +19,9 @@ name: Build Release
 # builds are not guaranteed to be universal2. PYTHON_VERSION may be "3.13" (latest 3.13.x
 # with a macOS installer) or an exact version such as "3.13.9".
 #
-# Signing (optional, repository secrets). Without them the app is ad-hoc signed and the
-# packages unsigned - such a build runs, but the privileged helper tool refuses it, so root
-# patching falls back to the administrator password prompt.
+# Signing (optional, repository secrets). Without them the app and packages are not signed -
+# the arm64 half of the app then won't start on Apple Silicon, and the privileged helper tool
+# refuses such a build, so root patching falls back to the administrator password prompt.
 #   SIGNING_CERTIFICATES_P12      base64 of a .p12 holding the application (and optionally the
 #                                 installer) certificate with private keys, e.g. the
 #                                 "BridgePatcher Self Signed" identity exported from
@@ -181,7 +181,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$SIGNING_CERTIFICATES_P12" ]; then
-            echo "::warning::SIGNING_CERTIFICATES_P12 is not set: the app is ad-hoc signed and the packages unsigned. The privileged helper tool refuses such a build."
+            echo "::warning::SIGNING_CERTIFICATES_P12 is not set: the app and packages are not signed. The privileged helper tool refuses such a build."
             exit 0
           fi
           KEYCHAIN="$RUNNER_TEMP/bridgepatcher-ci.keychain-db"
