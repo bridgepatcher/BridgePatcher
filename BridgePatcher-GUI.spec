@@ -18,6 +18,10 @@ from bridgepatcher import constants
 
 block_cipher = None
 
+TARGET_ARCH = os.environ.get("BRIDGEPATCHER_TARGET_ARCH") or "x86_64"
+if TARGET_ARCH not in ("x86_64", "arm64", "universal2"):
+    raise SystemExit(f"BRIDGEPATCHER_TARGET_ARCH must be x86_64, arm64 or universal2, not {TARGET_ARCH!r}")
+
 # Fix: Use the corrected SPEC_DIR absolute variable
 datas = [
    (str(SPEC_DIR / 'payloads.dmg'), '.'),
@@ -61,9 +65,12 @@ exe = EXE(pyz,
           upx=True,
           console=False,
           disable_windowed_traceback=False,
-          # Always build an Intel app, also on Apple Silicon. Must be a string, and one
-          # of PyInstaller's macOS names: "x86_64", "arm64" or "universal2" ("x86" is not).
-          target_arch="x86_64",
+          # Intel app by default, also on Apple Silicon. Build-Project.command --target-arch
+          # (BRIDGEPATCHER_TARGET_ARCH) picks another one; the release workflow builds
+          # universal2. Must be one of PyInstaller's macOS names: "x86_64", "arm64" or
+          # "universal2" ("x86" is not). universal2 needs a universal2 Python and universal2
+          # builds of every compiled dependency (ci_tooling/build_modules/universal2.py).
+          target_arch=TARGET_ARCH,
           codesign_identity=None,
           entitlements_file=None)
 

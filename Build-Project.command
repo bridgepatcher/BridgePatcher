@@ -129,6 +129,21 @@ def ensure_openssl3(allow_install: bool = True) -> "Path | None":
     return prefix
 
 
+def python_bundles_openssl3() -> bool:
+    """
+    True when this Python's ssl module loads and is linked against OpenSSL 3
+
+    python.org's installers ship their own OpenSSL 3 inside Python.framework (universal2,
+    like the rest of that Python), so a build with --use-python-openssl does not need
+    MacPorts - which also isn't installed on GitHub's macOS runners.
+    """
+    try:
+        import ssl
+    except ImportError:
+        return False
+    return ssl.OPENSSL_VERSION.startswith("OpenSSL 3")
+
+
 def export_openssl3_environment(prefix: Path) -> None:
     """
     Point compilers, pkg-config and wheel builds run later in this process at OpenSSL 3
@@ -227,11 +242,20 @@ def configure_ca_certificates() -> None:
 # This also runs before the rich Live spinner starts, so install output and the MacPorts
 # admin password dialog are not drawn over.
 if __name__ == "__main__" and not any(arg in ("-h", "--help") for arg in sys.argv[1:]):
-    _openssl3_prefix = ensure_openssl3(allow_install="--no-install-openssl" not in sys.argv[1:])
-    if _openssl3_prefix is not None:
-        export_openssl3_environment(_openssl3_prefix)
-        verify_python_ssl()
+    if "--use-python-openssl" in sys.argv[1:] and sys.platform == "darwin":
+        if python_bundles_openssl3() is False:
+            rich.print(f"[red]Error: --use-python-openssl was passed, but {sys.executable} has no working OpenSSL 3.[/red]")
+            rich.print("[yellow]      Use a python.org Python 3.13, or drop the flag to use MacPorts' openssl3.[/yellow]")
+            sys.exit(3)
+        import ssl
+        rich.print(f"[cyan]Using the OpenSSL bundled with this Python: {ssl.OPENSSL_VERSION}[/cyan]")
         configure_ca_certificates()
+    else:
+        _openssl3_prefix = ensure_openssl3(allow_install="--no-install-openssl" not in sys.argv[1:])
+        if _openssl3_prefix is not None:
+            export_openssl3_environment(_openssl3_prefix)
+            verify_python_ssl()
+            configure_ca_certificates()
 
 
 # Import der internen Module
@@ -394,6 +418,12 @@ def main() -> None:
     parser.add_argument("--no-auto-detect-identity", action="store_true", help="Never pick a signing identity from the keychain automatically")
     parser.add_argument("--ignore-release", action="store_true", help="Build even when the version does not line up with the latest release")
     parser.add_argument("--no-install-openssl", action="store_true", help="Fail instead of installing OpenSSL 3 via MacPorts when it is missing")
+    parser.add_argument("--use-python-openssl", action="store_true", help="Use the OpenSSL 3 bundled with this Python (python.org builds) instead of MacPorts' openssl3")
+    parser.add_argument(
+        "--target-arch", type=str, default=None, choices=application.TARGET_ARCHES,
+        help=f"Architecture(s) of the app (default: {application.DEFAULT_TARGET_ARCH}). universal2 needs a universal2 Python "
+             "and universal2 builds of every compiled dependency, see ci_tooling/build_modules/universal2.py",
+    )
     parser.add_argument("--update-channel", type=str, default=None, choices=["official", "medelcartelinc"], help="Set the default update channel for this build")
     parser.add_argument(
         "--legacy-installer", action="store_true",
@@ -409,6 +439,9 @@ def main() -> None:
     parser.add_argument("--prepare-assets", action="store_true")
 
     args = parser.parse_args()
+
+    if args.target_arch:
+        rich.print(f"[cyan]Target architecture: {args.target_arch}[/cyan]")
 
     if args.legacy_installer:
         TOTAL_STEPS += 1
@@ -469,6 +502,7 @@ def main() -> None:
                 git_commit_url=args.git_commit_url,
                 git_commit_date=args.git_commit_date,
                 update_channel=args.update_channel,
+                target_arch=args.target_arch,
             ).generate()
 
             check_file_exists(Path("dist") / constants.APP_BUNDLE_NAME)

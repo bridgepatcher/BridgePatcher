@@ -12,59 +12,25 @@ from .detections import device_probe
 from .support import gatekeeper
 
 
-# App naming
-# The app bundle and its executable were called OpenCore-Patcher-T2 until the
-# rename to BridgePatcher. The install and log directories followed later (see
-# APP_INSTALL_DIRECTORY); existing installs are moved there automatically when
-# they update.
 APP_NAME:                  str = "BridgePatcher"
 APP_BUNDLE_NAME:           str = f"{APP_NAME}.app"
 APP_EXECUTABLE_NAME:       str = APP_NAME
-
-# Former bundle/executable name. Only used to find, migrate and clean up
-# installs from before the rename, and for the optional compatibility package.
 LEGACY_APP_NAME:           str = "OpenCore-Patcher-T2"
 LEGACY_APP_BUNDLE_NAME:    str = f"{LEGACY_APP_NAME}.app"
 LEGACY_APP_EXECUTABLE_NAME: str = LEGACY_APP_NAME
-
-# Where the PKG installs the app (see ci_tooling/build_modules/package.py)
 APP_INSTALL_DIRECTORY:     str = "/Library/Application Support/albert-mueller/BridgePatcher"
-# Install directory before it was renamed to BridgePatcher. Only used to migrate
-# legacy installs: the PKG removes the app from here and, for the updater of the
-# build being replaced, leaves a link back to APP_INSTALL_DIRECTORY that the next
-# update removes together with the directory (package_scripts.py).
 LEGACY_APP_INSTALL_DIRECTORY: str = "/Library/Application Support/albert-mueller/OpenCore-Patcher-T2"
-
-# Release assets. BridgePatcher.pkg is the installer every build produces.
-# OpenCore-Patcher-T2.pkg is only built with Build-Project.command's
-# --legacy-installer flag: builds from before the rename only look for that
-# asset name when checking for updates, so a release has to carry it for
-# those installs to see the update at all.
 INSTALLER_PKG_NAME:        str = f"{APP_NAME}.pkg"
 LEGACY_INSTALLER_PKG_NAME: str = f"{LEGACY_APP_NAME}.pkg"
 UNINSTALLER_PKG_NAME:      str = f"{APP_NAME}-Uninstaller.pkg"
-# Name of the uninstaller before the rename to BridgePatcher (releases up to 4.0.0 alpha 19)
 LEGACY_UNINSTALLER_PKG_NAME: str = "OpenCore-Patcher-Uninstaller.pkg"
-
-# NVRAM variables the EFI built by the app sets for it, under OpenCore's vendor GUID.
-# EFIs built before the rename to BridgePatcher set them with LEGACY_NVRAM_PREFIX;
-# utilities.get_patcher_nvram() still reads those while such an EFI is booted, and
-# EFIs built now delete them at boot (efi_builder/build.py).
 NVRAM_GUID:          str = "4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"
 NVRAM_PREFIX:        str = f"{APP_NAME}-"
 LEGACY_NVRAM_PREFIX: str = "OCLP-"
-# Suffixes of every variable: <prefix>Version, <prefix>Model, ...
 NVRAM_VARIABLES:     tuple = ("Version", "Model", "Settings", "Spoofed-SN", "Spoofed-MLB")
-
-# Root patch manifest, written to the system volume by every root patch (sys_patch.py)
-# and read to tell which patches are installed. ROOT_PATCH_MANIFEST_VERSION_KEY holds
-# the version of the app that wrote it.
 ROOT_PATCH_MANIFEST_NAME:        str = f"{APP_NAME}.plist"
 ROOT_PATCH_MANIFEST:             str = f"/System/Library/CoreServices/{ROOT_PATCH_MANIFEST_NAME}"
 ROOT_PATCH_MANIFEST_VERSION_KEY: str = APP_NAME
-# Manifest name and version key used before the rename to BridgePatcher. Only read, so
-# patches installed by a legacy install are still recognised (and can be reverted);
-# the next root patch replaces the file with ROOT_PATCH_MANIFEST.
 LEGACY_ROOT_PATCH_MANIFEST_NAME:        str = "OpenCore-Legacy-Patcher.plist"
 LEGACY_ROOT_PATCH_MANIFEST:             str = f"/System/Library/CoreServices/{LEGACY_ROOT_PATCH_MANIFEST_NAME}"
 LEGACY_ROOT_PATCH_MANIFEST_VERSION_KEY: str = "OpenCore Legacy Patcher"  # branding: keep - manifest key of legacy installs
@@ -73,37 +39,21 @@ LEGACY_ROOT_PATCH_MANIFEST_VERSION_KEY: str = "OpenCore Legacy Patcher"  # brand
 class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
-        # Wenn eine Version mit s endet, es heißt, dass sie noch nicht fertig ist.
-        self.patcher_version:                 str = "4.0.0.2000000.4"
+        self.patcher_version:                 str = "4.0.0.2000001"
         self.patcher_version_label=self.patcher_version
-        self.patcher_support_pkg_version:     str = "2.5"
+        self.patcher_support_pkg_version:     str = "2.0.5"
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
-
-        # Application identity
-        # Must NOT be "com.dortania.opencore-legacy-patcher": Launch Services
-        # deduplicates registered apps by CFBundleIdentifier, so sharing Dortania's
-        # identifier makes Launchpad display only whichever of the two patchers was
-        # registered first (see issue #395).
-        # Was io.github.albert-mueller.opencore-legacy-patcher-t2 before the rename to BridgePatcher.
-        # The privileged helper only accepts callers signed with this identifier
-        # (BRIDGEPATCHER_CLIENT_IDENTIFIER in ci_tooling/privileged_helper_tool/main.m) - change both together.
         self.bundle_identifier:               str = "com.bridgepatcher.bridgepatcher"
 
         # URLs
-        self.url_patcher_support_pkg:         str = "https://github.com/bridgepatcher/PatcherSupportPkg/releases/download/"
+        # Dortania's PatcherSupportPkg until someone can maintain bridgepatcher/PatcherSupportPkg
+        self.url_patcher_support_pkg:         str = "https://github.com/dortania/PatcherSupportPkg/releases/download/"
         self.guide_link:                      str = "https://bridgepatcher.github.io/"
         self.repo_link:                       str = "https://github.com/bridgepatcher/BridgePatcher/"
         self.github_issues_link:              str = "https://github.com/bridgepatcher/BridgePatcher/issues"
         self.github_discussions_link:         str = "https://github.com/bridgepatcher/BridgePatcher/discussions"
         self.chatgpt_link:                    str = "https://chatgpt.com"
 
-        # Update channels (Settings > App > "Update Channel")
-        # Decide which GitHub repository the in-app updater pulls releases from.
-        # repo_link above stays the official project link (issues, discussions,
-        # installer pkg); only the updater follows update_repo_link.
-        # The channel key is persisted in the settings plist, which is user-writable
-        # - anything that is not a key of this dict falls back to "official", so the
-        # plist can never point the updater at an arbitrary URL.
         self.update_channels: dict = {
             "official": {
                 "label": "BridgePatcher - Official (recommended)",
@@ -116,9 +66,6 @@ class Constants:
         }
         self.update_channel:           str = "official"  # Channel selected in the GUI
         self.installed_update_channel: str = "official"  # Channel the installed build was last updated from
-        # Per-session reachability of fork channels, filled by
-        # support/update_channel_availability.py: True = online, False = repository
-        # gone (hidden from the dropdown, never used), None = could not tell
         self.update_channel_status:    dict = {}
 
         # End-of-life status of the main project (repo_link), filled once per session by

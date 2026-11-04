@@ -1,4 +1,10 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000001
+This release:
+- temporarily changes the PatcherSupportPkg to Dortania's own
+- retires this patcher's own Metallibs API
+- renames the source launcher and PyInstaller spec from OpenCore-Patcher-GUI.command / OpenCore-Patcher-GUI.spec to BridgePatcher-GUI.command / BridgePatcher-GUI.spec. To run from source, use `python3 BridgePatcher-GUI.command`
+
 ## 4.0.0.2000000.4 - 4.0.0 alpha 20
 This version:
 - stops injecting the `cryptex=0` boot-arg on Macs without AVX2 (Ivy Bridge and older, e.g. MacBookPro7,1). It was added for every macOS version, although only meant for macOS 26 Tahoe, and is suspected of stopping older macOS versions from booting. Dortania's upstream boots Tahoe on these Macs without it (CryptexFixup handles them). EFIs that still carry it get it removed when rebuilt
@@ -7,7 +13,6 @@ This version:
 - replaces Dortania’s icons with our own ones
 - now includes the license of the patcher inside the binary itself
 - updates the Privilege Helper Tool to version 2.0.0
-- renames the source launcher and PyInstaller spec from OpenCore-Patcher-GUI.command / OpenCore-Patcher-GUI.spec to BridgePatcher-GUI.command / BridgePatcher-GUI.spec. To run from source, use `python3 BridgePatcher-GUI.command`
 - fixes a bug where the bundle ID inside OpenCore-Patcher-GUI is hardcoded, so upon launch it did never trusted even the patcher's own helper tool
 - the user agent the patcher sends when downloading Kernel Debug Kits, Metallibs and the AppleDB catalog, and when fetching the release notes of an update, now ends in BridgePatcher/<version> instead of OpenCoreLegacyPatcherT2/<version>. The rest of the user agent stays the same
 - all API and link endpoints (updates, PatcherSupportPkg, Metallibs, project status, website, Help menu, OpenCore update script) now point at the renamed GitHub organization bridgepatcher

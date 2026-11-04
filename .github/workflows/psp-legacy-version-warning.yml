@@ -2,7 +2,8 @@
 #
 # Warns on pull requests whose patcher code still pins PatcherSupportPkg
 # 2.0.4 or older (patcher_support_pkg_version in constants.py), i.e. the old
-# codebase from before the switch to the proper Dortania fork.
+# codebase from before the switch to Dortania's PatcherSupportPkg.
+# Current builds download dortania/PatcherSupportPkg releases (2.0.5 and newer) directly.
 # Pull requests opened by Medelcartelinc are skipped.
 
 name: PatcherSupportPkg legacy version warning
@@ -97,7 +98,7 @@ jobs:
               '>',
               '> PatcherSupportPkg releases up to 2.0.4 come from the old codebase, a mix of several independent forks.',
               '> That code has unclear licensing/attribution and causes friction with the upstream Dortania developers.',
-              '> Newer releases are built from a proper fork of [dortania/PatcherSupportPkg](https://github.com/dortania/PatcherSupportPkg).',
+              '> Current builds download [dortania/PatcherSupportPkg](https://github.com/dortania/PatcherSupportPkg) releases directly.',
               '>',
               `> **Please update your source code** to the current \`main\` branch of this repository before this pull request is reviewed:`,
               '>',
