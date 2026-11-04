@@ -12,9 +12,13 @@ permissions:
   contents: write   # commit the tracking file
   issues: write
 
-# Serialize runs so commits to the tracking file never collide
+# One group per comment / issue, NOT one for the whole repo: GitHub keeps only
+# one pending run per group and cancels the rest, so a single shared group meant
+# that during a spam wave every issue/comment between the running and the newest
+# one was never moderated. Edits of the same comment/issue still queue (the
+# newest content wins). Concurrent commits to the log are handled below.
 concurrency:
-  group: moderation-log
+  group: moderation-${{ github.event.comment.id && format('comment-{0}', github.event.comment.id) || format('issue-{0}', github.event.issue.number) }}
   cancel-in-progress: false
 
 jobs:
@@ -50,6 +54,15 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add moderation/
             git commit -m "Moderation: log removed issue/comment [skip ci]"
-            git pull --rebase
-            git push
+            # Runs for different comments can log at the same time. The log only
+            # gets rows appended, so keep both sides' rows when they meet.
+            echo 'moderation/flagged-issues.md merge=union' >> .git/info/attributes
+            for delay in 2 4 8 16 32 0; do
+              git pull --rebase && git push && exit 0
+              git rebase --abort 2>/dev/null || true
+              [ "$delay" = 0 ] && break
+              sleep "$delay"
+            done
+            echo "::error::Could not push the moderation log"
+            exit 1
           fi
