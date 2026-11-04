@@ -16,11 +16,6 @@ from bridgepatcher.support import subprocess_wrapper, image_handler
 from . import macho
 
 
-# PyInstaller's macOS architecture names, see target_arch in BridgePatcher-GUI.spec
-TARGET_ARCHES: tuple = ("x86_64", "arm64", "universal2")
-DEFAULT_TARGET_ARCH: str = "x86_64"
-
-
 class GenerateApplication:
     """
     Generate BridgePatcher.app
@@ -28,7 +23,7 @@ class GenerateApplication:
 
     def __init__(self, reset_pyinstaller_cache: bool = False, git_branch: str = None,
                  git_commit_url: str = None, git_commit_date: str = None,
-                 update_channel: str = None, target_arch: str = None) -> None:
+                 update_channel: str = None) -> None:
         """
         Initialize
         """
@@ -45,13 +40,6 @@ class GenerateApplication:
         # support/defaults.py at launch. None keeps the app on "official".
         self._update_channel = update_channel
 
-        # Architecture(s) of the app. The spec reads it from BRIDGEPATCHER_TARGET_ARCH,
-        # so local builds keep building Intel only unless asked otherwise.
-        self._target_arch = target_arch or DEFAULT_TARGET_ARCH
-        if self._target_arch not in TARGET_ARCHES:
-            raise ValueError(f"Unsupported target architecture: {self._target_arch} (expected one of {', '.join(TARGET_ARCHES)})")
-
-
     def _generate_application(self) -> None:
         """
         Generate PyInstaller Application
@@ -62,11 +50,6 @@ class GenerateApplication:
         _args = self._pyinstaller + ["./BridgePatcher-GUI.spec", "--noconfirm"]
         if self._reset_pyinstaller_cache:
             _args.append("--clean")
-
-        _env = os.environ.copy()
-        _env["BRIDGEPATCHER_TARGET_ARCH"] = self._target_arch
-        subprocess_wrapper.run_and_verify(_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_env)
-
 
     def _verify_architectures(self) -> None:
         """

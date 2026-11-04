@@ -1,0 +1,52 @@
+Metadata-Version: 2.1
+Name: mac_signing_buddy
+Version: 1.0.0
+Summary: A Python package to sign and notarize macOS applications.
+Home-page: https://github.com/ripeda/mac-signing-buddy
+Author: RIPEDA Consulting
+Author-email: info@ripeda.com
+License: 3-clause BSD License
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: BSD License
+Classifier: Operating System :: MacOS :: MacOS X
+Classifier: Development Status :: 5 - Production/Stable
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
+License-File: LICENSE.txt
+
+# Mac Signing Buddy
+
+Python module to easily sign Mac applications.
+
+
+## Usage - CLI
+
+```bash
+python3 -m mac_signing_buddy \
+    --identity "$signing_identity" \
+    --apple-id "$notarize_apple_id" \
+    --password "$notarize_password" \
+    --team-id "$notarize_team_id" \
+    --entitlements "$entitlements" \
+    --file "$file_to_sign"
+```
+
+## Usage - Python
+
+```python
+from mac_signing_buddy import Sign, Notarize
+
+file = "path/to/file"
+entitlements = "path/to/entitlements.plist"
+
+identity = "Developer ID Application: Your Name (XXXXXXXXXX)"
+apple_id = "sjobs@apple.com"
+password = "password"
+team_id  = "XXXXXXXXXX"
+
+sign_obj = Sign(file, identity, entitlements)
+sign_obj.sign()
+
+notarize_obj = Notarize(file, apple_id, password, team_id, output)
+notarize_obj.sign()
+```

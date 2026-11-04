@@ -1,304 +1,193 @@
-name: Build Release
-
-# Builds BridgePatcher.app as a universal2 app (Intel + Apple Silicon) with Python 3.13 when a
-# release is published, packages it with Build-Project.command and attaches the installers to
-# that release:
-#
-#   BridgePatcher.pkg, OpenCore-Patcher-T2.pkg (--legacy-installer, for pre-rename updaters),
-#   BridgePatcher-Uninstaller.pkg, AutoPkg-Assets.pkg
-#
-# SHA256SUMS is not made here: sha256sums.yml hashes the release once the installers are on
-# it. It is dispatched at the end so the hashes are there right away instead of after its
-# next cron sweep.
-#
-# Assets already attached to the release (e.g. built and uploaded by hand) are never
-# replaced, unless "replace_existing" is set on a manual run. When every installer is already
-# there, nothing is built.
-#
-# Python: the universal2 installer from python.org. setup-python is not used, its macOS
-# builds are not guaranteed to be universal2. PYTHON_VERSION may be "3.13" (latest 3.13.x
-# with a macOS installer) or an exact version such as "3.13.9".
-#
-# Signing (optional, repository secrets). Without them the app and packages are not signed -
-# the arm64 half of the app then won't start on Apple Silicon, and the privileged helper tool
-# refuses such a build, so root patching falls back to the administrator password prompt.
-#   SIGNING_CERTIFICATES_P12      base64 of a .p12 holding the application (and optionally the
-#                                 installer) certificate with private keys, e.g. the
-#                                 "BridgePatcher Self Signed" identity exported from
-#                                 bridgepatcher-signing.keychain-db:  base64 -i certs.p12 | pbcopy
-#   SIGNING_CERTIFICATES_PASSWORD password of that .p12
-#   APPLICATION_SIGNING_IDENTITY  name or SHA-1 of the identity for the app + helper tool
-#                                 (picked automatically if the .p12 holds exactly one)
-#   INSTALLER_SIGNING_IDENTITY    identity for the .pkg files (Developer ID Installer)
-#   NOTARIZATION_APPLE_ID, NOTARIZATION_PASSWORD, NOTARIZATION_TEAM_ID
-#                                 all three, to notarize (needs Developer ID certificates)
+name: CI - Build BridgePatcher
 
 on:
+  push:
+  workflow_dispatch:
   release:
     types: [published]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag to build and attach the installers to"
-        required: true
-        type: string
-      replace_existing:
-        description: "Replace installers that are already attached to the release"
-        required: false
-        default: false
-        type: boolean
-      upload:
-        description: "Attach the installers to the release (off: only keep them as a workflow artifact)"
-        required: false
-        default: true
-        type: boolean
 
 permissions:
-  contents: write   # upload release assets
-  actions: write    # dispatch sha256sums.yml
-
-concurrency:
-  group: build-release-${{ github.event.release.tag_name || inputs.tag }}
-  cancel-in-progress: false
-
-env:
-  PYTHON_VERSION: "3.13"
-  TAG: ${{ github.event.release.tag_name || inputs.tag }}
-  REPLACE_EXISTING: ${{ inputs.replace_existing && 'true' || 'false' }}
-  UPLOAD: ${{ github.event_name == 'release' && 'true' || (inputs.upload && 'true' || 'false') }}
-  # Release assets, in the order they are uploaded. Space separated, no spaces in names.
-  RELEASE_ASSETS: "BridgePatcher.pkg OpenCore-Patcher-T2.pkg BridgePatcher-Uninstaller.pkg AutoPkg-Assets.pkg"
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  contents: write
 
 jobs:
   build:
-    name: Build universal2 app
-    # Apple Silicon runner: builds both slices, and can run the x86_64 one through Rosetta.
+    name: Build BridgePatcher
     runs-on: macos-15
-    timeout-minutes: 150
 
+    env:
+      # GitHub Information
+      branch: ${{ github.ref }}
+      commiturl: ${{ github.event_name == 'push' && github.event.head_commit.url || github.event_name == 'release' && github.event.release.html_url || format('{0}/{1}/commit/{2}', github.server_url, github.repository, github.sha) }}
+      commitdate: ${{ github.event_name == 'push' && github.event.head_commit.timestamp || github.event_name == 'release' && github.event.release.published_at || '' }}
+
+      # Signing info
+      APPLICATION_SIGNING_IDENTITY: ${{ secrets.APPLICATION_SIGNING_IDENTITY }}
+      INSTALLER_SIGNING_IDENTITY: ${{ secrets.INSTALLER_SIGNING_IDENTITY }}
+      NOTARIZATION_APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
+      NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+      NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
+
+      # Release guard
+      IGNORE_RELEASE_ARGS: ${{ github.event_name != 'release' && '--ignore-release' || '' }}
     steps:
-      - name: Check which installers the release still needs
-        id: plan
-        run: |
-          set -euo pipefail
-          if [ -z "$TAG" ]; then
-            echo "::error::No release tag given."
-            exit 1
-          fi
-          EXISTING="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
-          MISSING=""
-          for asset in $RELEASE_ASSETS; do
-            if printf '%s\n' "$EXISTING" | grep -qxF "$asset"; then
-              echo "$asset is already attached to $TAG"
-            else
-              MISSING="$MISSING $asset"
-            fi
-          done
-          MISSING="${MISSING# }"
-          if [ -z "$MISSING" ] && [ "$REPLACE_EXISTING" != "true" ] && [ "$UPLOAD" = "true" ]; then
-            echo "::notice::Every installer is already attached to $TAG, nothing to build. Run this workflow manually with replace_existing to rebuild them."
-            echo "build=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "build=true" >> "$GITHUB_OUTPUT"
-          fi
-          echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
-
-      - name: Check out the release tag
-        if: steps.plan.outputs.build == 'true'
+      - name: Checkout BridgePatcher
         uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
         with:
-          ref: refs/tags/${{ env.TAG }}
-          persist-credentials: false
-
-      - name: Check that the tag matches the version in constants.py
-        if: steps.plan.outputs.build == 'true'
-        run: |
-          set -euo pipefail
-          VERSION="$(python3 - <<'EOF'
-          import re
-          text = open("bridgepatcher/constants.py", encoding="utf-8").read()
-          print(re.search(r'patcher_version\s*(?::\s*str)?\s*=\s*"([^"]+)"', text).group(1))
-          EOF
-          )"
-          echo "constants.py: $VERSION, tag: $TAG"
-          if [ "${TAG#v}" != "$VERSION" ]; then
-            echo "::error::Tag $TAG does not match patcher_version $VERSION in bridgepatcher/constants.py. The updater compares these, so the build would be offered as the wrong version."
-            exit 1
-          fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-
-      - name: Install universal2 Python ${{ env.PYTHON_VERSION }} from python.org
-        if: steps.plan.outputs.build == 'true'
-        run: |
-          set -euo pipefail
-          BASE="https://www.python.org/ftp/python"
-          if [[ "$PYTHON_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            CANDIDATES="$PYTHON_VERSION"
-          else
-            # Newest first; a release directory can exist before its macOS installer is uploaded.
-            CANDIDATES="$(curl -fsSL "$BASE/" \
-              | grep -oE "href=\"${PYTHON_VERSION//./\\.}\.[0-9]+/\"" \
-              | grep -oE "${PYTHON_VERSION//./\\.}\.[0-9]+" \
-              | sort -t. -k3,3nr | uniq)"
-          fi
-          FULL=""
-          for candidate in $CANDIDATES; do
-            if curl -fsIL -o /dev/null "$BASE/$candidate/python-$candidate-macos11.pkg"; then
-              FULL="$candidate"
-              break
-            fi
-          done
-          if [ -z "$FULL" ]; then
-            echo "::error::No python.org macOS installer found for Python $PYTHON_VERSION."
-            exit 1
-          fi
-          echo "Installing Python $FULL"
-          curl -fsSL -o "$RUNNER_TEMP/python.pkg" "$BASE/$FULL/python-$FULL-macos11.pkg"
-          pkgutil --check-signature "$RUNNER_TEMP/python.pkg"
-          sudo installer -pkg "$RUNNER_TEMP/python.pkg" -target /
-
-          MINOR="$(echo "$FULL" | cut -d. -f1,2)"
-          PYTHON="/Library/Frameworks/Python.framework/Versions/$MINOR/bin/python$MINOR"
-          "$PYTHON" -c "import sys, sysconfig, ssl; print(sys.version); print(sysconfig.get_platform()); print(ssl.OPENSSL_VERSION)"
-          lipo -archs "$PYTHON"
-          echo "PYTHON=$PYTHON" >> "$GITHUB_ENV"
-
-      - name: Install dependencies as universal2
-        if: steps.plan.outputs.build == 'true'
-        run: |
-          set -euo pipefail
-          "$PYTHON" -m pip install --upgrade pip
-          "$PYTHON" -m pip install certifi
-          "$PYTHON" -m ci_tooling.build_modules.universal2 --requirements requirements.txt
-          lipo -archs "$("$PYTHON" -c 'import PyInstaller, pathlib; print(pathlib.Path(PyInstaller.__file__).parent / "bootloader/Darwin-64bit/run")')"
-
+          python-version: '3.13'
       - name: Import signing certificates
-        if: steps.plan.outputs.build == 'true'
         env:
           SIGNING_CERTIFICATES_P12: ${{ secrets.SIGNING_CERTIFICATES_P12 }}
           SIGNING_CERTIFICATES_PASSWORD: ${{ secrets.SIGNING_CERTIFICATES_PASSWORD }}
         run: |
           set -euo pipefail
+
           if [ -z "$SIGNING_CERTIFICATES_P12" ]; then
-            echo "::warning::SIGNING_CERTIFICATES_P12 is not set: the app and packages are not signed. The privileged helper tool refuses such a build."
-            exit 0
-          fi
-          KEYCHAIN="$RUNNER_TEMP/bridgepatcher-ci.keychain-db"
-          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
-          echo "::add-mask::$KEYCHAIN_PASSWORD"
-          printf '%s' "$SIGNING_CERTIFICATES_P12" | base64 --decode > "$RUNNER_TEMP/certificates.p12"
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security import "$RUNNER_TEMP/certificates.p12" -k "$KEYCHAIN" -P "$SIGNING_CERTIFICATES_PASSWORD" \
-            -T /usr/bin/codesign -T /usr/bin/productsign -T /usr/bin/pkgbuild -T /usr/bin/productbuild
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
-          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
-          rm -f "$RUNNER_TEMP/certificates.p12"
-
-          # A self signed certificate is not trusted, which is fine: the helper tool only
-          # compares certificate chains. List all identities, not only the valid ones.
-          security find-identity -p codesigning "$KEYCHAIN"
-          echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
-
-      - name: Build
-        if: steps.plan.outputs.build == 'true'
-        env:
-          APPLICATION_SIGNING_IDENTITY: ${{ secrets.APPLICATION_SIGNING_IDENTITY }}
-          INSTALLER_SIGNING_IDENTITY: ${{ secrets.INSTALLER_SIGNING_IDENTITY }}
-          NOTARIZATION_APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
-          NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
-          NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
-          # Read by the release guard and the Universal-Binaries.dmg checksum lookup
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          ARGS=(
-            --target-arch universal2
-            --use-python-openssl
-            --legacy-installer
-            --reset-pyinstaller-cache
-            --git-branch "refs/tags/$TAG"
-            --git-commit-url "https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
-            --git-commit-date "$(git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S')"
-          )
-          # The tag was checked against constants.py above, and the assets attached to the
-          # release were checked by this workflow - the release guard would otherwise stop a
-          # rebuild of a release that already has some of its assets.
-          ARGS+=(--ignore-release)
-          [ -n "$APPLICATION_SIGNING_IDENTITY" ] && ARGS+=(--application-signing-identity "$APPLICATION_SIGNING_IDENTITY")
-          [ -n "$INSTALLER_SIGNING_IDENTITY" ] && ARGS+=(--installer-signing-identity "$INSTALLER_SIGNING_IDENTITY")
-          if [ -n "$NOTARIZATION_APPLE_ID" ] && [ -n "$NOTARIZATION_TEAM_ID" ]; then
-            ARGS+=(--notarization-apple-id "$NOTARIZATION_APPLE_ID" --notarization-team-id "$NOTARIZATION_TEAM_ID")
-          fi
-          # NOTARIZATION_PASSWORD is read from the environment, never passed on the command line.
-          "$PYTHON" Build-Project.command "${ARGS[@]}"
-
-      - name: Verify the app
-        if: steps.plan.outputs.build == 'true'
-        run: |
-          set -euo pipefail
-          APP="dist/BridgePatcher.app"
-          EXE="$APP/Contents/MacOS/BridgePatcher"
-          lipo -archs "$EXE"
-          lipo -archs ci_tooling/privileged_helper_tool/com.bridgepatcher.privileged-helper
-          lipo "$EXE" -verify_arch x86_64 arm64
-          lipo ci_tooling/privileged_helper_tool/com.bridgepatcher.privileged-helper -verify_arch x86_64 arm64
-
-          # Every executable, library and extension module inside the app has both slices
-          "$PYTHON" -m ci_tooling.build_modules.universal2 --check "$APP"
-
-          BUILT="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
-          if [ "$BUILT" != "$VERSION" ]; then
-            echo "::error::The app reports version $BUILT, expected $VERSION."
+            echo "::error::SIGNING_CERTIFICATES_P12 is not configured."
             exit 1
           fi
-          /usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist"
-          for arch in x86_64 arm64; do
-            echo "$arch:"; vtool -arch "$arch" -show-build "$EXE" | sed 's/^/  /'
-          done
-          codesign --verify --deep --strict --verbose=2 "$APP"
-          codesign -dv "$APP" 2>&1 | grep -E '^(Identifier|Authority|Signature|Format)' || true
 
-          ls -l dist/*.pkg
-          cat dist/certificates.txt
+          KEYCHAIN="$RUNNER_TEMP/bridgepatcher-ci.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
 
-      - name: Keep the installers as a workflow artifact
-        if: steps.plan.outputs.build == 'true'
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+
+          # Decode the signing certificate.
+          printf '%s' "$SIGNING_CERTIFICATES_P12" \
+            | base64 -D > "$RUNNER_TEMP/certificates.p12"
+
+          # Create the temporary keychain.
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          # Register it immediately so the cleanup step can find it,
+          # even if a later certificate-import operation fails.
+          echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          # Import the signing certificates and allow the required tools
+          # to access their private keys.
+          security import "$RUNNER_TEMP/certificates.p12" \
+            -k "$KEYCHAIN" \
+            -P "$SIGNING_CERTIFICATES_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/productsign \
+            -T /usr/bin/pkgbuild \
+            -T /usr/bin/productbuild
+
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN" > /dev/null
+
+          # Make the temporary keychain available to the user session.
+          security list-keychains -d user -s "$KEYCHAIN" \
+            $(security list-keychains -d user | tr -d '"')
+
+          rm -f "$RUNNER_TEMP/certificates.p12"
+
+          # List all identities, including self-signed certificates.
+          security find-identity -p codesigning "$KEYCHAIN"
+
+      - name: Prepare Assets (--prepare-assets)
+        run: >
+          source .bridgepatcher-venv/bin/activate && Build-Project.command
+          --run-as-individual-steps --reset-dmg-cache
+          --prepare-assets
+          ${{ env.IGNORE_RELEASE_ARGS }}
+          --use-python-openssl
+
+      - name: Prepare Application (--prepare-application) (Release)
+        if: github.event_name == 'release'
+        run: >
+            source .bridgepatcher-venv/bin/activate && Build-Project.command
+            --git-branch "${{ env.branch }}" --git-commit-url "${{ env.commiturl }}" --git-commit-date "${{ env.commitdate }}"
+            --reset-pyinstaller-cache
+            --run-as-individual-steps
+            --use-python-openssl
+            --prepare-application
+            --application-signing-identity "${{ env.APPLICATION_SIGNING_IDENTITY }}" 
+            --notarization-apple-id "${{ env.NOTARIZATION_APPLE_ID }}" --notarization-team-id "${{ env.NOTARIZATION_TEAM_ID }}"
+      - name: Prepare Application (--prepare-application) (Artifacts)
+        if: github.event_name != 'release'
+        run: >
+          source .bridgepatcher-venv/bin/activate && Build-Project.command
+          --git-branch "${{ env.branch }}" --git-commit-url "${{ env.commiturl }}" --git-commit-date "${{ env.commitdate }}"
+          --reset-pyinstaller-cache
+          --run-as-individual-steps
+          --prepare-application
+          ${{ env.IGNORE_RELEASE_ARGS }}
+          --use-python-openssl
+          --application-signing-identity "${{ env.APPLICATION_SIGNING_IDENTITY }}" 
+          --notarization-apple-id "${{ env.NOTARIZATION_APPLE_ID }}" --notarization-team-id "${{ env.NOTARIZATION_TEAM_ID }}"
+
+      - name: Prepare Package (--prepare-package)
+        run: >
+          source .bridgepatcher-venv/bin/activate && Build-Project.command
+          --run-as-individual-steps
+          --prepare-package
+          ${{ env.IGNORE_RELEASE_ARGS }}
+          --use-python-openssl
+          --installer-signing-identity "${{ env.INSTALLER_SIGNING_IDENTITY }}"
+          --notarization-apple-id "${{ env.NOTARIZATION_APPLE_ID }}" --notarization-team-id "${{ env.NOTARIZATION_TEAM_ID }}"
+
+      - name: Upload AutoPkg Package to Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: BridgePatcher-${{ env.TAG }}
-          path: |
-            dist/*.pkg
-            dist/certificates.txt
-          compression-level: 0
-          retention-days: 14
+          name: AutoPkg-Assets.pkg
+          path: ./dist/AutoPkg-Assets.pkg
 
-      - name: Attach the installers to the release
-        if: steps.plan.outputs.build == 'true' && env.UPLOAD == 'true'
-        env:
-          MISSING: ${{ steps.plan.outputs.missing }}
-        run: |
-          set -euo pipefail
-          for asset in $RELEASE_ASSETS; do
-            if [ ! -f "dist/$asset" ]; then
-              echo "::error::dist/$asset was not built."
-              exit 1
-            fi
-            if [ "$REPLACE_EXISTING" = "true" ]; then
-              gh release upload "$TAG" "dist/$asset" --repo "$GITHUB_REPOSITORY" --clobber
-            elif printf ' %s ' "$MISSING" | grep -qF " $asset "; then
-              gh release upload "$TAG" "dist/$asset" --repo "$GITHUB_REPOSITORY"
-            else
-              echo "$asset was already attached to $TAG, leaving it alone."
-            fi
-          done
+      - name: Upload Installation Package to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: BridgePatcher.pkg
+          path: ./dist/BridgePatcher.pkg
 
-      - name: Generate SHA256SUMS
-        if: steps.plan.outputs.build == 'true' && env.UPLOAD == 'true'
-        run: gh workflow run sha256sums.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}" -f tag="$TAG"
+      - name: Upload Uninstaller Package to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: BridgePatcher-Uninstaller.pkg
+          path: ./dist/BridgePatcher-Uninstaller.pkg
+
+      - name: Upload AutoPkg Package to Release
+        if: github.event_name == 'release'
+        uses: svenstaro/upload-release-action@e74ff71f7d8a4c4745b560a485cc5fdb9b5b999d
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./dist/AutoPkg-Assets.pkg
+          tag: ${{ github.ref }}
+          file_glob: true
+
+      - name: Upload Installation Package to Release
+        if: github.event_name == 'release'
+        uses: svenstaro/upload-release-action@e74ff71f7d8a4c4745b560a485cc5fdb9b5b999d
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./dist/BridgePatcher.pkg
+          tag: ${{ github.ref }}
+          file_glob: true
+
+      - name: Upload Uninstaller Package to Release
+        if: github.event_name == 'release'
+        uses: svenstaro/upload-release-action@e74ff71f7d8a4c4745b560a485cc5fdb9b5b999d
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./dist/BridgePatcher-Uninstaller.pkg
+          tag: ${{ github.ref }}
+          file_glob: true
+
+      - name: Upload certificates to Release
+        if: github.event_name == 'release'
+        uses: svenstaro/upload-release-action@e74ff71f7d8a4c4745b560a485cc5fdb9b5b999d
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./dist/certificates.txt
+          tag: ${{ github.ref }}
+          file_glob: true
 
       - name: Remove the signing keychain
         if: always()
