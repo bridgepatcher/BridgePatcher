@@ -24,7 +24,7 @@ from ..datasets import os_data
 METALLIB_INSTALL_PATH:        str  = "/Library/Application Support/Pyquick/MetallibSupportPkg"
 METALLIB_INSTALL_PATH_LEGACY: str  = "/Library/Application Support/Dortania/MetallibSupportPkg"
 METALLIB_INSTALL_PATH_HACKDOC:str  = "/Library/Application Support/Hackdoc/MetallibSupportPkg"
-METALLIB_API_LINK:            str  = "https://bridgepatcher.github.io/metallibs/MetallibSupportPkg/manifest.json"
+METALLIB_API_LINK:            str  = "https://dortania.github.io/MetallibSupportPkg/manifest.json"
 
 # Every catalog we know of, in priority order. No single one is complete (ours lacks
 # some older Sequoia builds Dortania still lists, the Medelcartelinc mirror lags behind
@@ -35,7 +35,6 @@ METALLIB_API_LINKS: tuple = (
     # Same catalog as METALLIB_API_LINK, read straight from the repository
     # (github.com/bridgepatcher/metallibs): always the latest commit,
     # without waiting for GitHub Pages to rebuild, and still reachable if Pages is down.
-    "https://raw.githubusercontent.com/bridgepatcher/metallibs/main/MetallibSupportPkg/manifest.json",
     METALLIB_API_LINK,
     "https://dortania.github.io/MetallibSupportPkg/manifest.json",
 )
