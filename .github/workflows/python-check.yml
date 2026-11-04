@@ -46,8 +46,10 @@ permissions:
 # Each comment gets its own group: every comment on any issue starts this
 # workflow (most are skipped right away), and they must not cancel push runs
 # or a running /ai-fix.
+# Runs from other branches (manual dispatches) share ONE group instead of one per
+# branch, so starting this on many branches at once can't fan out into parallel runs.
 concurrency:
-  group: python-check-${{ github.event_name == 'issue_comment' && format('comment-{0}', github.event.comment.id) || github.event.pull_request.number || github.ref }}
+  group: python-check-${{ github.event_name == 'issue_comment' && format('comment-{0}', github.event.comment.id) || github.event.pull_request.number || ((github.ref == 'refs/heads/main' || github.ref_type == 'tag') && github.ref) || 'other-branches' }}
   cancel-in-progress: true
 
 jobs:
@@ -179,7 +181,11 @@ jobs:
 
   # Whole-project report for main: errors + warnings, kept in one tracking issue.
   main-report:
-    if: github.event_name != 'pull_request_target' && github.event_name != 'issue_comment'
+    # Only for main: a manual run on another branch would otherwise file that
+    # branch's results in main's tracking issue.
+    if: >-
+      github.event_name != 'pull_request_target' && github.event_name != 'issue_comment' &&
+      github.ref == 'refs/heads/main'
     # One run at a time, so two runs can't both create a tracking issue
     concurrency:
       group: python-check-main-report
@@ -321,8 +327,11 @@ jobs:
   auto-fix:
     # On comments: only "/ai-fix" on the bot's own tracking issue, and only from
     # people who can push anyway - anyone else's comment is ignored.
+    # Only from main (comment events always run on main): a manual run on any
+    # other branch would still fix main, so N branches meant N parallel AI runs
+    # force-pushing the same fix branch.
     if: >-
-      github.event_name != 'pull_request_target' && (
+      github.event_name != 'pull_request_target' && github.ref == 'refs/heads/main' && (
         github.event_name != 'issue_comment' || (
           !github.event.issue.pull_request &&
           github.event.issue.state == 'open' &&
@@ -330,6 +339,11 @@ jobs:
           contains(github.event.issue.body, '<!-- python-check-main-report -->') &&
           startsWith(github.event.comment.body, '/ai-fix') &&
           contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)))
+    # One auto-fix at a time across push, schedule, dispatch and every /ai-fix
+    # comment: they all fix main and force-push the same branch.
+    concurrency:
+      group: python-check-auto-fix
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: write
