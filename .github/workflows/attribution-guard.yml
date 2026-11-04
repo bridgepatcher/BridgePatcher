@@ -4,8 +4,13 @@
 # (e.g. "Copyright (c) 2020-2025 Dhinak G, Mykola Grymalyuk" -> "... Albert",
 # dropped LICENSE lines, or Dortania authors removed from the README Credits).
 #   - Pull request: the PR is closed immediately with a warning comment.
-#   - Push to the repo: an issue is opened for the offending commit(s).
+#   - Push to main: an issue is opened for the offending commit(s).
 # Code is only inspected through the API (diff patches), never executed.
+#
+# Pushes are only checked on main: watching every branch let one push of many
+# branches (e.g. `git push --all`) start a run per branch at the same time, each
+# hammering the API and opening its own issue. Other branches reach main through
+# a pull request (checked above) or a push to main (checked here).
 
 name: Attribution guard
 
@@ -13,12 +18,19 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize, edited]
   push:
-    branches: ['**']
+    branches: [main]
 
 permissions:
   contents: read
   issues: write
   pull-requests: write
+
+# One run per PR (a newer push to the PR supersedes the older run); pushes to
+# main queue behind each other instead of running in parallel, so the
+# "issue already exists" check can't race and open duplicates.
+concurrency:
+  group: attribution-guard-${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.pull_request.number) || 'push' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:
   guard:
