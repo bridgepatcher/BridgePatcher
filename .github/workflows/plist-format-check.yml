@@ -29,8 +29,10 @@ on:
 permissions:
   contents: read
 
+# Runs from other branches (manual dispatches) share ONE group instead of one per
+# branch, so starting this on many branches at once can't fan out into parallel runs.
 concurrency:
-  group: plist-format-${{ github.event.pull_request.number || github.ref }}
+  group: plist-format-${{ github.event.pull_request.number || ((github.ref == 'refs/heads/main' || github.ref_type == 'tag') && github.ref) || 'other-branches' }}
   cancel-in-progress: true
 
 jobs:
