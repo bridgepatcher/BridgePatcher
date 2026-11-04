@@ -32,6 +32,8 @@ UNIVERSAL_BINARIES_ASSET = "Universal-Binaries.dmg"
 # Optional pinned overrides, see module docstring.
 UNIVERSAL_BINARIES_SHA256 = {
     "2.11": "7bf45ad8ba45dc8be18538d655a0954e4f131570fb36e766f4c01fafc2228ad0",
+    # dortania/PatcherSupportPkg 2.0.5 (853972480 bytes)
+    "2.0.5": "1c290781bc726759ff37a110ffcb7182a6c6fd3d8ebce112d134d482c8de52a3",
 }
 
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")

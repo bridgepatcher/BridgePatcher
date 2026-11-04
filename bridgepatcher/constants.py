@@ -76,7 +76,11 @@ class Constants:
         # Wenn eine Version mit s endet, es heißt, dass sie noch nicht fertig ist.
         self.patcher_version:                 str = "4.0.0.2000000.4"
         self.patcher_version_label=self.patcher_version
-        self.patcher_support_pkg_version:     str = "2.5"
+        # PatcherSupportPkg is downloaded straight from Dortania (see url_patcher_support_pkg):
+        # nobody maintains bridgepatcher/PatcherSupportPkg right now. When bumping, use the
+        # version upstream OCLP pins in its constants.py and merge its sys_patch/patchsets in
+        # the same change, so the patchsets and the payloads stay in step.
+        self.patcher_support_pkg_version:     str = "2.0.5"
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
 
         # Application identity
@@ -90,7 +94,9 @@ class Constants:
         self.bundle_identifier:               str = "com.bridgepatcher.bridgepatcher"
 
         # URLs
-        self.url_patcher_support_pkg:         str = "https://github.com/bridgepatcher/PatcherSupportPkg/releases/download/"
+        # Dortania's PatcherSupportPkg until someone can maintain bridgepatcher/PatcherSupportPkg
+        # again. Keep that repository and its releases (up to 2.5) online: older builds still download from it.
+        self.url_patcher_support_pkg:         str = "https://github.com/dortania/PatcherSupportPkg/releases/download/"
         self.guide_link:                      str = "https://bridgepatcher.github.io/"
         self.repo_link:                       str = "https://github.com/bridgepatcher/BridgePatcher/"
         self.github_issues_link:              str = "https://github.com/bridgepatcher/BridgePatcher/issues"
