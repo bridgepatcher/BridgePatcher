@@ -89,3 +89,15 @@ Else, you don't need to pass any update arguments, it will default to the offici
 --ignore-release if there is already an existing version in the mainstream repository that matches the version in your fork you want to release to ignore the checks
 4. Hit Enter
 5. Follow the onscreen instructions
+
+## Universal2 builds (Intel + Apple Silicon)
+By default the patcher is built as an Intel app. To build one app that runs natively on both Intel and Apple Silicon Macs:
+1. Use Python 3.13 from python.org (its installer is universal2)
+2. Install the dependencies with `python3 -m ci_tooling.build_modules.universal2 --requirements requirements.txt` instead of `pip3 install -r requirements.txt`. pip only installs the Apple Silicon (or only the Intel) version of packages such as wxPython; this command replaces them with universal2 builds
+3. Build with `python3 Build-Project.command --target-arch universal2`. Add `--use-python-openssl` to use the OpenSSL that python.org's Python ships instead of MacPorts'
+
+## Release builds on GitHub Actions
+Publishing a release runs `.github/workflows/build-release.yml`: it builds the universal2 app with Python 3.13 on a GitHub macOS runner and attaches BridgePatcher.pkg, OpenCore-Patcher-T2.pkg, BridgePatcher-Uninstaller.pkg and AutoPkg-Assets.pkg to the release. SHA256SUMS is added by the SHA256SUMS workflow afterwards.
+- The release tag must match `patcher_version` in bridgepatcher/constants.py, otherwise the build stops
+- Installers that are already attached to the release are left alone. To rebuild them, run the workflow manually (Actions > Build Release > Run workflow) with the tag and "Replace installers that are already attached"
+- Without signing secrets the app is only ad-hoc signed, and the Privileged Helper Tool refuses such a build. To sign with your certificate, export it from Keychain Access (or bridgepatcher-signing.keychain-db) as a .p12 and add these repository secrets: `SIGNING_CERTIFICATES_P12` (output of `base64 -i certificates.p12`), `SIGNING_CERTIFICATES_PASSWORD` and `APPLICATION_SIGNING_IDENTITY` (e.g. `BridgePatcher Self Signed`). Optional: `INSTALLER_SIGNING_IDENTITY`, and `NOTARIZATION_APPLE_ID`, `NOTARIZATION_PASSWORD`, `NOTARIZATION_TEAM_ID` to notarize

@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 import shutil
@@ -12,6 +13,13 @@ from bridgepatcher.volume import generate_copy_arguments
 from bridgepatcher import constants
 from bridgepatcher.support import subprocess_wrapper, image_handler
 
+from . import macho
+
+
+# PyInstaller's macOS architecture names, see target_arch in BridgePatcher-GUI.spec
+TARGET_ARCHES: tuple = ("x86_64", "arm64", "universal2")
+DEFAULT_TARGET_ARCH: str = "x86_64"
+
 
 class GenerateApplication:
     """
@@ -20,7 +28,7 @@ class GenerateApplication:
 
     def __init__(self, reset_pyinstaller_cache: bool = False, git_branch: str = None,
                  git_commit_url: str = None, git_commit_date: str = None,
-                 update_channel: str = None) -> None:
+                 update_channel: str = None, target_arch: str = None) -> None:
         """
         Initialize
         """
@@ -37,6 +45,12 @@ class GenerateApplication:
         # support/defaults.py at launch. None keeps the app on "official".
         self._update_channel = update_channel
 
+        # Architecture(s) of the app. The spec reads it from BRIDGEPATCHER_TARGET_ARCH,
+        # so local builds keep building Intel only unless asked otherwise.
+        self._target_arch = target_arch or DEFAULT_TARGET_ARCH
+        if self._target_arch not in TARGET_ARCHES:
+            raise ValueError(f"Unsupported target architecture: {self._target_arch} (expected one of {', '.join(TARGET_ARCHES)})")
+
 
     def _generate_application(self) -> None:
         """
@@ -49,53 +63,59 @@ class GenerateApplication:
         if self._reset_pyinstaller_cache:
             _args.append("--clean")
 
-        subprocess_wrapper.run_and_verify(_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        _env = os.environ.copy()
+        _env["BRIDGEPATCHER_TARGET_ARCH"] = self._target_arch
+        subprocess_wrapper.run_and_verify(_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_env)
+
+
+    def _verify_architectures(self) -> None:
+        """
+        Make sure the executable really contains what was asked for. PyInstaller already
+        refuses to collect a thin library into a universal2 build, this guards the result.
+        """
+        _file = self._application_output / "Contents" / "MacOS" / constants.APP_EXECUTABLE_NAME
+        expected = {"x86_64", "arm64"} if self._target_arch == "universal2" else {self._target_arch}
+        found = macho.architectures(_file)
+        if not expected.issubset(found):
+            raise RuntimeError(
+                f"{_file} contains {', '.join(sorted(found)) or 'no Mach-O image'}, "
+                f"expected {', '.join(sorted(expected))} for target architecture {self._target_arch}"
+            )
+        rich.print(f"App executable architectures: {', '.join(sorted(found))}")
 
 
     def _patch_load_command(self) -> None:
         """
-        Patch LC_VERSION_MIN_MACOSX in Load Command to report 10.13.6
+        Patch LC_VERSION_MIN_MACOSX / LC_BUILD_VERSION in Load Command to report 10.13.6
+
+        Applied to every slice of a universal binary. Only a slice reporting 10.13 is changed:
+        the arm64 slice of a universal2 build already requires macOS 11.
         """
         _file = self._application_output / "Contents" / "MacOS" / constants.APP_EXECUTABLE_NAME
-
-        _find    = b'\x00\x0D\x0A\x00' # 10.13
-        _replace = b'\x06\x0D\x0A\x00' # 10.13.6
 
         if not _file.exists():
             raise FileNotFoundError(f"Target binary not found for patching: {_file}")
 
-        with open(_file, "rb") as f:
-            data = f.read()
-
-        data = data.replace(_find, _replace, 1)
-
-        with open(_file, "wb") as f:
-            f.write(data)
+        for change in macho.replace_version(_file, "minos", "10.13", "10.13.6"):
+            rich.print(f"Patched load command ({change})")
 
 
     def _patch_sdk_version(self) -> None:
         """
         Patch LC_BUILD_VERSION in Load Command to report the macOS 26 SDK
+
+        Applied to every slice whose load commands report the macOS 12.1 SDK. Earlier versions
+        replaced the first match of the 4 byte value anywhere in the file, which in a universal
+        binary reaches one slice at most and can hit unrelated bytes; the load commands are
+        walked instead.
         """
         _file = self._application_output / "Contents" / "MacOS" / constants.APP_EXECUTABLE_NAME
-
-        _find    = b'\x00\x01\x0C\x00'
-        _replace = b'\x00\x00\x1A\x00'
 
         if not _file.exists():
             raise FileNotFoundError(f"Target binary not found for patching: {_file}")
 
-        with open(_file, "rb") as f:
-            data = f.read()
-
-        # Bounded to the first match, like _patch_load_command() above. The load command
-        # lives once in the Mach-O header at the front of the file, but this is a 4-byte
-        # sequence that recurs by chance across a multi-megabyte binary full of embedded
-        # bytecode - an unbounded replace() silently rewrote those unrelated hits too.
-        data = data.replace(_find, _replace, 1)
-
-        with open(_file, "wb") as f:
-            f.write(data)
+        for change in macho.replace_version(_file, "sdk", "12.1", "26.0"):
+            rich.print(f"Patched load command ({change})")
 
 
     def _run_git(self, args: list) -> str:
@@ -335,6 +355,7 @@ class GenerateApplication:
             if about_file is not None:
                 self.remove_hard_readme(about_file=about_file)
 
+        self._verify_architectures()
         self._patch_load_command()
 
         if not self._git_branch or not self._git_branch.startswith('refs/tags'):

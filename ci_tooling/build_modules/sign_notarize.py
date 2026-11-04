@@ -3,6 +3,8 @@ sign_notarize.py: Sign and Notarize a file securely
 """
 
 import os
+import sys
+import subprocess
 from pathlib import Path
 import mac_signing_buddy
 import macos_pkg_builder
@@ -27,12 +29,34 @@ class SignAndNotarize:
         self._notarization_password = notarization_password or os.environ.get("NOTARIZATION_APP_PASSWORD")
         self._notarization_team_id = notarization_team_id or os.environ.get("NOTARIZATION_TEAM_ID")
 
+    def _ad_hoc_sign_application(self) -> None:
+        """
+        Give an unsigned app a valid ad-hoc signature
+
+        PyInstaller ad-hoc signs the app it builds, but the build changes the executable's load
+        commands, Info.plist and Resources afterwards, which leaves that signature broken. Apple
+        Silicon refuses to run arm64 code without a valid signature, so the arm64 half of a
+        universal2 (or arm64) app would not start at all. An ad-hoc signature carries no
+        certificate: the privileged helper tool still rejects such a build.
+        """
+        if sys.platform != "darwin" or self._path.suffix.lower() != ".app" or not self._path.is_dir():
+            return
+
+        rich.print(f"[yellow]Ad-hoc signing {self._path.name}, so it can run on Apple Silicon.[/yellow]")
+        result = subprocess.run(
+            ["/usr/bin/codesign", "--force", "--deep", "--sign", "-", str(self._path)],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Ad-hoc signing {self._path.name} failed: {(result.stderr or result.stdout).strip()}")
+
     def sign_and_notarize(self) -> None:
         """
         Sign and Notarize with explicit verification constraints
         """
         if not self._signing_identity:
             rich.print("[yellow]Signing identity not provided. Skipping signing pipeline.[/yellow]")
+            self._ad_hoc_sign_application()
             return
         # behebt eine kritische Sicherheitlücke, die erlaubt Angreifern, die elif not self._path.exists(): zu entfernen, um Apps in beliebigen Verzeichnisses einen bösartigen Apps zu unterschreiben und dann Malware zu verbreiten
         if self._path.exists():
