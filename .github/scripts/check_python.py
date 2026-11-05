@@ -80,7 +80,7 @@ ERROR_MESSAGES = tuple(getattr(m, n) for n in [
     "InvalidPrintSyntax",
 ] if hasattr(m, n))
 
-SKIP_DIRS = {".git", "node_modules", "__pycache__", "dist", "build", "venv", ".venv"}
+SKIP_DIRS = {".git", "node_modules", "__pycache__", "dist", "build", "venv", ".venv", ".bridgepatcher-venv"}
 PY_SHEBANG = re.compile(rb"^#!.*\bpython[0-9.]*\b")
 
 
