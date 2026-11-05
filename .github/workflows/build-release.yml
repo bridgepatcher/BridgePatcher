@@ -87,14 +87,6 @@ jobs:
             -k "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN" > /dev/null
 
-          # Trust our private CA for code signing on this runner.
-          #
-          # This must run as root in the admin trust domain (-d). Changing the
-          # *user* trust settings (no -d) asks SecurityAgent to show a GUI
-          # authorization dialog, which nobody can answer on a headless runner,
-          # so the step hangs forever right after "1 identity imported.".
-          # `sudo` is passwordless on GitHub-hosted runners and root does not
-          # need that authorization.
           sudo security add-trusted-cert \
             -d \
             -r trustRoot \
@@ -155,7 +147,7 @@ jobs:
 
       - name: Prepare Assets (--prepare-assets)
         run: >
-          source .bridgepatcher-venv/bin/activate && Build-Project.command
+          source .bridgepatcher-venv/bin/activate && ./Build-Project.command
           --run-as-individual-steps --reset-dmg-cache
           --prepare-assets
           ${{ env.IGNORE_RELEASE_ARGS }}
@@ -164,7 +156,7 @@ jobs:
       - name: Prepare Application (--prepare-application) (Release)
         if: github.event_name == 'release'
         run: >
-            source .bridgepatcher-venv/bin/activate && Build-Project.command
+            source .bridgepatcher-venv/bin/activate && ./Build-Project.command
             --git-branch "${{ env.branch }}" --git-commit-url "${{ env.commiturl }}" --git-commit-date "${{ env.commitdate }}"
             --reset-pyinstaller-cache
             --run-as-individual-steps
@@ -174,7 +166,7 @@ jobs:
       - name: Prepare Application (--prepare-application) (Artifacts)
         if: github.event_name != 'release'
         run: >
-          source .bridgepatcher-venv/bin/activate && Build-Project.command
+          source .bridgepatcher-venv/bin/activate && ./Build-Project.command
           --git-branch "${{ env.branch }}" --git-commit-url "${{ env.commiturl }}" --git-commit-date "${{ env.commitdate }}"
           --reset-pyinstaller-cache
           --run-as-individual-steps
@@ -185,7 +177,7 @@ jobs:
 
       - name: Prepare Package (--prepare-package)
         run: >
-          source .bridgepatcher-venv/bin/activate && Build-Project.command
+          source .bridgepatcher-venv/bin/activate && ./Build-Project.command
           --run-as-individual-steps
           --prepare-package
           ${{ env.IGNORE_RELEASE_ARGS }}
