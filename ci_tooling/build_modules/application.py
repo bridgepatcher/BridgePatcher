@@ -49,6 +49,7 @@ class GenerateApplication:
         _args = self._pyinstaller + ["./BridgePatcher-GUI.spec", "--noconfirm"]
         if self._reset_pyinstaller_cache:
             _args.append("--clean")
+        subprocess.run(_args, check=True)
 
 
     def _patch_load_command(self) -> None:
