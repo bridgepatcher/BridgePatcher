@@ -4,6 +4,7 @@ This release:
 - temporarily changes the PatcherSupportPkg to Dortania's own
 - retires this patcher's own Metallibs API
 - fixes the EFI's volume icon not showing in Apple's boot picker (Option key at startup, or `PickerMode` Apple): BridgePatcher's new drive icons only contained modern PNG images, while the firmware boot picker reads the legacy 128x128 `it32`/`t8mk` image. The internal, external, SSD and SD card icons now include the legacy 16x16, 32x32 and 128x128 images too (`ci_tooling/build_modules/volume_icon_legacy.py` adds them again after artwork changes). Thx @gandolf243
+- stops demanding building the patcher locally, now it can be done using GitHub Actions for the main repository (not tested if this works in forks)
 - renames the source launcher and PyInstaller spec from OpenCore-Patcher-GUI.command / OpenCore-Patcher-GUI.spec to BridgePatcher-GUI.command / BridgePatcher-GUI.spec. To run from source, use `python3 BridgePatcher-GUI.command`
 
 Inside the repository itself only:
