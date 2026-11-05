@@ -96,7 +96,7 @@ jobs:
               "",
               `The version you're using (${versionText}) downloads \`Universal-Binaries.dmg\` from **OCLP-Plus's own PatcherSupportPkg** (YBronst/PatcherSupportPkg). YBronst has deprecated OCLP-Plus, so that PatcherSupportPkg API is no longer available and the download fails on every build that still uses it (alpha 13, 15.9, 16, 17 and 18.0 – 18.2.6).`,
               "",
-              "Newer releases download the DMG from a PatcherSupportPkg that is still online (currently Dortania's). **Please upgrade to the latest release:**",
+              "Newer releases bundle this project's own PatcherSupportPkg (with Dortania's as an option in Settings). **Please upgrade to the latest release:**",
               `https://github.com/${context.repo.owner}/${context.repo.repo}/releases/latest`,
               "",
               "If the download still fails after upgrading, please reply here with your new version number and the log.",
