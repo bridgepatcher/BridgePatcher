@@ -203,38 +203,17 @@ jobs:
           name: BridgePatcher-Uninstaller.pkg
           path: ./dist/BridgePatcher-Uninstaller.pkg
 
-      - name: Upload AutoPkg Package to Release
+      - name: Upload packages and certificates to Release
         if: github.event_name == 'release'
-        uses: svenstaro/upload-release-action@e74ff71f7d8a4c4745b560a485cc5fdb9b5b999d
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./dist/AutoPkg-Assets.pkg
-          tag: ${{ github.ref }}
-          file_glob: true
-
-      - name: Upload Installation Package to Release
-        if: github.event_name == 'release'
-        uses: svenstaro/upload-release-action@e74ff71f7d8a4c4745b560a485cc5fdb9b5b999d
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./dist/BridgePatcher.pkg
-          tag: ${{ github.ref }}
-          file_glob: true
-
-      - name: Upload Uninstaller Package to Release
-        if: github.event_name == 'release'
-        uses: svenstaro/upload-release-action@e74ff71f7d8a4c4745b560a485cc5fdb9b5b999d
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./dist/BridgePatcher-Uninstaller.pkg
-          tag: ${{ github.ref }}
-          file_glob: true
-
-      - name: Upload certificates to Release
-        if: github.event_name == 'release'
-        uses: svenstaro/upload-release-action@e74ff71f7d8a4c4745b560a485cc5fdb9b5b999d
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./dist/certificates.txt
-          tag: ${{ github.ref }}
-          file_glob: true
+        # Uses the preinstalled GitHub CLI instead of a third-party action,
+        # which avoids the Node `url.parse()` deprecation warning (DEP0169).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            ./dist/AutoPkg-Assets.pkg \
+            ./dist/BridgePatcher.pkg \
+            ./dist/BridgePatcher-Uninstaller.pkg \
+            ./dist/certificates.txt \
+            --repo "$GITHUB_REPOSITORY"
