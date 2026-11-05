@@ -1,10 +1,11 @@
 name: CI - Build BridgePatcher
 
 on:
-  push:
-  workflow_dispatch:
+  # Build and publish only when a release is published. Pushes (including to
+  # main) no longer trigger a build; use "Run workflow" for a manual test build.
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: write
