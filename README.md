@@ -51,6 +51,7 @@ Security researchers can report vulnerabilities in the app via GitHub Security a
 > **⚠️⚠️⚠️⚠️⚠️ Warnung** macOS 27 Golden Gate und neuere macOS-Versionen sind nicht unterstützt, weil diese sind nur für Apple Silicon/arm64 Macs. Also die Antwort ist klar. macOS 26 Tahoe ist die letzte Version, die von dieser Projekt unterstützt wird.
 
 > **⚠️ EXPERIMENTAL FORK** — Adds **macOS 15 Sequoia and macOS 26 Tahoe support for all unsupported Macs**. T2 Macs as of now are unsupported by the official OpenCore Legacy Patcher from Dortania. Use it at your own risk. It's still in alpha stage, so I highly recommend to backup all your data and do it only on a spare T2 Mac to experiment. This is experimental alpha software.
+
 ## T2 Mac Support
 
 > **💡 Recommended Download**: Always download pre-compiled releases directly from [Releases](https://github.com/bridgepatcher/BridgePatcher/releases) for maximum stability, bundled payloads, and proper packaging.
@@ -66,7 +67,7 @@ Security researchers can report vulnerabilities in the app via GitHub Security a
 - [ ] Post install - issues with second stage
 - [ ] GPU accelaration/WiFi - most T2 Macs will have GPU accelaration out of the box, and on certain T2 Macs, also WiFi
 
-Our goal of this project is to add support for T2 Macs so unsupported T2 Macs can boot into Tahoe. This project does run also on non-T2 Macs and we're committing to improve macOS 26 Tahoe compatability even on non-T2 
+Our goal of this project is to add support for T2 Macs so unsupported T2 Macs can boot into Tahoe. This project does run also on non-T2 Macs and we're committing to improve macOS 26 Tahoe compatability even on non-T2 Macs.
 
 Noteworthy features of BridgePatcher:
 
@@ -75,6 +76,7 @@ Noteworthy features of BridgePatcher:
 * Supports Penryn and newer Macs
 * Full support for WPA Wi-Fi and Personal Hotspot on BCM943224 and newer wireless chipsets
 * System Integrity Protection, FileVault 2, .im4m Secure Boot and Vaulting
+* Support for T2 Macs
 * Recovery OS, Safe Mode and Single-user Mode booting on non-native OSes
 * Unlocks features such as Sidecar and AirPlay to Mac even on native Macs
 * Enables enhanced SATA and NVMe power management on non-Apple storage devices
@@ -83,13 +85,14 @@ Noteworthy features of BridgePatcher:
 
 ----------
 
-Note: Only clean-installs and upgrades are supported. macOS Big Sur installs already patched with other patchers, such as [Patched Sur](https://github.com/BenSova/Patched-Sur) or [bigmac](https://github.com/StarPlayrX/bigmac), cannot be used due to broken file integrity with APFS snapshots and SIP. Here's an exception: if you are already using patchers like OCLP-Mod or OCLP-Plus or the official OpenCore Legacy Patcher by Dortania, you can revert the root patches and upgrade to this patcher. 
+Note: Only clean-installs and upgrades are supported. Here's an exception: if you are already using patchers like OCLP-Mod or [OCLP-Plus](https://github.com/YBronst/OCLP-Plus) or the official [OpenCore Legacy Patcher](https://github.com/dortania/OpenCore-Legacy-Patcher) by Dortania, you can revert the root patches and upgrade to this patcher.
 
 * You can, however, reinstall macOS with this patcher and retain your original data
 
 Note 2: Currently, BridgePatcher officially supports patching to run macOS Monterey through Tahoe installs. For older OSes, OpenCore may function; however, support is currently not provided from Albert Müller.
 
-* For macOS Mojave and Catalina support, we recommend the use of [dosdude1's patchers](http://dosdude1.com)
+* For Big Sur support, use [Dortania's OpenCore Legacy Patcher](https://github.com/dortania/OpenCore-Legacy-Patcher)
+* For macOS Sierra, High Sierra, Mojave and Catalina support, we recommend the use of [dosdude1's patchers](http://dosdude1.com)
 
 ## Getting Started
 
@@ -130,21 +133,22 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
     * UI redesign
     * fixing some bugs, testing and documenting issues
 * [DrDonk](https://github.com/DrDonk)
-    * for helping me write a valid patch for AppleKeyStore
+    * for helping to write a valid patch for AppleKeyStore
     * testing and troubleshooting
 * [TheRaddish1313](https://github.com/TheRaddish1313)
     * for fixing framebuffer issues and boot args
     * testing and troubleshooting
 * [vit9696](https://github.com/vit9696)
 * [Albert Müller](https://github.com/albert-mueller/)
-    * Adding support for unsupported T2 Macs and the main author of this fork
+    * Main author of this fork
+    * Adding support for unsupported T2 Macs
     * Help troubleshooting, determining fixes, fixing security vulnerabilities and writing patches
 * [YBronst](https://github.com/YBronst/OCLP-Plus)
     * for fixing modern wireless on macOS 26 Tahoe
 * [pyquick](https://github.com/pyquick) and [hackdoc](https://github.com/hackdoc)
     * [improving support for Metallibs on macOS 26 Tahoe on unsupported non-T2 Macs](https://github.com/hackdoc/OCLP-R)
-* [stephandeutsch](https://github.com/stephandeutsch/OpenCore-Legacy-Patcher/)
-    * for fixing USB1.1 compatability with Sequoia and Tahoe
+* [stephandeutsch](https://github.com/stephandeutsch)
+    * for fixing USB1.1 compatibility with Sequoia and Tahoe
 * [vytska69](https://github.com/vytska69)
     * [developing patches for the T2 chip](https://github.com/vytska69/OpenCore-Legacy-Patcher)
     * [Developing Secure Enclave Processor (SEP) timeout patches](https://github.com/vytska69/OpenCore-Legacy-Patcher)
