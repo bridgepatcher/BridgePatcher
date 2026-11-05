@@ -9,6 +9,14 @@ This release:
 Inside the repository itself only:
 - fixes a vulnerability discovered by @albert-mueller and @claude where an attacker could intentionally set up many branches to launch a denial of service attack, without ever touching the code, by running the same action from multiple branches at the same time
 Impact: an attacker accidentally or intentionally could set up a large amount of branches to execute the same GitHub Action to spam people with issues and launch DoS attacks. This is fixed by ensuring that they only run on PRs and main.
+- fixes a weakness discovered by @albert-mueller in the Attribution guard and the Credit guard: both only compared a change against main as it was at that moment and trusted main itself. Once a removed credit or copyright notice had landed on main (because the issue was closed, the guard was bypassed or failed at the time), it became the new baseline and every later check passed.
+Impact: an attacker with push access, or a compromised account, could remove Dortania's authors or other contributors from the Credits and, after the first issue was closed, the removal would never be reported again. This is fixed by:
+  - the Attribution guard now audits main as a whole against Dortania's own README on every push, daily and on demand: everyone credited there must be credited here. A single issue is kept up to date and closed automatically once main is fixed
+  - the Attribution guard now checks every pushed commit on its own instead of only the combined diff, names the commit that made the change, and reports force-pushes that rewrite main's history as well as pushes it can't check completely
+  - the Credit guard now walks main's whole history on every push, daily and on demand, and reports anyone who was credited and removed later without an entry in `.github/retired-credits.txt`, again in a single issue that is kept up to date
+  - exclusions (relocated notices, retired credits) are still read from trusted commits as before
+- the Credit guard now accepts a credit removal automatically when the contribution itself is gone: the person left a footprint in the code (commits they authored, followed across renamed files, or code using their account or repos, e.g. a download URL) and none of it is left on main. Credits that also cover testing, documentation or research, and people without any footprint in the code, still need a retired entry. This replaces the separate issue per push that reported such removals even when the code had long been removed (#694)
+- restores the credit of Ronan LE MEILLAT (@aeltorio) for fixing modern wireless on unsupported T2 Macs running macOS 26 Tahoe, which was removed without a reason in July
 
 ## 4.0.0.2000000.4 - 4.0.0 alpha 20
 This version:
