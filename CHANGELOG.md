@@ -5,6 +5,10 @@ This release:
 - retires this patcher's own Metallibs API
 - renames the source launcher and PyInstaller spec from OpenCore-Patcher-GUI.command / OpenCore-Patcher-GUI.spec to BridgePatcher-GUI.command / BridgePatcher-GUI.spec. To run from source, use `python3 BridgePatcher-GUI.command`
 
+Inside the repository itself only:
+- fixes a vulnerability discovered by @albert-mueller and @claude where an attacker could intentionally set up many branches to launch a denial of service attack, without ever touching the code, by running the same action from multiple branches at the same time
+Impact: an attacker accidentally or intentionally could set up a large amount of branches to execute the same GitHub Action to spam people with issues and launch DoS attacks. This is fixed by ensuring that they only run on PRs and main.
+
 ## 4.0.0.2000000.4 - 4.0.0 alpha 20
 This version:
 - stops injecting the `cryptex=0` boot-arg on Macs without AVX2 (Ivy Bridge and older, e.g. MacBookPro7,1). It was added for every macOS version, although only meant for macOS 26 Tahoe, and is suspected of stopping older macOS versions from booting. Dortania's upstream boots Tahoe on these Macs without it (CryptexFixup handles them). EFIs that still carry it get it removed when rebuilt
