@@ -58,6 +58,8 @@ jobs:
           printf '%s' "$SIGNING_CERTIFICATES_P12" \
             | base64 -D > "$P12"
 
+          shasum -a 256 "$P12"
+
           # Preserve the runner's original keychain search list.
           security list-keychains -d user \
             | sed 's/^[[:space:]]*"\(.*\)"[[:space:]]*$/\1/' \
