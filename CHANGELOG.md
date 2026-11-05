@@ -1,5 +1,5 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
-## 4.0.0.2000001
+## 4.0.0.2000001 - 4.0.0 alpha 20.1
 This release:
 - switches back to this project's own PatcherSupportPkg (bridgepatcher/PatcherSupportPkg 2.5), which is bundled with the app again. Dortania's PatcherSupportPkg (dortania/PatcherSupportPkg 2.0.5) stays available as an option in Settings > App > PatcherSupportPkg, for anyone who prefers it. It isn't bundled: for now it is always downloaded online when root patching (about 850 MB, verified against its pinned SHA256), so it needs an internet connection, also for the Wi-Fi patches. Switching between the two requires reverting the root patches first and patching again. Macs that were root patched with Dortania's 2.0.5 by an earlier build are asked to revert and patch again once, unless Dortania's is selected in Settings
 - retires this patcher's own Metallibs API
