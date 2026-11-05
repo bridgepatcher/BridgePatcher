@@ -53,7 +53,7 @@ Security researchers can report vulnerabilities in the app via GitHub Security a
 > **⚠️ EXPERIMENTAL FORK** — Adds **macOS 15 Sequoia and macOS 26 Tahoe support for all unsupported Macs**. T2 Macs as of now are unsupported by the official OpenCore Legacy Patcher from Dortania. Use it at your own risk. It's still in alpha stage, so I highly recommend to backup all your data and do it only on a spare T2 Mac to experiment. This is experimental alpha software.
 ## T2 Mac Support
 
-> **💡 Recommended Download**: Always download pre-compiled releases directly from [Releases](https://github.com/bridgepatcher/BridgePatcher/releases) for guaranteed stability, bundled payloads, and proper packaging.
+> **💡 Recommended Download**: Always download pre-compiled releases directly from [Releases](https://github.com/bridgepatcher/BridgePatcher/releases) for maximum stability, bundled payloads, and proper packaging.
 
 > **🚧 Not ready for general use**
 
@@ -66,33 +66,11 @@ Security researchers can report vulnerabilities in the app via GitHub Security a
 - [ ] Post install - issues with second stage
 - [ ] GPU accelaration/WiFi - most T2 Macs will have GPU accelaration out of the box, and on certain T2 Macs, also WiFi
 
-Our goal of this project is to add support for T2 Macs so unsupported T2 Macs can boot into Tahoe. This project does run also on non-T2 Macs and we're committing to improve macOS 26 Tahoe compatability even on non-T2 Macs.
-
-### 🌟 Validated & Working Models on macOS 26 Tahoe (Standard / Safe Build)
-
-Thanks to recent testing and optimizations, the following models are fully operational on macOS 26 Tahoe using the **Standard Build Profile**:
-
-* **MacBook Pro (13-inch, 2017, Two TB3 Ports) — `MacBookPro14,1`**:
-    * **Graphics**: Full hardware acceleration via Intel Iris Plus Graphics 640 (Kaby Lake GuC firmware `igfxfw=2`, zero stuttering).
-    * **Networking**: Broadcom Wi-Fi (`14E4:43BA` / AirportBrcmNIC) working via Modern Wireless root patching and unblocked Skywalk driver.
-    * **Audio & Video**: Fully functional, smooth UI rendering and media playback.
-* **MacBook Pro (15-inch, 2017) — `MacBookPro14,3`**:
-    * **Graphics**: Dual-GPU switching (Intel HD 630 + AMD Radeon Pro 555/560 with `agdpmod=pikera` & `radpg=15` power-gating fix).
-    * **Security & Auth**: T1 security chip supported with password login, Apple Account & iCloud connectivity.
-    * **Networking & Audio**: Broadcom Wi-Fi & AppleHDA / AppleALC audio (`alcid=13`).
-* **MacBook Pro (13-inch, 2017, Four TB3 Ports) — `MacBookPro14,2`**:
-    * Intel Iris Plus 650 graphics acceleration, T1 chip support, Broadcom Wi-Fi and audio.
-
-### 🧪 Work in Progress / Experimental Testing
-* **MacBook Pro (15-inch, Mid 2015) — `MacBookPro11,4 / MacBookPro11,5` (Haswell/Broadwell)**:
-    * Haswell graphics and Wi-Fi drivers are currently in active testing/development. Do not consider fully validated yet.
- 
-* **Unsupported T2 Macs, such as 2018 Mac mini**
-    * requires some testing and work to get reliably to the desktop
+Our goal of this project is to add support for T2 Macs so unsupported T2 Macs can boot into Tahoe. This project does run also on non-T2 Macs and we're committing to improve macOS 26 Tahoe compatability even on non-T2 
 
 Noteworthy features of BridgePatcher:
 
-* Support for macOS Monterey, Ventura, Sonoma, Sequoia and eventually add support for Tahoe.
+* Support for macOS Monterey, Ventura, Sonoma, Sequoia and Tahoe.
 * Native Over the Air (OTA) System Updates
 * Supports Penryn and newer Macs
 * Full support for WPA Wi-Fi and Personal Hotspot on BCM943224 and newer wireless chipsets
