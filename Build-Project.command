@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!./.bridgepatcher-venv/bin/python
 """
 Build-Project.command: Generates BridgePatcher.app and BridgePatcher.pkg
 (plus OpenCore-Patcher-T2.pkg with --legacy-installer)
