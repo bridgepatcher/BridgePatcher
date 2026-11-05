@@ -7,8 +7,8 @@
 ---
 
 > [!CAUTION]
-> **BridgePatcher is an independent community fork and is not
-> affiliated with, maintained by, or endorsed by Dortania. Authentic releases are
+> **BridgePatcher is an independent community project based on Dortania's OpenCore Legacy
+> Patcher and is not affiliated with, maintained by, or endorsed by Dortania. Authentic releases are
 > exclusively published on GitHub:
 > [github.com/bridgepatcher/BridgePatcher/releases](https://github.com/bridgepatcher/BridgePatcher/releases).**
 > Websites that present BridgePatcher as an official Dortania product, or offer it for
@@ -16,7 +16,8 @@
 > formerly called OpenCore Legacy Patcher T2 (OCLP-T2): repositories and websites that
 > still use that name are not ours either.
 > **WARNUNG!**
-> **BridgePatcher ist ein unabhängiger Community-Fork und steht in keiner
+> **BridgePatcher ist ein unabhängiges Community-Projekt auf Basis von Dortanias OpenCore Legacy
+> Patcher und steht in keiner
 > Verbindung zu Dortania, wird nicht von Dortania betreut oder unterstützt. Echte
 > Releases gibt es ausschließlich auf GitHub.** Seiten, die BridgePatcher als offizielles
 > Dortania-Produkt ausgeben oder woanders zum Herunterladen anbieten, gehören nicht zu
@@ -24,13 +25,13 @@
 > früher OpenCore Legacy Patcher T2 (OCLP-T2): Repositorys und Seiten, die noch diesen
 > Namen verwenden, gehören ebenfalls nicht zu uns.
 
-> **Unofficial fork.** Please don't report BridgePatcher issues to Dortania.
+> **Not an official Dortania project.** Please don't report BridgePatcher issues to Dortania.
 >
 > This product includes software developed by Dortania and OpenCore Legacy
 > Patcher contributors. See [LICENSE.txt](LICENSE.txt).
 
 ### 👑 Authorship & Contributions
-This repository is the dedicated development fork led by **albert-mueller (Albert Müller)**. While building upon work by Dortania, Acidanthera, this fork independently engineered the critical solutions that make macOS 26 Tahoe fully usable on legacy and T1/T2 hardware:
+BridgePatcher is led by **albert-mueller (Albert Müller)**. While building upon work by Dortania and Acidanthera, BridgePatcher independently engineered the critical solutions that make macOS 26 Tahoe fully usable on legacy and T1/T2 hardware:
 
 1. **T1 Security & Native Login**: Engineered the Native Software Keystore login flow on macOS Tahoe for `MacBookPro14,1`, `MacBookPro14,2`, and `MacBookPro14,3` (retaining Apple ID/iCloud, resolving Keychain panics).
 2. **Broadcom Wi-Fi Restoration**: Unblocked the `IOSkywalkFamily` kernel stack in the EFI builder and root patcher on macOS 15 & 26 Tahoe, restoring full Wi-Fi functionality on Broadcom chipsets (`14E4:43BA`).
@@ -46,7 +47,7 @@ Security researchers can report vulnerabilities in the app via GitHub Security a
 
 > **⚠️ On T2 Macs only, this patcher disables SIP completely to be able to boot macOS properly** What is SIP? SIP, in short for System Integrity Protection, protects against attackers from tampering with core system files. However, on T2 Macs, SIP also causes thermal throttling and other issues when booting via OpenCorePkg, so it needs to be disabled.
 
-> **⚠️ EXPERIMENTAL FORK** — Adds **macOS 15 Sequoia and macOS 26 Tahoe support for all unsupported Macs**. T2 Macs as of now are unsupported by the official OpenCore Legacy Patcher from Dortania. Use it at your own risk. It's still in alpha stage, so I highly recommend to backup all your data. This is experimental alpha software.
+> **⚠️ EXPERIMENTAL** — Adds **macOS 15 Sequoia and macOS 26 Tahoe support for all unsupported Macs**. T2 Macs as of now are unsupported by the official OpenCore Legacy Patcher from Dortania. Use it at your own risk. It's still in alpha stage, so I highly recommend to backup all your data. This is experimental alpha software.
 
 ## T2 Mac Support
 
@@ -98,7 +99,7 @@ To start using the project, please see our in-depth guide:
 
 ## Support
 
-This project is offered on an AS-IS basis, and we do not guarantee support for any issues that may arise. Community support for this independent fork is provided through [GitHub Discussions](https://github.com/bridgepatcher/BridgePatcher/discussions).
+This project is offered on an AS-IS basis, and we do not guarantee support for any issues that may arise. Community support for this independent project is provided through [GitHub Discussions](https://github.com/bridgepatcher/BridgePatcher/discussions).
 
 ## Running from source
 
@@ -136,7 +137,7 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
     * testing and troubleshooting
 * [vit9696](https://github.com/vit9696)
 * [Albert Müller](https://github.com/albert-mueller/)
-    * Main author of this fork
+    * Main author of BridgePatcher
     * Adding support for unsupported T2 Macs
     * Help troubleshooting, determining fixes, fixing security vulnerabilities and writing patches
 * [YBronst](https://github.com/YBronst/OCLP-Plus)
