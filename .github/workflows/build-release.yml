@@ -2,9 +2,10 @@ name: CI - Build BridgePatcher
 
 on:
   push:
-  workflow_dispatch:
+  workflow_dispatch: {}
   release:
     types: [published]
+
 
 permissions:
   contents: write
@@ -32,6 +33,9 @@ jobs:
           python-version: '3.13'
       
       - name: Import BridgePatcher signing identity
+        # Fail fast instead of hanging until the 6-hour job limit if any
+        # `security` call ever blocks on an interactive authorization prompt.
+        timeout-minutes: 5
         env:
           SIGNING_CERTIFICATES_P12: ${{ secrets.BRIDGEPATCHER_SIGNING_P12 }}
           SIGNING_CERTIFICATES_PASSWORD: ${{ secrets.BRIDGEPATCHER_SIGNING_P12_PASSWORD }}
@@ -83,11 +87,11 @@ jobs:
             -k "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN" > /dev/null
 
-          # Trust our private CA for code signing on this runner.
-          security add-trusted-cert \
+          sudo security add-trusted-cert \
+            -d \
             -r trustRoot \
             -p codeSign \
-            -k "$KEYCHAIN" \
+            -k /Library/Keychains/System.keychain \
             "$ROOT_CA"
 
           # Add the temporary keychain to the user's search list.
@@ -143,7 +147,7 @@ jobs:
 
       - name: Prepare Assets (--prepare-assets)
         run: >
-          source .bridgepatcher-venv/bin/activate && Build-Project.command
+          source .bridgepatcher-venv/bin/activate && ./Build-Project.command
           --run-as-individual-steps --reset-dmg-cache
           --prepare-assets
           ${{ env.IGNORE_RELEASE_ARGS }}
@@ -152,7 +156,7 @@ jobs:
       - name: Prepare Application (--prepare-application) (Release)
         if: github.event_name == 'release'
         run: >
-            source .bridgepatcher-venv/bin/activate && Build-Project.command
+            source .bridgepatcher-venv/bin/activate && ./Build-Project.command
             --git-branch "${{ env.branch }}" --git-commit-url "${{ env.commiturl }}" --git-commit-date "${{ env.commitdate }}"
             --reset-pyinstaller-cache
             --run-as-individual-steps
@@ -162,7 +166,7 @@ jobs:
       - name: Prepare Application (--prepare-application) (Artifacts)
         if: github.event_name != 'release'
         run: >
-          source .bridgepatcher-venv/bin/activate && Build-Project.command
+          source .bridgepatcher-venv/bin/activate && ./Build-Project.command
           --git-branch "${{ env.branch }}" --git-commit-url "${{ env.commiturl }}" --git-commit-date "${{ env.commitdate }}"
           --reset-pyinstaller-cache
           --run-as-individual-steps
@@ -173,7 +177,7 @@ jobs:
 
       - name: Prepare Package (--prepare-package)
         run: >
-          source .bridgepatcher-venv/bin/activate && Build-Project.command
+          source .bridgepatcher-venv/bin/activate && ./Build-Project.command
           --run-as-individual-steps
           --prepare-package
           ${{ env.IGNORE_RELEASE_ARGS }}
@@ -199,66 +203,17 @@ jobs:
           name: BridgePatcher-Uninstaller.pkg
           path: ./dist/BridgePatcher-Uninstaller.pkg
 
-      - name: Upload AutoPkg Package to Release
+      - name: Upload packages and certificates to Release
         if: github.event_name == 'release'
-        uses: svenstaro/upload-release-action@e74ff71f7d8a4c4745b560a485cc5fdb9b5b999d
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./dist/AutoPkg-Assets.pkg
-          tag: ${{ github.ref }}
-          file_glob: true
-
-      - name: Upload Installation Package to Release
-        if: github.event_name == 'release'
-        uses: svenstaro/upload-release-action@e74ff71f7d8a4c4745b560a485cc5fdb9b5b999d
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./dist/BridgePatcher.pkg
-          tag: ${{ github.ref }}
-          file_glob: true
-
-      - name: Upload Uninstaller Package to Release
-        if: github.event_name == 'release'
-        uses: svenstaro/upload-release-action@e74ff71f7d8a4c4745b560a485cc5fdb9b5b999d
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./dist/BridgePatcher-Uninstaller.pkg
-          tag: ${{ github.ref }}
-          file_glob: true
-
-      - name: Upload certificates to Release
-        if: github.event_name == 'release'
-        uses: svenstaro/upload-release-action@e74ff71f7d8a4c4745b560a485cc5fdb9b5b999d
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./dist/certificates.txt
-          tag: ${{ github.ref }}
-          file_glob: true
-
-      
-      - name: Clean up signing material
-        if: always()
-        shell: bash
+        # Uses the preinstalled GitHub CLI instead of a third-party action,
+        # which avoids the Node `url.parse()` deprecation warning (DEP0169).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          set +e
-
-          rm -f "$RUNNER_TEMP/bridgepatcher-signing.p12"
-
-          # Restore the original keychain search list.
-          if [ -s "$RUNNER_TEMP/original-keychains.txt" ]; then
-            set --
-
-            while IFS= read -r existing_keychain; do
-              [ -n "$existing_keychain" ] && set -- "$@" "$existing_keychain"
-            done < "$RUNNER_TEMP/original-keychains.txt"
-
-            security list-keychains -d user -s "$@"
-          fi
-
-          # Lock and delete the temporary signing keychain.
-          KEYCHAIN="$RUNNER_TEMP/bridgepatcher-signing.keychain-db"
-
-          if [ -f "$KEYCHAIN" ]; then
-            security lock-keychain "$KEYCHAIN"
-            security delete-keychain "$KEYCHAIN"
-          fi
+          gh release upload "$RELEASE_TAG" \
+            ./dist/AutoPkg-Assets.pkg \
+            ./dist/BridgePatcher.pkg \
+            ./dist/BridgePatcher-Uninstaller.pkg \
+            ./dist/certificates.txt \
+            --repo "$GITHUB_REPOSITORY"

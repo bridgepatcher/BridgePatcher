@@ -348,6 +348,20 @@ class SettingsFrame(wx.Frame):
                     ],
                     "override_function": self._update_global_settings,
                 },
+                "PatcherSupportPkg": {
+                    "type": "choice",
+                    "choices": [source["label"] for source in self.constants.patcher_support_pkg_sources.values()],
+                    "value": self.constants.patcher_support_pkg_label,
+                    "variable": "PatcherSupportPkgSource",
+                    "width": 200,
+                    "override_function": self.on_patcher_support_pkg_source,
+                    "description": [
+                        "Root patch files used for root patching.",
+                        "Dortania's is not bundled and always",
+                        "downloaded online (needs internet).",
+                        "Switching requires reverting root patches.",
+                    ],
+                },
                 "wrap_around 1": {
                     "type": "wrap_around",
                 },
@@ -520,7 +534,7 @@ class SettingsFrame(wx.Frame):
 
         lines = f"""Application Information:
     Application Version: {self.constants.patcher_version}
-    PatcherSupportPkg Version: {self.constants.patcher_support_pkg_version}
+    PatcherSupportPkg Version: {self.constants.patcher_support_pkg_version} ({self.constants.patcher_support_pkg_label})
     Application Path: {self.constants.launcher_binary}
     Application Mount: {self.constants.payload_path}
 
@@ -865,6 +879,57 @@ Hardware Information:
                 "Auto Updates Required",
                 wx.OK | wx.ICON_INFORMATION
             )
+
+    def on_patcher_support_pkg_source(self, event: wx.Event) -> None:
+        """
+        Switch the PatcherSupportPkg root patching uses: BridgePatcher's own (bundled)
+        or Dortania's (always downloaded online when root patching).
+        """
+        choice_box = event.GetEventObject()
+        label = choice_box.GetStringSelection()
+        new_source = next((key for key, source in self.constants.patcher_support_pkg_sources.items() if source["label"] == label), None)
+        if new_source is None:
+            logging.error(f"Unknown PatcherSupportPkg source selected: {label!r}")
+            return
+        if new_source == self.constants.patcher_support_pkg_source:
+            return
+
+        previous_label = self.constants.patcher_support_pkg_label
+
+        # Persist first, like the update channel: a dropped write must not leave the
+        # GUI showing a source the next launch silently replaces with the default.
+        if global_settings.GlobalEnviromentSettings().write_property("PatcherSupportPkgSource", new_source) is not True:
+            logging.error(f"Failed to store PatcherSupportPkg source {new_source!r}")
+            selection = choice_box.FindString(previous_label)
+            if selection != wx.NOT_FOUND:
+                choice_box.SetSelection(selection)
+            wx.MessageDialog(
+                self.frame_modal,
+                (
+                    f"The PatcherSupportPkg setting could not be saved, so it stays on \"{previous_label}\".\n\n"
+                    "This usually means the settings file cannot be written by your user, "
+                    "normally because a previous run as root left it behind. "
+                    "Run this in Terminal and restart the app:\n\n"
+                    f"sudo rm '{global_settings.SETTINGS_PLIST_PATH}'"
+                ),
+                "PatcherSupportPkg Not Saved", wx.OK | wx.ICON_WARNING
+            ).ShowModal()
+            return
+
+        self.constants.patcher_support_pkg_source = new_source
+        logging.info(f"PatcherSupportPkg source: {new_source} ({self.constants.patcher_support_pkg_version})")
+
+        message = (
+            f"Root patching now uses PatcherSupportPkg {self.constants.patcher_support_pkg_version} "
+            f"({self.constants.patcher_support_pkg_label}).\n\n"
+        )
+        if not self.constants.patcher_support_pkg_bundled:
+            message += (
+                "This PatcherSupportPkg is not bundled with BridgePatcher: it is always downloaded online "
+                "when root patching (about 850 MB), so an internet connection is required, also for Wi-Fi patches.\n\n"
+            )
+        message += "If root patches are already installed, revert them first and then patch again."
+        wx.MessageDialog(self.frame_modal, message, "PatcherSupportPkg Changed", wx.OK | wx.ICON_INFORMATION).ShowModal()
 
     def on_update_channel(self, event: wx.Event) -> None:
         """

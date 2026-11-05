@@ -248,6 +248,8 @@ __pycache__/
 /payloads.dmg
 /Universal-Binaries.dmg
 /Universal-Binaries.dmg.partial
+/Universal-Binaries-*.dmg
+/Universal-Binaries-*.dmg.partial
 /payloads/BridgePatcher-*.plist
 /payloads/KDK.dmg
 *.log

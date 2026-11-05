@@ -41,13 +41,39 @@ class Constants:
         # Patcher Versioning
         self.patcher_version:                 str = "4.0.0.2000001"
         self.patcher_version_label=self.patcher_version
-        self.patcher_support_pkg_version:     str = "2.0.5"
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
         self.bundle_identifier:               str = "com.bridgepatcher.bridgepatcher"
 
         # URLs
-        # Dortania's PatcherSupportPkg until someone can maintain bridgepatcher/PatcherSupportPkg
-        self.url_patcher_support_pkg:         str = "https://github.com/dortania/PatcherSupportPkg/releases/download/"
+        # PatcherSupportPkg (Universal-Binaries.dmg) sources, picked in Settings > App.
+        # The active version and download URL are 'patcher_support_pkg_version' and
+        # 'url_patcher_support_pkg' below, derived from 'patcher_support_pkg_source'.
+        #
+        # "bridgepatcher" is the default and the only source bundled with the app
+        # (ci_tooling/build_modules/disk_images.py packages it). Every other source is
+        # never bundled: it is always downloaded online when root patching
+        # (sys_patch/utilities/dmg_mount.py), so it needs an internet connection.
+        # Keep each version's SHA256 pinned in datasets/patcher_support_pkg_data.py.
+        #
+        # The root patch manifest records the version, and a different version than
+        # the one installed requires reverting first - so two sources must never share
+        # a version number.
+        self.patcher_support_pkg_sources: dict = {
+            "bridgepatcher": {
+                "label":   "BridgePatcher (bundled)",
+                "url":     "https://github.com/bridgepatcher/PatcherSupportPkg/releases/download/",
+                "version": "2.5",
+                "bundled": True,
+            },
+            "dortania": {
+                "label":   "Dortania (online only)",
+                "url":     "https://github.com/dortania/PatcherSupportPkg/releases/download/",
+                # When bumping, use the version upstream OCLP pins in its constants.py
+                "version": "2.0.5",
+                "bundled": False,
+            },
+        }
+        self.patcher_support_pkg_source: str = "bridgepatcher"  # Key of patcher_support_pkg_sources, selected in the GUI
         self.guide_link:                      str = "https://bridgepatcher.github.io/"
         self.repo_link:                       str = "https://github.com/bridgepatcher/BridgePatcher/"
         self.github_issues_link:              str = "https://github.com/bridgepatcher/BridgePatcher/issues"
@@ -352,6 +378,42 @@ class Constants:
             logging.error(f"We could not confirm whether you're using a special version: {e}")
             logging.info("You won't receive any updates to prevent an attacker from abusing the update API for malware delivery or denial of service attacks.")
             return True
+
+    # PatcherSupportPkg
+    @property
+    def _active_patcher_support_pkg(self) -> dict:
+        """
+        Selected PatcherSupportPkg source, or the bundled default if the selection is unknown
+        """
+        return self.patcher_support_pkg_sources.get(self.patcher_support_pkg_source) \
+            or self.patcher_support_pkg_sources["bridgepatcher"]
+
+    @property
+    def patcher_support_pkg_version(self) -> str:
+        """
+        PatcherSupportPkg release used for root patching (of the selected source)
+        """
+        return self._active_patcher_support_pkg["version"]
+
+    @property
+    def url_patcher_support_pkg(self) -> str:
+        """
+        Release download URL of the selected PatcherSupportPkg source
+        (https://github.com/<owner>/PatcherSupportPkg/releases/download/)
+        """
+        return self._active_patcher_support_pkg["url"]
+
+    @property
+    def patcher_support_pkg_label(self) -> str:
+        return self._active_patcher_support_pkg["label"]
+
+    @property
+    def patcher_support_pkg_bundled(self) -> bool:
+        """
+        Whether the selected PatcherSupportPkg ships with the app (Universal-Binaries.dmg
+        next to the sources/inside the bundle). False means it is downloaded online.
+        """
+        return self._active_patcher_support_pkg["bundled"] is True
 
     # Payload Location
 

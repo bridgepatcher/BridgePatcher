@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!./.bridgepatcher-venv/bin/python
 """
 Build-Project.command: Generates BridgePatcher.app and BridgePatcher.pkg
 (plus OpenCore-Patcher-T2.pkg with --legacy-installer)
@@ -434,9 +434,6 @@ def main() -> None:
     parser.add_argument("--prepare-assets", action="store_true")
 
     args = parser.parse_args()
-
-    if args.target_arch:
-        rich.print(f"[cyan]Target architecture: {args.target_arch}[/cyan]")
 
     if args.legacy_installer:
         TOTAL_STEPS += 1

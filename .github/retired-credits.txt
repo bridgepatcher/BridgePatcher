@@ -5,3 +5,6 @@
 #
 # Read from the base branch (pull requests) or from the commit before a push, and in forks
 # also from the original repository's default branch. Add the entry first, then remove the credit.
+coolkid418  # dark mode app icon, replaced by new artwork in 9708cd1b (2026-10-30)
+peltorio  # macos-15-intel runner change (e18af52f, 2026-05-16), overwritten 2026-05-17; build-app-wxpython.yml deleted 2026-06-11
+p8bpg9zrw7-collab  # Albert Müller's former account; the credit moved to @albert-mueller in 3a198bb1 (2026-04-20)

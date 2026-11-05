@@ -169,6 +169,19 @@ class GenerateDefaults:
         stored_auto_update = global_settings.GlobalEnviromentSettings().read_property("AllowAutoUpdates")
         self.constants.auto_update = bool(stored_auto_update) if stored_auto_update is not None else True
 
+        # PatcherSupportPkg source (Settings > App) - only known keys are accepted
+        # (see constants.patcher_support_pkg_sources), anything else keeps the bundled default.
+        stored_psp_source = global_settings.GlobalEnviromentSettings().read_property("PatcherSupportPkgSource")
+        if stored_psp_source not in [None, "", "None"]:
+            if isinstance(stored_psp_source, str) and stored_psp_source in self.constants.patcher_support_pkg_sources:
+                self.constants.patcher_support_pkg_source = stored_psp_source
+            else:
+                logging.error(f"Ignoring invalid PatcherSupportPkgSource value in settings: {stored_psp_source!r}")
+        logging.info(
+            f"PatcherSupportPkg: {self.constants.patcher_support_pkg_source} {self.constants.patcher_support_pkg_version} "
+            f"({'bundled' if self.constants.patcher_support_pkg_bundled else 'downloaded online'})"
+        )
+
         # Update channel - only known keys are accepted (see constants.update_channels)
         # The build default comes from "Build-Project.command --update-channel=<key>",
         # which embeds it as "UpdateChannel" in the app's Info.plist.

@@ -1,13 +1,24 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
-## 4.0.0.2000001
+## 4.0.0.2000001 - 4.0.0 alpha 20.1
 This release:
-- temporarily changes the PatcherSupportPkg to Dortania's own
+- switches back to this project's own PatcherSupportPkg (bridgepatcher/PatcherSupportPkg 2.5), which is bundled with the app again. Dortania's PatcherSupportPkg (dortania/PatcherSupportPkg 2.0.5) stays available as an option in Settings > App > PatcherSupportPkg, for anyone who prefers it. It isn't bundled: for now it is always downloaded online when root patching (about 850 MB, verified against its pinned SHA256), so it needs an internet connection, also for the Wi-Fi patches. Switching between the two requires reverting the root patches first and patching again. Macs that were root patched with Dortania's 2.0.5 by an earlier build are asked to revert and patch again once, unless Dortania's is selected in Settings
 - retires this patcher's own Metallibs API
+- fixes the EFI's volume icon not showing in Apple's boot picker (Option key at startup, or `PickerMode` Apple): BridgePatcher's new drive icons only contained modern PNG images, while the firmware boot picker reads the legacy 128x128 `it32`/`t8mk` image. The internal, external, SSD and SD card icons now include the legacy 16x16, 32x32 and 128x128 images too (`ci_tooling/build_modules/volume_icon_legacy.py` adds them again after artwork changes). Thx @gandolf243
+- stops demanding building the patcher locally, now it can be done using GitHub Actions for the main repository (not tested if this works in forks)
 - renames the source launcher and PyInstaller spec from OpenCore-Patcher-GUI.command / OpenCore-Patcher-GUI.spec to BridgePatcher-GUI.command / BridgePatcher-GUI.spec. To run from source, use `python3 BridgePatcher-GUI.command`
 
 Inside the repository itself only:
 - fixes a vulnerability discovered by @albert-mueller and @claude where an attacker could intentionally set up many branches to launch a denial of service attack, without ever touching the code, by running the same action from multiple branches at the same time
 Impact: an attacker accidentally or intentionally could set up a large amount of branches to execute the same GitHub Action to spam people with issues and launch DoS attacks. This is fixed by ensuring that they only run on PRs and main.
+- fixes a vulnerability discovered by @albert-mueller in the Attribution guard and the Credit guard GitHub Actions where an attacker could remove copyright notices or credits without it ever being reported again: both guards only compared a change against main as it was at that moment and trusted main itself. Once a removed credit or copyright notice had landed on main (because the issue was closed, the guard was bypassed or failed at the time), it became the new baseline and every later check passed.
+Impact: an attacker with push access to main, or a compromised maintainer account, could remove Dortania's authors or other contributors from the Credits, or strip licence attribution, close the single issue the guard opened, and the tampering would never be reported again. This undermines the licence compliance checks the project relies on. This is fixed by:
+  - the Attribution guard now audits main as a whole against Dortania's own README on every push, daily and on demand: everyone credited there must be credited here. A single issue is kept up to date and closed automatically once main is fixed
+  - the Attribution guard now checks every pushed commit on its own instead of only the combined diff, names the commit that made the change, and reports force-pushes that rewrite main's history as well as pushes it can't check completely
+  - the Credit guard now walks main's whole history on every push, daily and on demand, and reports anyone who was credited and removed later without an entry in `.github/retired-credits.txt`, again in a single issue that is kept up to date
+  - exclusions (relocated notices, retired credits) are still read from trusted commits as before
+Severity: medium
+- the Credit guard now accepts a credit removal automatically when the contribution itself is gone: the person left a footprint in the code (commits they authored, followed across renamed files, or code using their account or repos, e.g. a download URL) and none of it is left on main. Credits that also cover testing, documentation or research, and people without any footprint in the code, still need a retired entry. This replaces the separate issue per push that reported such removals even when the code had long been removed (#694)
+- restores the credit of Ronan LE MEILLAT (@aeltorio) for fixing modern wireless on unsupported T2 Macs running macOS 26 Tahoe, which was removed without a reason in July
 
 ## 4.0.0.2000000.4 - 4.0.0 alpha 20
 This version:
