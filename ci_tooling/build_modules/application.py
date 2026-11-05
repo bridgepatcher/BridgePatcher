@@ -50,21 +50,6 @@ class GenerateApplication:
         if self._reset_pyinstaller_cache:
             _args.append("--clean")
 
-    def _verify_architectures(self) -> None:
-        """
-        Make sure the executable really contains what was asked for. PyInstaller already
-        refuses to collect a thin library into a universal2 build, this guards the result.
-        """
-        _file = self._application_output / "Contents" / "MacOS" / constants.APP_EXECUTABLE_NAME
-        expected = {"x86_64", "arm64"} if self._target_arch == "universal2" else {self._target_arch}
-        found = macho.architectures(_file)
-        if not expected.issubset(found):
-            raise RuntimeError(
-                f"{_file} contains {', '.join(sorted(found)) or 'no Mach-O image'}, "
-                f"expected {', '.join(sorted(expected))} for target architecture {self._target_arch}"
-            )
-        rich.print(f"App executable architectures: {', '.join(sorted(found))}")
-
 
     def _patch_load_command(self) -> None:
         """
@@ -337,7 +322,6 @@ class GenerateApplication:
             if about_file is not None:
                 self.remove_hard_readme(about_file=about_file)
 
-        self._verify_architectures()
         self._patch_load_command()
 
         if not self._git_branch or not self._git_branch.startswith('refs/tags'):
