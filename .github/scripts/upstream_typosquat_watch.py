@@ -123,9 +123,12 @@ def evaluate_repo(full, owner_sq, root, up_owner):
     reasons = []
     if not repo.get("fork") and contains_name(repo.get("name", ""), FORMER_NAMES):
         reasons.append("uses BridgePatcher's former name (" + ", ".join(FORMER_NAMES) + ")")
-    assets = set()
+    assets, asset_urls = set(), []
     for rel in get(f"/repos/{full}/releases?per_page=10") or []:
-        assets.update(a["name"] for a in rel.get("assets", []) if BIN_EXT.search(a["name"]))
+        for a in rel.get("assets", []):
+            if BIN_EXT.search(a["name"]):
+                assets.add(a["name"])
+                asset_urls.append(a.get("browser_download_url"))
     if assets:
         shown = ", ".join(sorted(assets)[:3]) + (" …" if len(assets) > 3 else "")
         reasons.append(f"publishes its own downloads ({shown})")
@@ -135,6 +138,8 @@ def evaluate_repo(full, owner_sq, root, up_owner):
     suspicious, signals = assess(repo, owner_sq, up_owner)
     if not reasons and not suspicious:
         return None  # a harmless copy without its own downloads
+    if public_offline(full, asset_urls):
+        return None  # hidden from the public: listed under "no longer reachable" until it's pruned
     return {"reasons": cell("; ".join(reasons + signals), 160),
             "owner": gh_account(repo["owner"]["login"]),
             "status": repo_status(repo)}
@@ -172,6 +177,29 @@ def repo_status(repo):
     return "🟢 active" + (f", last push {pushed}" if pushed else "")
 
 
+_public = {}
+
+
+def public_offline(full, asset_urls=()):
+    """Why the repo is offline for visitors who aren't signed in, or "" if it isn't (or that
+    couldn't be checked). The workflow's token still gets repositories that GitHub has hidden
+    from the public (flagged or suspended owner, blocked repo) from the API, releases included,
+    so the API alone would keep listing them as active."""
+    if full.lower() not in _public:
+        status, _, _ = ts.fetch(f"https://github.com/{full}", limit=0)
+        if status == 404:
+            reason = "🔴 offline (GitHub shows visitors \"not found\": owner flagged or suspended, or repo hidden)"
+        elif status == 451:
+            reason = "🔴 taken down (blocked by GitHub, e.g. DMCA)"
+        elif status == 200 and asset_urls and all(
+                ts.fetch(u, limit=0)[0] in (404, 410, 451) for u in [u for u in asset_urls if u][:3]):
+            reason = "🔴 offline (its downloads can't be downloaded any more)"
+        else:
+            reason = ""  # reachable, or no clear answer (rate limit, network error): leave as is
+        _public[full.lower()] = reason
+    return _public[full.lower()]
+
+
 def gone_repo_status(full):
     status, data, _ = request("GET", f"/repos/{full}")
     if status == 451:
@@ -179,7 +207,7 @@ def gone_repo_status(full):
     if status == 404:
         return "🔴 deleted (or made private)"
     if status < 300 and data:
-        return repo_status(data) + " · no longer matches (renamed, or downloads removed)"
+        return public_offline(full) or (repo_status(data) + " · no longer matches (renamed, or downloads removed)")
     return "status unknown"
 
 
