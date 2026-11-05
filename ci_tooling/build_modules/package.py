@@ -73,7 +73,7 @@ class GeneratePackage:
         Same app, same files; it only exists because builds from before the rename
         look for that asset name when checking for updates (see support/updates.py
         of those builds), and additionally leaves a compatibility link under the old
-        bundle name so their built-in updater recognises the finished install.
+        bundle name so their built-in updater recognizes the finished installation.
         """
         self._legacy_installer = legacy_installer
 

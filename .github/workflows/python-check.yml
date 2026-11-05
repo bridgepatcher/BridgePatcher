@@ -32,6 +32,7 @@ on:
       - "**.command"
       - ".github/workflows/python-check.yml"
       - ".github/scripts/check_python.py"
+      - "!.bridgepatcher-venv/**"
   schedule:
     - cron: "0 6 * * 1"   # Mondays 06:00 UTC
   workflow_dispatch:

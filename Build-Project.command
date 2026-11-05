@@ -419,11 +419,6 @@ def main() -> None:
     parser.add_argument("--ignore-release", action="store_true", help="Build even when the version does not line up with the latest release")
     parser.add_argument("--no-install-openssl", action="store_true", help="Fail instead of installing OpenSSL 3 via MacPorts when it is missing")
     parser.add_argument("--use-python-openssl", action="store_true", help="Use the OpenSSL 3 bundled with this Python (python.org builds) instead of MacPorts' openssl3")
-    parser.add_argument(
-        "--target-arch", type=str, default=None, choices=application.TARGET_ARCHES,
-        help=f"Architecture(s) of the app (default: {application.DEFAULT_TARGET_ARCH}). universal2 needs a universal2 Python "
-             "and universal2 builds of every compiled dependency, see ci_tooling/build_modules/universal2.py",
-    )
     parser.add_argument("--update-channel", type=str, default=None, choices=["official", "medelcartelinc"], help="Set the default update channel for this build")
     parser.add_argument(
         "--legacy-installer", action="store_true",
@@ -502,7 +497,6 @@ def main() -> None:
                 git_commit_url=args.git_commit_url,
                 git_commit_date=args.git_commit_date,
                 update_channel=args.update_channel,
-                target_arch=args.target_arch,
             ).generate()
 
             check_file_exists(Path("dist") / constants.APP_BUNDLE_NAME)
