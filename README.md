@@ -135,7 +135,7 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
     * Main co-author of the original OpenCore Legacy Patcher by Dortania
 * [Khronokernel](https://github.com/Khronokernel)
     * Main co-author of the original OpenCore Legacy Patcher by Dortania
-    * Great amounts of help with debugging, and code suggestions for OpenCore Legacy Patcher
+    * Great amounts of help with debugging, and code suggestions for Dortania's OpenCore Legacy Patcher
 * [Ausdauersportler](https://github.com/Ausdauersportler)
     * iMacs Metal GPUs Upgrade Patch set and documentation
 * [nxvid](https://github.com/nxvid/OpenCore-Legacy-Patcher-T2/)
@@ -212,7 +212,7 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
 * [arter97](https://github.com/arter97/)
   * [SimpleMSR](https://github.com/arter97/SimpleMSR/) to disable firmware throttling in Nehalem+ MacBooks without batteries
 * [Mr.Macintosh](https://mrmacintosh.com)
-  * Endless hours helping architect and troubleshoot many portions of OpenCore Legacy Patcher
+  * Endless hours helping architect and troubleshoot many portions of Dortania's OpenCore Legacy Patcher
 * [flagers](https://github.com/flagersgit)
   * Aid with Nvidia Web Driver research and development
   * [non-Metal patch set](https://github.com/moraea/non-metal-frameworks) for nVidia Tesla/Fermi/Maxwell/Pascal, AMD TeraScale 1/2, and Intel Core 1st/2nd Generation GPUs
@@ -221,7 +221,7 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
 * [joevt](https://github.com/joevt)
   * [FixPCIeLinkrate](https://github.com/joevt/joevtApps)
 * [Jazzzny](https://github.com/Jazzzny)
-  * Research and various contributions to OpenCore Legacy Patcher
+  * Research and various contributions to Dortania's OpenCore Legacy Patcher
   * UEFI Legacy XHCI research and development
   * NVIDIA OpenCL research and development
   * `MacBook5,2` research and development
@@ -240,8 +240,8 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
   * universal2 build research
   * Various documentation contributions
 * [crystall1nedev](https://github.com/crystall1nedev)
-  * Various OpenCore Legacy Patcher and PatcherSupportPkg contributions
-* Amazing users who've graciously donated hardware to the OpenCore Legacy Patcher developers:
+  * Various contributions to Dortania's OpenCore Legacy Patcher and PatcherSupportPkg
+* Amazing users who've graciously donated hardware to the developers of Dortania's OpenCore Legacy Patcher:
   * [JohnD](https://forums.macrumors.com/members/johnd.53633/) - 2013 Mac Pro
   * [SpiGAndromeda](https://github.com/SpiGAndromeda) - AMD Vega 64
   * [turbomacs](https://github.com/turbomacs) - 2014 5k iMac
