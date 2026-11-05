@@ -114,6 +114,9 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
 
 * [Acidanthera](https://github.com/Acidanthera)
     * OpenCorePkg, as well as many of the core kexts and tools
+* [Albert Müller](https://github.com/albert-mueller/)
+    * Main Author
+    * Adding support for unsupported T2 Macs
 * [DhinakG](https://github.com/DhinakG)
     * Main co-author of the original Patcher
 * [Khronokernel](https://github.com/Khronokernel)
@@ -140,10 +143,7 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
     * for fixing framebuffer issues and boot args
     * testing and troubleshooting
 * [vit9696](https://github.com/vit9696)
-* [Albert Müller](https://github.com/albert-mueller/)
-    * Main Author
-    * Adding support for unsupported T2 Macs
-    * Help troubleshooting, determining fixes, fixing security vulnerabilities and writing patches
+    * TODO: label what he did
 * [YBronst](https://github.com/YBronst/OCLP-Plus)
     * for fixing modern wireless on macOS 26 Tahoe
 * [pyquick](https://github.com/pyquick) and [hackdoc](https://github.com/hackdoc)
@@ -166,7 +166,7 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
     * [fix Unsupported Mantissa speed kernel panics on T2 MacBooks](https://github.com/GUTY345/OpenCore-Legacy-patcher-t2chip-fixBugs/tree/main)
 * [EduCovas](https://github.com/covasedu)
   * macOS Tahoe patch set
-  * [non-Metal patch set](https://github.com/flagergit/non-metal-frameworks) for nVidia Tesla/Fermi/Maxwell/Pascal, AMD TeraScale 1/2, and Intel Core 1st/2nd Generation GPUs
+  * [non-Metal patch set](https://github.com/flagersgit/non-metal-frameworks) for nVidia Tesla/Fermi/Maxwell/Pascal, AMD TeraScale 1/2, and Intel Core 1st/2nd Generation GPUs
   * [3802 Metal patch set](https://github.com/moraea/misc-patches/tree/main/3802-Metal-15) and [MetallibSupportPkg](https://github.com/dortania/MetallibSupportPkg) for nVidia Kepler and Intel Core 3rd/4th Generation GPUs
   * Metal bundle patches and shims for [nVidia Kepler](https://github.com/moraea/misc-patches/tree/main/Kepler%2013%2B), [AMD GCN 1 - 4](https://github.com/moraea/misc-patches/tree/main/GCN%2013%2B), and [AMD GCN 5 (Vega)](https://github.com/moraea/misc-patches/tree/main/vega%2013%2B)
   * [IOSurface offset patches](https://github.com/moraea/misc-patches/tree/main/Sonoma%2014.4%20IOSurface) for nVidia Kepler, AMD GCN 1 - 5, and Intel Core 3rd - 6th Generation GPUs
@@ -176,7 +176,7 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
   * OpenCL and OpenGL downgrade for AMD GCN
   * [USB 1 patch](https://github.com/moraea/misc-patches/tree/main/IOUSBHostFamily-14.4)
 * [ASentientHedgehog](https://github.com/moosethegoose2213)
-  * [non-Metal patch set](https://github.com/flagergit/non-metal-frameworks) for nVidia Tesla/Fermi/Maxwell/Pascal, AMD TeraScale 1/2, and Intel Core 1st/2nd Generation GPUs
+  * [non-Metal patch set](https://github.com/flagersgit/non-metal-frameworks) for nVidia Tesla/Fermi/Maxwell/Pascal, AMD TeraScale 1/2, and Intel Core 1st/2nd Generation GPUs
 * [ASentientBot](https://github.com/ASentientBot)
   * macOS Tahoe patch set
   * 3802 MTLCompiler, 31001 MTLCompiler, T1, WiFi patch sets
