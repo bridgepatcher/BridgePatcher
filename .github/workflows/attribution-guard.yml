@@ -4,13 +4,25 @@
 # (e.g. "Copyright (c) 2020-2025 Dhinak G, Mykola Grymalyuk" -> "... Albert",
 # dropped LICENSE lines, or Dortania authors removed from the README Credits).
 #   - Pull request: the PR is closed immediately with a warning comment.
-#   - Push to main: an issue is opened for the offending commit(s).
+#   - Push to main: an issue is opened for the offending commit(s). Every pushed commit
+#     is checked on its own (not only the combined diff), force-pushes that rewrite
+#     main's history are reported, and so are pushes too large to check completely.
+#   - Push to main, daily schedule and manual run: main's README is audited as a whole
+#     against Dortania's own README. Everyone credited there (plus a fixed fallback list)
+#     must be credited here. This doesn't trust main: a removal that already landed on
+#     main (issue closed, guard bypassed or failing at the time) is still found, and the
+#     scheduled run keeps one issue open until it is fixed.
 # Code is only inspected through the API (diff patches), never executed.
 #
 # Pushes are only checked on main: watching every branch let one push of many
 # branches (e.g. `git push --all`) start a run per branch at the same time, each
 # hammering the API and opening its own issue. Other branches reach main through
 # a pull request (checked above) or a push to main (checked here).
+#
+# Limits: a push runs the workflow file from the pushed commit, so someone who can push
+# to main can also change this guard in the same push. Protect main with a ruleset
+# (require pull requests, block force pushes, CODEOWNERS review for .github/) so changes
+# to the guards themselves need review.
 
 name: Attribution guard
 
@@ -19,6 +31,9 @@ on:
     types: [opened, reopened, synchronize, edited]
   push:
     branches: [main]
+  schedule:
+    - cron: "37 3 * * *"   # daily audit of main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -29,7 +44,7 @@ permissions:
 # main queue behind each other instead of running in parallel, so the
 # "issue already exists" check can't race and open duplicates.
 concurrency:
-  group: attribution-guard-${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.pull_request.number) || 'push' }}
+  group: attribution-guard-${{ github.event_name == 'pull_request_target' && format('pr-{0}', github.event.pull_request.number) || 'main' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:
@@ -196,8 +211,42 @@ jobs:
                 removed: gone.map(l => `https://github.com/${l}`), added: [] }] : [];
             }
 
+            // Whole-README audit that doesn't trust main: everyone credited in Dortania's README
+            // (plus the fallback list) must be credited at `ref`, whatever main looked like before.
+            async function stateFindings(ref) {
+              const required = await upstreamAuthors();
+              const have = creditedLogins(creditsSection(await readReadme(owner, repo, ref)));
+              const missing = [...required].filter(l => !have.has(l)).sort();
+              return missing.length ? [{ file: 'README.md', reason: 'Credits are missing authors credited in Dortania\'s README',
+                removed: missing.map(l => `https://github.com/${l}`), added: [] }] : [];
+            }
+
+            // One commit checked on its own (diff against its first parent), so a violation can't
+            // hide in a push's combined diff and the report names the commit that made it.
+            // Exclusions (relocated notices) come from the trusted ref of the push, as before.
+            const MAX_COMMIT_FILES = 3000; // the API lists at most 3000 files per commit
+            async function commitFindings(sha, relocated) {
+              const files = [];
+              let data;
+              for (let page = 1; page <= MAX_COMMIT_FILES / 100; page++) {
+                ({ data } = await github.rest.repos.getCommit({ owner, repo, ref: sha, per_page: 100, page }));
+                files.push(...(data.files || []));
+                if ((data.files || []).length < 100) break;
+              }
+              const short = sha.slice(0, 7);
+              const findings = await scan(files, relocated);
+              const parent = data.parents && data.parents[0] && data.parents[0].sha;
+              if (parent && files.some(f => f.filename === 'README.md')) {
+                findings.push(...await readmeFindings(parent, owner, repo, sha));
+              }
+              if (files.length >= MAX_COMMIT_FILES) {
+                findings.push({ file: '(commit)', reason: `Too many changed files to check through the API (${files.length}+); review this commit by hand`, removed: [], added: [] });
+              }
+              return findings.map(f => ({ ...f, file: `${short}: ${f.file}` }));
+            }
+
             const POLICY = [
-              'This project is a fork of Dortania\'s OpenCore Legacy Patcher / PatcherSupportPkg.',
+              'This project is based on Dortania\'s OpenCore Legacy Patcher / PatcherSupportPkg.',
               'Removing, replacing or rewriting the copyright, licence or credit notices of Dortania and its authors (Dhinak G, Mykola Grymalyuk and contributors) violates the licence',
               'and is not allowed, no matter who makes the change. Keep the original notices intact; you may add',
               'your own credit **next to** them (keep `Copyright (c) 2020-2025 Dhinak G, Mykola Grymalyuk, and individual contributors.` and add a separate line for your own changes).',
@@ -243,51 +292,130 @@ jobs:
               return;
             }
 
+            // ---------- Audit of main as a whole: ONE issue, kept up to date ----------
+            // Used by pushes, the daily schedule and manual runs. It is closed automatically once
+            // main is fixed, and a new one is opened if it gets closed while credits are still missing.
+            const AUDIT_TITLE = 'Attribution audit: credits missing on main';
+            async function updateAuditIssue(findings, branch) {
+              const open = (await github.paginate(github.rest.issues.listForRepo, {
+                owner, repo, state: 'open', labels: 'attribution-violation', per_page: 100,
+              })).filter(i => !i.pull_request && i.title === AUDIT_TITLE);
+              if (!findings.length) {
+                for (const i of open) {
+                  await github.rest.issues.createComment({ owner, repo, issue_number: i.number,
+                    body: `${MARKER}\n✅ Every upstream author is credited on \`${branch}\` again. Closing.` });
+                  await github.rest.issues.update({ owner, repo, issue_number: i.number, state: 'closed', state_reason: 'completed' });
+                }
+                return;
+              }
+              const body = [
+                MARKER,
+                '> [!CAUTION]',
+                `> **\`${branch}\` doesn't credit everyone who is credited in Dortania's own README.**`,
+                '',
+                POLICY,
+                '',
+                'This audit checks the README on main as a whole against Dortania\'s README, so it also finds removals that got past the checks on pull requests and pushes.',
+                '',
+                '**Missing:**',
+                report(findings),
+                '',
+                'Restore these credits. This issue is updated on every push and every day, and closed automatically once main is fixed.',
+              ].join('\n');
+              if (open.length) await github.rest.issues.update({ owner, repo, issue_number: open[0].number, body });
+              else await github.rest.issues.create({ owner, repo, title: AUDIT_TITLE, body, labels: ['attribution-violation'] });
+            }
+
+            if (context.eventName === 'schedule' || context.eventName === 'workflow_dispatch') {
+              const { data: info } = await github.rest.repos.get({ owner, repo });
+              const findings = await stateFindings(info.default_branch);
+              await updateAuditIssue(findings, info.default_branch);
+              if (findings.length) core.setFailed('Audit: upstream authors missing from the Credits on main.');
+              else core.info('Audit: every upstream author is credited on main.');
+              return;
+            }
+
             // ---------- Pushes: open an issue ----------
             const { before, after } = context.payload;
             if (/^0+$/.test(after)) return; // branch deleted
+            const branch = context.ref.replace('refs/heads/', '');
             let base = before;
             if (!base || /^0+$/.test(base)) {
               // New branch: compare against the default branch
               base = context.payload.repository.default_branch;
             }
-            const { data: cmp } = await github.rest.repos.compareCommitsWithBasehead({
-              owner, repo, basehead: `${base}...${after}`,
-            });
-            const findings = await scan(cmp.files || [], await loadRelocated(base));
-            if ((cmp.files || []).some(f => f.filename === 'README.md')) {
-              findings.push(...await readmeFindings(cmp.merge_base_commit.sha, owner, repo, after));
+
+            // Whole-README audit of the pushed state (doesn't trust what main looked like before)
+            const auditFindings = await stateFindings(after);
+            await updateAuditIssue(auditFindings, branch);
+
+            const findings = [];
+            const relocated = await loadRelocated(base);
+            const MAX_COMMITS = 500;
+            let cmp = null, commits = [];
+            try {
+              for (let page = 1; ; page++) {
+                const { data } = await github.rest.repos.compareCommitsWithBasehead({
+                  owner, repo, basehead: `${base}...${after}`, per_page: 100, page,
+                });
+                if (!cmp) cmp = data;
+                commits.push(...(data.commits || []));
+                if ((data.commits || []).length < 100 || commits.length >= Math.min(MAX_COMMITS, data.total_commits)) break;
+              }
+            } catch (e) {
+              findings.push({ file: '(push)', reason: `Could not compare ${base.slice(0, 7)}...${after.slice(0, 7)} (${e.message}); review this push by hand`, removed: [], added: [] });
             }
-            if (!findings.length) { core.info('No attribution violation found.'); return; }
+
+            if (cmp) {
+              // A force-push that drops commits rewrites main's history and can hide earlier changes
+              if (context.payload.forced || cmp.behind_by > 0) {
+                findings.push({ file: '(history)', reason: `Force-push to \`${branch}\`: ${cmp.behind_by} commit(s) of the previous history were dropped`, removed: [], added: [] });
+              }
+              // Every commit on its own, so a removal can't hide in the combined diff
+              for (const c of commits) findings.push(...await commitFindings(c.sha, relocated));
+              if (cmp.total_commits > commits.length) {
+                // Too many commits to check one by one: fall back to the combined diff for the rest
+                findings.push({ file: '(push)', reason: `Only ${commits.length} of ${cmp.total_commits} commits were checked one by one; the combined diff was checked too`, removed: [], added: [] });
+                findings.push(...await scan(cmp.files || [], relocated));
+                if ((cmp.files || []).some(f => f.filename === 'README.md')) {
+                  findings.push(...await readmeFindings(cmp.merge_base_commit.sha, owner, repo, after));
+                }
+              }
+            }
+
+            if (!findings.length) {
+              if (auditFindings.length) core.setFailed('Audit: upstream authors missing from the Credits on main.');
+              else core.info('No attribution violation found.');
+              return;
+            }
 
             const shortSha = after.slice(0, 7);
-            const branch = context.ref.replace('refs/heads/', '');
             const title = `Attribution violation in ${branch} (${shortSha})`;
 
             // Don't open the same issue twice
             const open = await github.paginate(github.rest.issues.listForRepo, {
               owner, repo, state: 'open', labels: 'attribution-violation', per_page: 100,
             });
-            if (open.some(i => i.title === title)) { core.info('Issue already exists.'); return; }
+            if (open.some(i => i.title === title)) { core.setFailed('Attribution violation detected, issue already exists.'); return; }
 
-            const commits = (cmp.commits || []).map(c =>
+            const commitList = commits.map(c =>
               `- [\`${c.sha.slice(0, 7)}\`](${c.html_url}) ${c.commit.message.split('\n')[0]} — @${c.author ? c.author.login : c.commit.author.name}`
             ).join('\n');
 
             const body = [
               MARKER,
               '> [!CAUTION]',
-              `> **A push to \`${branch}\` removed or altered Dortania's copyright, licence or credit notices.**`,
+              `> **A push to \`${branch}\` removed or altered Dortania's copyright, licence or credit notices, or rewrote its history.**`,
               '',
               POLICY,
               '',
               `**Pushed by:** @${context.actor}`,
-              `**Compare:** ${cmp.html_url}`,
+              cmp ? `**Compare:** ${cmp.html_url}` : '',
               '',
               '**Commits:**',
-              commits || '_none listed_',
+              commitList || '_none listed_',
               '',
-              '**Detected changes:**',
+              '**Detected changes** (prefixed with the commit that made them):',
               report(findings),
               '',
               'Please revert or restore the original notices and close this issue afterwards.',
