@@ -435,9 +435,6 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.target_arch:
-        rich.print(f"[cyan]Target architecture: {args.target_arch}[/cyan]")
-
     if args.legacy_installer:
         TOTAL_STEPS += 1
         rich.print(f"[cyan]Also building {constants.LEGACY_INSTALLER_PKG_NAME} for installs from before the rename[/cyan]")
