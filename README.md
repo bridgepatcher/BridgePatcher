@@ -139,10 +139,10 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
 * [Acidanthera](https://github.com/Acidanthera)
     * OpenCorePkg, as well as many of the core kexts and tools
 * [DhinakG](https://github.com/DhinakG)
-    * Main co-author
+    * Main co-author of the original OpenCore Legacy Patcher by Dortania
 * [Khronokernel](https://github.com/Khronokernel)
-    * Main co-author
-    * Great amounts of help with debugging, and code suggestions
+    * Main co-author of the original OpenCore Legacy Patcher by Dortania
+    * Great amounts of help with debugging, and code suggestions for OpenCore Legacy Patcher
 * [Ausdauersportler](https://github.com/Ausdauersportler)
     * iMacs Metal GPUs Upgrade Patch set and documentation
 * [nxvid](https://github.com/nxvid/OpenCore-Legacy-Patcher-T2/)
@@ -174,8 +174,6 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
     * [improving support for Metallibs on macOS 26 Tahoe on unsupported non-T2 Macs](https://github.com/hackdoc/OCLP-R)
 * [stephandeutsch](https://github.com/stephandeutsch/OpenCore-Legacy-Patcher/)
     * for fixing USB1.1 compatability with Sequoia and Tahoe
-* [coolkid418](https://github.com/coolkid418)
-    * making a dark mode icon for BridgePatcher
 * [vytska69](https://github.com/vytska69)
     * [developing patches for the T2 chip](https://github.com/vytska69/OpenCore-Legacy-Patcher)
     * [Developing Secure Enclave Processor (SEP) timeout patches](https://github.com/vytska69/OpenCore-Legacy-Patcher)
@@ -224,7 +222,7 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
 * [arter97](https://github.com/arter97/)
   * [SimpleMSR](https://github.com/arter97/SimpleMSR/) to disable firmware throttling in Nehalem+ MacBooks without batteries
 * [Mr.Macintosh](https://mrmacintosh.com)
-  * Endless hours helping architect and troubleshoot many portions of the project
+  * Endless hours helping architect and troubleshoot many portions of OpenCore Legacy Patcher
 * [flagers](https://github.com/flagersgit)
   * Aid with Nvidia Web Driver research and development
   * [non-Metal patch set](https://github.com/moraea/non-metal-frameworks) for nVidia Tesla/Fermi/Maxwell/Pascal, AMD TeraScale 1/2, and Intel Core 1st/2nd Generation GPUs
@@ -233,7 +231,7 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
 * [joevt](https://github.com/joevt)
   * [FixPCIeLinkrate](https://github.com/joevt/joevtApps)
 * [Jazzzny](https://github.com/Jazzzny)
-  * Research and various contributions to the project
+  * Research and various contributions to OpenCore Legacy Patcher
   * UEFI Legacy XHCI research and development
   * NVIDIA OpenCL research and development
   * `MacBook5,2` research and development
@@ -252,8 +250,8 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
   * universal2 build research
   * Various documentation contributions
 * [crystall1nedev](https://github.com/crystall1nedev)
-  * Various patcher and PatcherSupportPkg contributions
-* Amazing users who've graciously donate hardware:
+  * Various OpenCore Legacy Patcher and PatcherSupportPkg contributions
+* Amazing users who've graciously donated hardware to the OpenCore Legacy Patcher developers:
   * [JohnD](https://forums.macrumors.com/members/johnd.53633/) - 2013 Mac Pro
   * [SpiGAndromeda](https://github.com/SpiGAndromeda) - AMD Vega 64
   * [turbomacs](https://github.com/turbomacs) - 2014 5k iMac
@@ -261,8 +259,8 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
    * [ThatStella7922](https://github.com/ThatStella7922) - 2017 13" MacBook Pro (A1708)
   * zephar - 2008 Mac Pro
   * jazo97 - 2011 15" MacBook Pro
-  * And others (reach out if we forgot you!)
+  * And others
 * MacRumors and Unsupported Mac Communities
   * Endless testing and reporting issues
 * Apple
-  * for macOS and many of the kexts, frameworks and other binaries we reimplemented into newer OSes
+  * for macOS and many of the kexts, frameworks and other binaries reimplemented into newer OSes
