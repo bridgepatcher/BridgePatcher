@@ -5,8 +5,7 @@
 #       comment + label "needs-credit" (the PR is NOT closed)
 #   - Such a PR gets merged and they are still not credited:
 #       an issue is opened as a reminder
-#   - PR or push that removes someone from Credits:
-#       PR gets a warning comment, a push opens an issue (nothing is closed)
+#   - PR that removes someone from Credits: warning comment (the PR is NOT closed)
 #   - Intended removals (contribution reverted/replaced, or at the contributor's request)
 #       are listed in .github/retired-credits.txt and not reported.
 #   - Bots and AI coding agents (e.g. commits by Claude Code or Cursor's agent, GitHub Apps
@@ -16,6 +15,10 @@
 #       been removed since without an entry in .github/retired-credits.txt. This doesn't trust
 #       main as it is now: a removal that already landed (issue closed, guard bypassed or
 #       failing at the time) is still found. ONE issue is kept up to date and closed once fixed.
+#       Removals are accepted automatically when the contribution itself is gone: the person
+#       left a footprint in the code (commits they authored, or code referencing their GitHub
+#       account or repos, e.g. a download URL) and none of it is left on main. People without
+#       any footprint (upstream authors, testers, donors) still need a retired entry.
 # Pull request code is only read through the API, never checked out or executed. The audit
 # checks out main (never a pull request) and only reads its history with git.
 #
@@ -42,7 +45,7 @@ permissions:
 
 jobs:
   credits:
-    if: github.event_name == 'pull_request_target' || github.event_name == 'push'
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - name: Check contributor credits
@@ -239,28 +242,7 @@ jobs:
               } catch (e) { if (e.status !== 404) core.warning(`Label update failed: ${e.message}`); }
               return;
             }
-
-            // ---------- Pushes to main: someone removed from Credits ----------
-            const { before, after } = context.payload;
-            if (/^0+$/.test(before) || /^0+$/.test(after)) return;
-            const oldCredits = creditedLogins(creditsSection(await readFile(owner, repo, before)));
-            const newCredits = creditedLogins(creditsSection(await readFile(owner, repo, after)));
-            const retired = await loadRetired(before);
-            const removed = [...oldCredits].filter(l => !newCredits.has(l) && relevant(l) && !retired.has(l));
-            if (!removed.length) return;
-
-            await openIssueOnce(`Contributors removed from Credits (${after.slice(0, 7)})`, [
-              MARK_REMOVED,
-              '> [!WARNING]',
-              `> **A push to \`main\` removed contributors from the Credits section of \`${README}\`.**`,
-              '',
-              list(removed),
-              '',
-              `**Pushed by:** @${context.actor}`,
-              `**Compare:** https://github.com/${owner}/${repo}/compare/${before.slice(0, 12)}...${after.slice(0, 12)}`,
-              '',
-              'Please restore these entries, or close this issue with a note if the removal was intended (e.g. at the contributor\'s request).',
-            ].join('\n'));
+            // Pushes to main are checked by the "audit" job below.
 
   # Audit of main as a whole, from its history (see the header)
   audit:
@@ -346,8 +328,109 @@ jobs:
               for (const l of after) gone.delete(l); // credited again
             }
             const now = creditsAt(head);
-            const missing = [...gone].filter(([l]) => !now.has(l) && !retiredNow.has(l)).sort();
-            core.info(`Checked ${shas.length} commits that changed ${README}; ${missing.length} contributor(s) missing.`);
+            const removed = [...gone].filter(([l]) => !now.has(l) && !retiredNow.has(l)).sort();
+
+            // ---------- Is the contribution itself still there? ----------
+            // Footprint of a contributor in the code (README, CHANGELOG and the retired list don't count):
+            //   - commits they authored (GitHub's author mapping, plus their no-reply address)
+            //   - code that referenced their GitHub account or repos, e.g. a download URL
+            // Gone = they had a footprint, none of their lines survive on main (git blame) and no code
+            // references them any more. Then the credit removal is accepted without a retired entry.
+            const NOT_CODE = [':(exclude)README.md', ':(exclude)CHANGELOG.md', `:(exclude)${RETIRED_FILE}`];
+            const MAX_BLAME_FILES = 300;
+            const blameCache = new Map();
+            const blameShas = file => {
+              if (!blameCache.has(file)) {
+                const counts = new Map();
+                // -M/-C: lines moved within or between files keep their original author
+                for (const line of git('blame', '-w', '-M', '-C', '--porcelain', head, '--', file).split('\n')) {
+                  const m = line.match(/^([0-9a-f]{40}) \d+ \d+/);
+                  if (m) counts.set(m[1], (counts.get(m[1]) || 0) + 1);
+                }
+                blameCache.set(file, counts);
+              }
+              return blameCache.get(file);
+            };
+            const exists = f => !!git('ls-tree', '--name-only', head, '--', f).trim();
+            // Where the files of a commit live on main now (files renamed since, e.g. a moved package)
+            const renamedSince = sha => {
+              const map = new Map();
+              for (const l of git('diff', '-M', '--name-status', '--diff-filter=R', sha, head).split('\n')) {
+                const p = l.split('\t');
+                if (p.length === 3) map.set(p[1], p[2]);
+              }
+              return map;
+            };
+            const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+            // Credits for work that leaves no code behind; those stay even when the code is gone
+            const NON_CODE_WORK = /\b(test|troubleshoot|document|report|research|donat|translat)/i;
+            // The person's credit entry: the line with their link plus the lines indented below it
+            function creditEntry(md, login) {
+              const lines = creditsSection(md).split('\n');
+              const re = new RegExp(`github\\.com/${reEsc(login)}(?![A-Za-z0-9-])|@${reEsc(login)}(?![A-Za-z0-9-])`, 'i');
+              const k = lines.findIndex(l => re.test(l));
+              if (k < 0) return '';
+              const indent = l => l.match(/^\s*/)[0].length;
+              const out = [lines[k]];
+              for (let n = k + 1; n < lines.length && lines[n].trim() && indent(lines[n]) > indent(lines[k]); n++) out.push(lines[n]);
+              return out.join('\n');
+            }
+
+            async function footprint(login, removedIn) {
+              const authored = new Set();
+              try {
+                const list = await github.paginate(github.rest.repos.listCommits, { owner, repo, sha: head, author: login, per_page: 100 });
+                for (const c of list) authored.add(c.sha);
+              } catch (e) { if (![404, 422].includes(e.status)) core.warning(`Could not list commits by ${login}: ${e.message}`); }
+              for (const sha of git('log', '--format=%H', '-i', `--author=[0-9][0-9]*[+]${reEsc(login)}@users\\.noreply\\.github\\.com`, head).split('\n').filter(Boolean)) authored.add(sha);
+
+              // Lines from their commits that are still on main, following renames
+              let lines = 0, incomplete = false;
+              const files = new Set();
+              for (const sha of authored) {
+                const renamed = renamedSince(sha);
+                for (const f of git('show', '--format=', '--name-only', sha, '--', '.', ...NOT_CODE).split('\n').filter(Boolean)) {
+                  const now = exists(f) ? f : renamed.get(f);
+                  if (now) files.add(now);
+                }
+              }
+              if (files.size > MAX_BLAME_FILES) incomplete = true;
+              for (const f of [...files].slice(0, MAX_BLAME_FILES)) {
+                for (const [sha, n] of blameShas(f)) if (authored.has(sha)) lines += n;
+              }
+
+              // Code that uses their account or repos (e.g. a download URL). Credit links copied into
+              // code (markdown "](https://github.com/x" or href="https://github.com/x") don't count.
+              const ref = `github[a-z]*\\.com/${reEsc(login)}/`;
+              const refRe = new RegExp(`github[a-z]*\\.com/${reEsc(login)}/`, 'i');
+              const creditLinkRe = new RegExp(`(\\]\\(|href=["'])https?://github\\.com/${reEsc(login)}`, 'i');
+              const isCodeRef = line => refRe.test(line) && !creditLinkRe.test(line);
+              let refCommits = 0;
+              for (const chunk of git('log', '-p', '--format=%x00%H', '-i', `-G${ref}`, head, '--', '.', ...NOT_CODE).split('\0').slice(1)) {
+                if (chunk.split('\n').some(l => l.startsWith('+') && !l.startsWith('+++') && isCodeRef(l))) refCommits++;
+              }
+              const refFiles = [...new Set(git('grep', '-i', '-I', '-n', '-e', ref, head, '--', '.', ...NOT_CODE).split('\n')
+                .filter(Boolean).map(l => l.slice(head.length + 1))
+                .filter(l => isCodeRef(l.replace(/^[^:]*:\d+:/, ''))).map(l => l.split(':')[0]))];
+
+              const entry = creditEntry(git('show', `${removedIn}^1:${README}`), login);
+              const nonCode = NON_CODE_WORK.test(entry.replace(/\[[^\]]*\]\([^)]*\)/g, ' '));
+              const had = authored.size > 0 || refCommits > 0;
+              return { authored: authored.size, lines, refCommits, refFiles, had, nonCode, incomplete,
+                gone: had && !incomplete && !nonCode && lines === 0 && refFiles.length === 0 };
+            }
+
+            const missing = [], accepted = [];
+            for (const [l, sha] of removed) {
+              const fp = await footprint(l, sha);
+              (fp.gone ? accepted : missing).push([l, sha, fp]);
+            }
+            for (const [l, sha, fp] of accepted) {
+              core.info(`Accepted: ${l} removed in ${sha.slice(0, 7)}; their contribution is gone ` +
+                `(${fp.authored} authored commit(s), ${fp.refCommits} commit(s) referencing them, nothing left on main).`);
+            }
+            core.info(`Checked ${shas.length} commits that changed ${README}; ${missing.length} contributor(s) missing, ${accepted.length} accepted because their contribution is gone.`);
 
             const open = (await github.paginate(github.rest.issues.listForRepo, {
               owner, repo, state: 'open', labels: LABEL, per_page: 100,
@@ -363,9 +446,18 @@ jobs:
             }
 
             // Profile links instead of @mentions, so updating this issue doesn't ping anyone
-            const rows = missing.map(([l, sha]) => {
+            const evidence = fp => {
+              if (!fp.had) return 'no commits or code references found, so this can\'t be checked automatically';
+              if (fp.incomplete) return 'too many files to check their contribution';
+              const left = [];
+              if (fp.lines) left.push(`${fp.lines} line(s) from their commits`);
+              if (fp.refFiles.length) left.push(`references in ${fp.refFiles.slice(0, 3).map(f => `\`${f}\``).join(', ')}${fp.refFiles.length > 3 ? ', …' : ''}`);
+              if (left.length) return `their contribution is still on main: ${left.join('; ')}`;
+              return 'their code is gone, but the credit also covers work outside the code (testing, documentation, research, …)';
+            };
+            const rows = missing.map(([l, sha, fp]) => {
               const subject = git('log', '-1', '--format=%cs %s', sha).trim();
-              return `- [${l}](https://github.com/${l}) — removed in [\`${sha.slice(0, 7)}\`](https://github.com/${owner}/${repo}/commit/${sha}) (${subject})`;
+              return `- [${l}](https://github.com/${l}) — removed in [\`${sha.slice(0, 7)}\`](https://github.com/${owner}/${repo}/commit/${sha}) (${subject}); ${evidence(fp)}`;
             });
             const body = [
               MARKER,
@@ -375,6 +467,7 @@ jobs:
               ...rows,
               '',
               'This audit walks main\'s whole history, so it also finds removals that got past the checks on pull requests and pushes.',
+              'Removals are accepted automatically once nothing of the contribution is left in the code (no surviving lines from the person\'s commits, no code referencing their account or repos).',
               `Restore these credits, or add the contributor to \`${RETIRED_FILE}\` with the reason (contribution reverted or replaced, or at their own request).`,
               'This issue is updated on every push and every day, and closed automatically once nothing is missing.',
             ].join('\n');
