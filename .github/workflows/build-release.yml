@@ -32,6 +32,9 @@ jobs:
           python-version: '3.13'
       
       - name: Import BridgePatcher signing identity
+        # Fail fast instead of hanging until the 6-hour job limit if any
+        # `security` call ever blocks on an interactive authorization prompt.
+        timeout-minutes: 5
         env:
           SIGNING_CERTIFICATES_P12: ${{ secrets.BRIDGEPATCHER_SIGNING_P12 }}
           SIGNING_CERTIFICATES_PASSWORD: ${{ secrets.BRIDGEPATCHER_SIGNING_P12_PASSWORD }}
@@ -84,10 +87,18 @@ jobs:
             "$KEYCHAIN" > /dev/null
 
           # Trust our private CA for code signing on this runner.
-          security add-trusted-cert \
+          #
+          # This must run as root in the admin trust domain (-d). Changing the
+          # *user* trust settings (no -d) asks SecurityAgent to show a GUI
+          # authorization dialog, which nobody can answer on a headless runner,
+          # so the step hangs forever right after "1 identity imported.".
+          # `sudo` is passwordless on GitHub-hosted runners and root does not
+          # need that authorization.
+          sudo security add-trusted-cert \
+            -d \
             -r trustRoot \
             -p codeSign \
-            -k "$KEYCHAIN" \
+            -k /Library/Keychains/System.keychain \
             "$ROOT_CA"
 
           # Add the temporary keychain to the user's search list.
@@ -253,6 +264,24 @@ jobs:
             done < "$RUNNER_TEMP/original-keychains.txt"
 
             security list-keychains -d user -s "$@"
+          fi
+
+          # Remove the private CA trust added during import.
+          ROOT_CA="$GITHUB_WORKSPACE/ci_tooling/certificates/BridgePatcher-Root-CA.crt.pem"
+
+          if [ -f "$ROOT_CA" ]; then
+            sudo security remove-trusted-cert -d "$ROOT_CA"
+
+            ROOT_CA_SHA1="$(
+              openssl x509 -noout -fingerprint -sha1 -in "$ROOT_CA" |
+              sed 's/^.*=//; s/://g'
+            )"
+
+            if [ -n "$ROOT_CA_SHA1" ]; then
+              sudo security delete-certificate \
+                -Z "$ROOT_CA_SHA1" \
+                /Library/Keychains/System.keychain
+            fi
           fi
 
           # Lock and delete the temporary signing keychain.
