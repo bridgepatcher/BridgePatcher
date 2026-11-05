@@ -3,7 +3,9 @@
 # Warns on pull requests whose patcher code still pins PatcherSupportPkg
 # 2.0.4 or older (patcher_support_pkg_version in constants.py), i.e. the old
 # codebase from before the switch to Dortania's PatcherSupportPkg.
-# Current builds download dortania/PatcherSupportPkg releases (2.0.5 and newer) directly.
+# Current builds bundle bridgepatcher/PatcherSupportPkg (2.5) and can download
+# dortania/PatcherSupportPkg (2.0.5) online instead. Their versions are listed in
+# patcher_support_pkg_sources in constants.py; the bundled "bridgepatcher" entry is checked.
 # Pull requests opened by Medelcartelinc are skipped.
 
 name: PatcherSupportPkg legacy version warning
@@ -52,7 +54,9 @@ jobs:
                   owner: headOwner, repo: headRepo, path, ref: pr.head.sha,
                 });
                 const text = Buffer.from(data.content, 'base64').toString('utf8');
-                const m = text.match(/patcher_support_pkg_version\s*(?::\s*str\s*)?=\s*["']([^"']+)["']/);
+                // Older code pins the version directly, current code lists it per source
+                const m = text.match(/patcher_support_pkg_version\s*(?::\s*str\s*)?=\s*["']([^"']+)["']/)
+                       || text.match(/["']bridgepatcher["']\s*:\s*\{[^}]*?["']version["']\s*:\s*["']([^"']+)["']/);
                 if (m) { version = m[1].trim(); break; }
               } catch (e) {
                 if (e.status !== 404) core.warning(`Could not read ${path}: ${e.message}`);
@@ -98,7 +102,7 @@ jobs:
               '>',
               '> PatcherSupportPkg releases up to 2.0.4 come from the old codebase, a mix of several independent forks.',
               '> That code has unclear licensing/attribution and causes friction with the upstream Dortania developers.',
-              '> Current builds download [dortania/PatcherSupportPkg](https://github.com/dortania/PatcherSupportPkg) releases directly.',
+              '> Current builds bundle this project\'s own PatcherSupportPkg again and can download [dortania/PatcherSupportPkg](https://github.com/dortania/PatcherSupportPkg) online instead.',
               '>',
               `> **Please update your source code** to the current \`main\` branch of this repository before this pull request is reviewed:`,
               '>',
