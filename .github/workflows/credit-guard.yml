@@ -11,7 +11,17 @@
 #       are listed in .github/retired-credits.txt and not reported.
 #   - Bots and AI coding agents (e.g. commits by Claude Code or Cursor's agent, GitHub Apps
 #       such as the Copilot coding agent) are never asked to be credited.
-# Code is only read through the API, never checked out or executed.
+#   - Audit of main (job "audit": pushes, daily schedule, manual runs): walks every commit on
+#       main that changed README.md and reports anyone who was credited at some point and has
+#       been removed since without an entry in .github/retired-credits.txt. This doesn't trust
+#       main as it is now: a removal that already landed (issue closed, guard bypassed or
+#       failing at the time) is still found. ONE issue is kept up to date and closed once fixed.
+# Pull request code is only read through the API, never checked out or executed. The audit
+# checks out main (never a pull request) and only reads its history with git.
+#
+# Limits: a push runs the workflow file from the pushed commit, and a force-push can rewrite
+# main's history (the Attribution guard reports force-pushes). Protect main with a ruleset
+# (require pull requests, block force pushes, CODEOWNERS review for .github/).
 
 name: Credit guard
 
@@ -20,7 +30,10 @@ on:
     types: [opened, reopened, synchronize, closed]
   push:
     branches: [main]
-    paths: [README.md]
+    paths: [README.md, .github/retired-credits.txt]
+  schedule:
+    - cron: "41 3 * * *"   # daily audit of main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -29,6 +42,7 @@ permissions:
 
 jobs:
   credits:
+    if: github.event_name == 'pull_request_target' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Check contributor credits
@@ -247,3 +261,123 @@ jobs:
               '',
               'Please restore these entries, or close this issue with a note if the removal was intended (e.g. at the contributor\'s request).',
             ].join('\n'));
+
+  # Audit of main as a whole, from its history (see the header)
+  audit:
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: credit-audit
+      cancel-in-progress: false
+    steps:
+      # main only (the pushed commit, or the default branch on schedule / manual runs);
+      # its files are read with git as data, nothing from it is executed
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Audit Credits history on main
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execFileSync } = require('child_process');
+            const { owner, repo } = context.repo;
+            const README = 'README.md';
+            const RETIRED_FILE = '.github/retired-credits.txt';
+            const LABEL = 'needs-credit';
+            const MARKER = '<!-- credit-guard-audit -->';
+            const TITLE = 'Credit audit: contributors removed from Credits on main';
+            const IGNORE = new Set([owner.toLowerCase(), 'github-actions[bot]', 'dependabot[bot]', 'web-flow']);
+            const relevant = l => l && !IGNORE.has(l) && !l.endsWith('[bot]');
+
+            // git output, or '' when the file doesn't exist at that commit
+            const git = (...args) => {
+              try { return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] }); }
+              catch { return ''; }
+            };
+
+            // Same parsing as the "credits" job
+            function creditsSection(md) {
+              const m = md.match(/^#{1,3}\s*credits\b.*$/im);
+              if (!m) return '';
+              const rest = md.slice(m.index + m[0].length);
+              const next = rest.search(/^#{1,2}\s+\S/m);
+              return next === -1 ? rest : rest.slice(0, next);
+            }
+            function creditedLogins(section) {
+              const set = new Set();
+              for (const m of section.matchAll(/github\.com\/([A-Za-z0-9-]+)/g)) set.add(m[1].toLowerCase());
+              for (const m of section.matchAll(/@([A-Za-z0-9-]+)/g)) set.add(m[1].toLowerCase());
+              return set;
+            }
+            const creditsAt = sha => creditedLogins(creditsSection(git('show', `${sha}:${README}`)));
+            const parseRetired = text => new Set(text.split('\n')
+              .map(l => l.split('#')[0].trim().replace(/^@/, '').toLowerCase()).filter(Boolean));
+            const retiredAt = sha => parseRetired(git('show', `${sha}:${RETIRED_FILE}`));
+
+            // Exclusions: entries in the retired list as it is now, as it was when the credit was
+            // removed (before or in that commit), and - in a fork - the original repo's list.
+            const head = git('rev-parse', 'HEAD').trim();
+            const retiredNow = retiredAt(head);
+            try {
+              const { data } = await github.rest.repos.get({ owner, repo });
+              const src = data.fork && (data.source || data.parent);
+              if (src) {
+                const { data: f } = await github.rest.repos.getContent({ owner: src.owner.login, repo: src.name, path: RETIRED_FILE, ref: src.default_branch });
+                for (const l of parseRetired(Buffer.from(f.content, 'base64').toString('utf8'))) retiredNow.add(l);
+              }
+            } catch (e) { if (e.status !== 404) core.warning(`Could not read the original repository's ${RETIRED_FILE}: ${e.message}`); }
+
+            // Every commit on main's first-parent line that changed README.md, oldest first
+            // (for a merged pull request that is the merge commit, diffed against main before it)
+            const shas = git('rev-list', '--reverse', '--first-parent', 'HEAD', '--', README).split('\n').filter(Boolean);
+            const gone = new Map(); // login -> commit that removed the credit
+            for (const sha of shas) {
+              const parent = git('rev-parse', '--verify', '--quiet', `${sha}^1`).trim();
+              const after = creditsAt(sha);
+              if (parent) {
+                const before = creditsAt(parent);
+                const excused = new Set([...retiredNow, ...retiredAt(parent), ...retiredAt(sha)]);
+                for (const l of before) {
+                  if (!after.has(l) && relevant(l) && !excused.has(l)) gone.set(l, sha);
+                }
+              }
+              for (const l of after) gone.delete(l); // credited again
+            }
+            const now = creditsAt(head);
+            const missing = [...gone].filter(([l]) => !now.has(l) && !retiredNow.has(l)).sort();
+            core.info(`Checked ${shas.length} commits that changed ${README}; ${missing.length} contributor(s) missing.`);
+
+            const open = (await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', labels: LABEL, per_page: 100,
+            })).filter(i => !i.pull_request && i.title === TITLE);
+
+            if (!missing.length) {
+              for (const i of open) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: i.number,
+                  body: `${MARKER}\n✅ Everyone who was removed from the Credits is credited or retired again. Closing.` });
+                await github.rest.issues.update({ owner, repo, issue_number: i.number, state: 'closed', state_reason: 'completed' });
+              }
+              return;
+            }
+
+            // Profile links instead of @mentions, so updating this issue doesn't ping anyone
+            const rows = missing.map(([l, sha]) => {
+              const subject = git('log', '-1', '--format=%cs %s', sha).trim();
+              return `- [${l}](https://github.com/${l}) — removed in [\`${sha.slice(0, 7)}\`](https://github.com/${owner}/${repo}/commit/${sha}) (${subject})`;
+            });
+            const body = [
+              MARKER,
+              '> [!WARNING]',
+              `> **These contributors were credited in \`${README}\` on main and have been removed since, without an entry in \`${RETIRED_FILE}\`.**`,
+              '',
+              ...rows,
+              '',
+              'This audit walks main\'s whole history, so it also finds removals that got past the checks on pull requests and pushes.',
+              `Restore these credits, or add the contributor to \`${RETIRED_FILE}\` with the reason (contribution reverted or replaced, or at their own request).`,
+              'This issue is updated on every push and every day, and closed automatically once nothing is missing.',
+            ].join('\n');
+            if (open.length) await github.rest.issues.update({ owner, repo, issue_number: open[0].number, body });
+            else await github.rest.issues.create({ owner, repo, title: TITLE, body, labels: [LABEL] });
+            core.setFailed(`Credit audit: ${missing.length} contributor(s) removed from Credits on main.`);

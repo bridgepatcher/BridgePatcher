@@ -140,6 +140,8 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
     * Main author of BridgePatcher
     * Adding support for unsupported T2 Macs
     * Help troubleshooting, determining fixes, fixing security vulnerabilities and writing patches
+* [Ronan LE MEILLAT / altorio](https://github.com/aeltorio)
+    * Fix modern wireless on unsupported T2 Macs running macOS 26 Tahoe
 * [YBronst](https://github.com/YBronst/OCLP-Plus)
     * for fixing modern wireless on macOS 26 Tahoe
 * [pyquick](https://github.com/pyquick) and [hackdoc](https://github.com/hackdoc)
