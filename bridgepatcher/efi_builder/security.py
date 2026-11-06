@@ -293,13 +293,10 @@ class BuildSecurity:
         # ==============================================================
         # GLOBAL EVALUATION: Universal AMFIPass Injection Engine
         # ==============================================================
-        # This used to be evaluated *after* both branches below, while Branch B
-        # already read 'needs_amfipass' in its amfi=0x80 fallback condition.
-        # Since the name is assigned later in the same function it is a local,
-        # so that read raised UnboundLocalError instead of seeing False - any
-        # non-T2 build with both disable_cs_lv and disable_amfi set died there.
         # The value depends only on the model and the target OS, so compute it
         # up front; the actual kext injection still happens at the end.
+        # It decides whether AMFIPass is injected, not whether amfi=0x80 is set
+        # (that is disable_amfi's job, see the non-T2 branch below).
         needs_amfipass = False
 
         if self._is_t2_mac():
@@ -451,8 +448,14 @@ class BuildSecurity:
                 self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-oas_skip_attestation")
                 self._set_nvram_value(APPLE_NVRAM_UUID, "IAS_ENV_SKIP_ATTESTATION", "1", overwrite=True)
 
-                if self.constants.disable_cs_lv is True and self.constants.disable_amfi is True and not needs_amfipass:
-                    logging.info("- Disabling AMFI (non-T2 fallback)")
+                # amfi=0x80 is decided by defaults.py (_check_amfipass_supported), not by
+                # whether AMFIPass gets injected: AMFIPass only trusts root patches signed
+                # with the patcher certificate. disable_amfi stays True for external builds
+                # and for ad-hoc-signed patches, and those still need AMFI disabled next to
+                # AMFIPass - same as Dortania. Gating this on 'not needs_amfipass' dropped
+                # amfi=0x80 for every pre-Sonoma Mac (e.g. MacBookPro7,1).
+                if self.constants.disable_cs_lv is True and self.constants.disable_amfi is True:
+                    logging.info("- Disabling AMFI (non-T2)")
                     self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "amfi=0x80")
                 else:
                     if not self._is_t2_mac():
