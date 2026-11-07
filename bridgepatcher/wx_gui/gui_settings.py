@@ -370,6 +370,9 @@ class SettingsFrame(wx.Frame):
                     "type": "checkbox",
                     "value": not auto_update.auto_root_patch_updates_enabled(),
                     "variable": auto_update.AUTO_ROOT_PATCH_UPDATES_KEY,
+                    # Built when the box is clicked, so it can mention an update that
+                    # is already prepared (see on_checkbox())
+                    "warning": self._auto_root_patch_opt_out_warning,
                     "description": [
                         "When enabled, root patches are no longer",
                         "updated automatically after BridgePatcher",
@@ -684,6 +687,9 @@ Hardware Information:
         """
         label = event.GetEventObject().GetLabel()
         value = event.GetEventObject().GetValue()
+        if callable(warning_pop):
+            # Warnings that depend on the current state are built when clicked
+            warning_pop = warning_pop() if value is True else ""
         if warning_pop != "" and value is True:
             warning = wx.MessageDialog(self.frame_modal, warning_pop, f"Warning: {label}", wx.YES_NO | wx.ICON_WARNING | wx.NO_DEFAULT)
             if warning.ShowModal() == wx.ID_NO:
@@ -888,13 +894,27 @@ Hardware Information:
         logging.info(f"Updating Global Setting: {variable} = {enabled}")
         global_settings.GlobalEnviromentSettings().write_property(variable, enabled)
 
-        if variable == auto_update.AUTO_ROOT_PATCH_UPDATES_KEY and enabled is False and Path(auto_update.STATE_FILE).exists():
-            wx.MessageBox(
-                "An automatic root patch update is already prepared. It is cancelled at the next restart, "
-                "and your Mac then starts without root patches until you patch it again from the root patching menu.",
-                "Automatic Root Patch Update Cancelled",
-                wx.OK | wx.ICON_INFORMATION,
+
+    def _auto_root_patch_opt_out_warning(self) -> str:
+        """
+        Confirmation shown before "Turn Off Auto Root Patch Updates" is ticked
+
+        Used to be a message box after the setting was already stored, and only
+        while an update was prepared - so turning it off normally showed nothing.
+        """
+        warning = (
+            "You are about to turn off automatic root patch updates.\n\n"
+            "After BridgePatcher is updated, your root patches stay on the previous build until you update "
+            "them yourself from the root patching menu. Outdated root patches can stop graphics acceleration, "
+            "Wi-Fi or other patched hardware from working correctly."
+        )
+        if Path(auto_update.STATE_FILE).exists():
+            warning += (
+                "\n\nAn automatic root patch update is already prepared and your old root patches were already removed. "
+                "It is cancelled at the next restart, and your Mac then starts without root patches "
+                "until you patch it again from the root patching menu."
             )
+        return warning + "\n\nDo you want to continue?"
 
 
     def toggle_auto_updates(self, variable: str = None, value: bool = None, constants_variable: str = None) -> None:
