@@ -49,7 +49,7 @@ CATEGORY_LABEL = {HATE: "Hate speech", ABUSE: "Abuse", MALWARE: "Malware"}
 
 # Fallback malware heuristics (only used when the Claude check is unavailable).
 # Deliberately narrow: ordinary diagnostic commands in bug reports must never match.
-TRUSTED_OWNERS = {"bridgepatcher", "albert-mueller", "dortania", "acidanthera"}
+TRUSTED_OWNERS = {"bridgepatcher", "albert-steinhof", "dortania", "acidanthera"}
 URL_RE = re.compile(r"https?://([^\s/\"'<>)]+)(/[^\s\"'<>)]*)?", re.I)
 PIPE_TO_SHELL_RE = re.compile(
     r"\b(curl|wget)\b[^\n|]*?(https?://[^\s|\"'<>]+)[^\n|]*\|\s*(sudo\s+)?(ba|z|da)?sh\b", re.I)

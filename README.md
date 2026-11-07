@@ -1,6 +1,6 @@
 <div align="center">
   <h1>BridgePatcher</h1>
-  <p><b>Developed & Maintained by <a href="https://github.com/albert-mueller">albert-mueller (Albert Müller)</a> in the <a href="https://github.com/bridgepatcher">bridgepatcher</a> organization, with community contributions</b></p>
+  <p><b>Developed & Maintained by <a href="https://github.com/albert-steinhof">albert-steinhof (Albert Steinhof)</a> in the <a href="https://github.com/bridgepatcher">bridgepatcher</a> organization, with community contributions</b></p>
   <p><i>Restoring full graphics acceleration, Broadcom Wi-Fi, audio routing, and T1/T2 security chip on macOS 26 Tahoe & macOS 15 Sequoia</i></p>
 </div>
 
@@ -31,7 +31,7 @@
 > Patcher contributors. See [LICENSE.txt](LICENSE.txt).
 
 ### 👑 Authorship & Contributions
-BridgePatcher is led by **albert-mueller (Albert Müller)**. While building upon work by Dortania and Acidanthera, BridgePatcher independently engineered the critical solutions that make macOS 26 Tahoe fully usable on legacy and T1/T2 hardware:
+BridgePatcher is led by **albert-steinhof (Albert Steinhof)**. While building upon work by Dortania and Acidanthera, BridgePatcher independently engineered the critical solutions that make macOS 26 Tahoe fully usable on legacy and T1/T2 hardware:
 
 1. **T1 Security & Native Login**: Engineered the Native Software Keystore login flow on macOS Tahoe for `MacBookPro14,1`, `MacBookPro14,2`, and `MacBookPro14,3` (retaining Apple ID/iCloud, resolving Keychain panics).
 2. **Broadcom Wi-Fi Restoration**: Unblocked the `IOSkywalkFamily` kernel stack in the EFI builder and root patcher on macOS 15 & 26 Tahoe, restoring full Wi-Fi functionality on Broadcom chipsets (`14E4:43BA`).
@@ -86,7 +86,7 @@ Note: Only clean-installs and upgrades are supported. Here's an exception: if yo
 
 * You can, however, reinstall macOS with this patcher and retain your original data
 
-Note 2: Currently, BridgePatcher officially supports patching to run macOS Monterey through Tahoe installs. For older OSes, OpenCore may function; however, support is currently not provided from Albert Müller.
+Note 2: Currently, BridgePatcher officially supports patching to run macOS Monterey through Tahoe installs. For older OSes, OpenCore may function; however, support is currently not provided from Albert Steinhof.
 
 * For Big Sur support, use [Dortania's OpenCore Legacy Patcher](https://github.com/dortania/OpenCore-Legacy-Patcher)
 * For macOS Sierra, High Sierra, Mojave and Catalina support, we recommend the use of [dosdude1's patchers](http://dosdude1.com)
@@ -136,7 +136,7 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
     * for fixing framebuffer issues and boot args
     * testing and troubleshooting
 * [vit9696](https://github.com/vit9696)
-* [Albert Müller](https://github.com/albert-mueller/)
+* [Albert Steinhof](https://github.com/albert-steinhof/)
     * Main author of BridgePatcher
     * Adding support for unsupported T2 Macs
     * Help troubleshooting, determining fixes, fixing security vulnerabilities and writing patches
