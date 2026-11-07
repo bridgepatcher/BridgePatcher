@@ -384,6 +384,7 @@ class SettingsFrame(wx.Frame):
                     "type": "checkbox",
                     "value": not auto_update.auto_opencore_updates_enabled(),
                     "variable": auto_update.AUTO_OPENCORE_UPDATES_KEY,
+                    "warning": self._auto_opencore_opt_out_warning,
                     "description": [
                         "When enabled, OpenCore is no longer",
                         "built and installed automatically after",
@@ -913,6 +914,24 @@ Hardware Information:
                 "\n\nAn automatic root patch update is already prepared and your old root patches were already removed. "
                 "It is cancelled at the next restart, and your Mac then starts without root patches "
                 "until you patch it again from the root patching menu."
+            )
+        return warning + "\n\nDo you want to continue?"
+
+
+    def _auto_opencore_opt_out_warning(self) -> str:
+        """
+        Confirmation shown before "Turn Off Auto OpenCore Updates" is ticked
+        """
+        warning = (
+            "You are about to turn off automatic OpenCore updates.\n\n"
+            "After BridgePatcher is updated, OpenCore is no longer built and installed for you. "
+            "You are asked first instead, and if you decline, your Mac keeps booting the previous OpenCore build, "
+            "which may lack fixes the new BridgePatcher and its root patches rely on."
+        )
+        if global_settings.GlobalEnviromentSettings().read_property(auto_update.AUTO_OPENCORE_INSTALLED_KEY) == self.constants.patcher_version:
+            warning += (
+                "\n\nThe OpenCore of this BridgePatcher version was already installed automatically. "
+                "It stays installed and is used from the next restart."
             )
         return warning + "\n\nDo you want to continue?"
 
