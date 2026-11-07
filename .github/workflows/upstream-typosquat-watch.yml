@@ -66,22 +66,49 @@ jobs:
           FORMER_NAMES: "OpenCore-Legacy-Patcher-T2 OCLP-T2"
           # Former official addresses: listed as typosquats whenever something is published there
           FORMER_HOSTS: "oclp-t2.github.io"
+          # Spam repositories named after the abbreviation (oclp, oclpu, oclpy, ...) and filled with
+          # gambling ads: listed when at least SPAM_MIN_FILES top-level file names contain one of
+          # SPAM_TERMS (| separated). Only specific Chinese gambling terms, so an honest repo that
+          # merely mentions a lottery (e.g. an Oregon Lottery presentation) never matches.
+          SPAM_NAMES: "oclp"
+          SPAM_TERMS: "彩票|购彩|博彩|时时彩|六合彩|快3|快三|竞彩|体彩|百家乐|棋牌|牛牛|飞艇|大小单双|倍投|下注|赌场|娱乐城"
+          SPAM_MIN_FILES: "10"
+          # --- Other sites to avoid (checked by hand) ---
+          # Sites that don't imitate the name but mislead visitors about the project or serve
+          # malicious ads. One per line: host | what was found | where it's documented
+          OTHER_SITES: |
+            en.soydemac.com | Machine-written article that falsely claims Dortania's OpenCore Legacy Patcher now supports T2 Macs; its ads led to a fake payment page, a fake Steam login (phishing), notification spam and a browser hijacker | bridgepatcher/BridgePatcher#599
           # --- Websites ---
           # Names whose typo variants are checked as domains under each TLD
           KEYWORDS: "opencore-legacy-patcher opencorelegacypatcher oclp opencore-patcher opencore-legacy-patcher-t2 oclp-t2"
           TLDS: "com net org io app dev info site xyz top online shop pro co cc"
           # Substrings searched for in certificate-transparency logs (crt.sh)
-          CT_KEYWORDS: "opencore-legacy-patcher opencorelegacypatcher legacy-patcher legacypatcher"
+          # (legacyopencore / opencorepatcher: the same words in another order, e.g. legacyopencorepatcher.com)
+          CT_KEYWORDS: "opencore-legacy-patcher opencorelegacypatcher legacy-patcher legacypatcher legacyopencore legacy-opencore opencorepatcher"
+          # Words lookalike download sites put around the name (getoclp.com, opencorelegacypatcher-download.net)
+          AFFIXES: "download get official app mac free install"
+          # Hosting platforms where anyone can claim <name>.<platform>; checked directly because
+          # wildcard certificates keep these addresses out of certificate-transparency logs
+          PLATFORMS: "github.io gitlab.io netlify.app vercel.app pages.dev web.app firebaseapp.com onrender.com surge.sh glitch.me itch.io"
           # Newly registered domains: days to look back, names to match, and how long
           # an empty one keeps being re-checked before it's dropped
           NRD_DAYS: "7"
-          NRD_KEYWORDS: "opencorelegacypatcher legacypatcher"
+          NRD_KEYWORDS: "opencorelegacypatcher legacypatcher legacyopencorepatcher opencorepatcher"
           WATCH_DAYS: "60"
           # A site is only listed if its page mentions one of these (case-insensitive, | separated)
           CONTENT_MARKERS: "opencore legacy patcher|opencore-legacy-patcher|opencorelegacypatcher"
           # Hosts (and their subdomains) that are never listed
           # oclp.net: possibly a Chinese community site, not verified as a fake
           ALLOWLIST: "github.com githubusercontent.com dortania.github.io bridgepatcher.github.io oclp.net"
+          # --- Web search (optional) ---
+          # With a free Brave Search API key (https://api-dashboard.search.brave.com) stored as repo
+          # secret BRAVE_SEARCH_API_KEY (or BRAVE_API_KEY), search results are checked too. Only pages
+          # on hosting platforms (someone.itch.io/...) or with the project's name in their address are
+          # considered, and only if they offer downloads; news sites and blogs never are.
+          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY || secrets.BRAVE_API_KEY }}
+          SEARCH_QUERIES: "\"OpenCore Legacy Patcher\" download|\"OpenCore Legacy Patcher\" download pkg Tahoe|\"OpenCore-Patcher.pkg\" download|OCLP download unsupported Mac"
+          SEARCH_RESULTS: "20"
+          FARM_ALLOWLIST: "reddit.com youtube.com youtu.be x.com twitter.com insanelymac.com tonymacx86.com macrumors.com stackexchange.com stackoverflow.com apple.com wikipedia.org discord.com discord.gg gitlab.com sourceforge.net"
           # Entries not seen for this many days are removed from the list
           FORGET_DAYS: "365"
           # Entries taken down (🔴) this many days in a row are removed from the list
