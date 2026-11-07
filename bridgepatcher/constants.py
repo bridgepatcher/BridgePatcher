@@ -38,7 +38,7 @@ LEGACY_ROOT_PATCH_MANIFEST_VERSION_KEY: str = "OpenCore Legacy Patcher"  # brand
 class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
-        self.patcher_version:                 str = "4.0.0.2000002"
+        self.patcher_version:                 str = "4.0.0.2000002.2"
         self.patcher_version_label=self.patcher_version
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
         self.bundle_identifier:               str = "com.bridgepatcher.bridgepatcher"
