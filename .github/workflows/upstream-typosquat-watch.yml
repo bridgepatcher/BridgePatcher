@@ -53,13 +53,13 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
           PROJECT_NAME: "OpenCore Legacy Patcher"
           # Mentioned once, in a comment when the warning issue is first created
-          MENTIONS: "khronokernel dhinakg albert-mueller gandolf243 IronApple0915"
+          MENTIONS: "khronokernel dhinakg albert-steinhof gandolf243 IronApple0915"
           # --- GitHub repositories ---
           # Repo names whose lookalikes (and non-fork copies) are checked
           # OpenCore-Legacy-Patcher-T2 (this project's former name) imitates Dortania's too
           REPO_NAMES: "OpenCore-Legacy-Patcher OpenCore-Legacy-Patcher-T2"
           # Owners / repos (owner/name) that are never listed
-          ALLOWLIST_OWNERS: "bridgepatcher albert-mueller"
+          ALLOWLIST_OWNERS: "bridgepatcher albert-steinhof"
           ALLOWLIST_REPOS: ""
           # Former names of this project: repos that aren't GitHub forks but still use one
           # in their name are listed too (forks of this project are left to the fork name check)
