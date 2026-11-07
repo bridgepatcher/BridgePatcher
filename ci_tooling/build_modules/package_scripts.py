@@ -518,7 +518,7 @@ class ZSHFunctions:
     def generate_verify_package(self) -> str:
         """
         ZSH function that checks the installer's SHA256 against the checksums published on
-        the release of this version (SHA256SUMS or certificates.txt) in every update channel's
+        the release of this version (SHA256SUMS) in every update channel's
         repository. If it matches none, the user has to confirm the install in a warning
         dialog; cancelling makes the preinstall script, and so the installation, fail.
         """
@@ -530,8 +530,7 @@ class ZSHFunctions:
         _script += "function _verifyPackage() {\n"
         _script += "    local -a checksumUrls=(\n"
         for repo in repos:
-            for name in ("SHA256SUMS", "certificates.txt"):
-                _script += f"        \"{repo}/releases/download/{version}/{name}\"\n"
+            _script += f"        \"{repo}/releases/download/{version}/SHA256SUMS\"\n"
         _script += "    )\n"
         _script += _VERIFY_BODY.replace("@VERSION@", version).replace("@SOURCES@", sources)
         _script += "}\n"
