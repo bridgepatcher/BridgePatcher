@@ -102,8 +102,8 @@ class UpdateFrame(wx.Frame):
         # Same cut as gui_main_menu.py: the asset table at the end is not useful here.
         self.changelog = str(changelog).split("## Asset Information")[0] if changelog else ""
 
-        # Our own releases ship a raw "BridgePatcher.pkg" asset (or, before the rename,
-        # "OpenCore-Patcher-T2.pkg" - see updates.py),
+        # Our own releases ship a raw "BridgePatcher.pkg" asset (the only name
+        # updates.py accepts, see there),
         # while the upstream Dortania nightly.link fallback (gui_macos_configeration.py)
         # still ships the original "OpenCore-Patcher.pkg" zipped up - keep expecting
         # whichever one this URL actually points to instead of hardcoding one name.
