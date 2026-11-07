@@ -213,10 +213,12 @@ jobs:
           name: BridgePatcher-Uninstaller.pkg
           path: ./dist/BridgePatcher-Uninstaller.pkg
 
-      - name: Upload packages and certificates to Release
+      - name: Upload packages to Release
         if: github.event_name == 'release'
         # Uses the preinstalled GitHub CLI instead of a third-party action,
         # which avoids the Node `url.parse()` deprecation warning (DEP0169).
+        # Checksums are published separately as SHA256SUMS by sha256sums.yml;
+        # dist/certificates.txt is no longer uploaded.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -225,5 +227,4 @@ jobs:
             ./dist/AutoPkg-Assets.pkg \
             ./dist/BridgePatcher.pkg \
             ./dist/BridgePatcher-Uninstaller.pkg \
-            ./dist/certificates.txt \
             --repo "$GITHUB_REPOSITORY"
