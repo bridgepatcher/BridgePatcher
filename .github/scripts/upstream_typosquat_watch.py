@@ -444,11 +444,12 @@ def describe_parked(watch):
             for h, o, s, r in zip(hosts, owners, status, reports)}
 
 
-def refresh_gone(state):
-    """Status of entries that were listed before but aren't found any more (down, deleted, ...)."""
-    today = TODAY.isoformat()
-    gone_sites = [h for h, e in state["sites"].items() if e.get("last_seen") != today]
-    gone_repos = [r for r, e in state["repos"].items() if e.get("last_seen") != today]
+def refresh_gone(state, seen):
+    """Status of entries that were listed before but weren't found by this run (down, deleted, ...).
+    `seen` holds what this run found: comparing last_seen with today's date isn't enough, because
+    an earlier run on the same day has already stamped today's date on entries that are gone now."""
+    gone_sites = [h for h in state["sites"] if h not in seen["sites"]]
+    gone_repos = [r for r in state["repos"] if r not in seen["repos"]]
     with cf.ThreadPoolExecutor(max_workers=4) as ex:
         for h, s in zip(gone_sites, ex.map(site_status, gone_sites)):
             state["sites"][h]["status"] = s
@@ -460,7 +461,7 @@ def taken_down(entry):
     return str(entry.get("status") or "").startswith("🔴")
 
 
-def prune_taken_down(state):
+def prune_taken_down(state, seen):
     """Remove entries that have been taken down for TAKEDOWN_DAYS in a row. Former official
     addresses are removed as soon as nothing is published there any more; they come back
     (with a new-entry comment) once something is."""
@@ -468,13 +469,13 @@ def prune_taken_down(state):
     cutoff = (TODAY - datetime.timedelta(days=TAKEDOWN_DAYS)).isoformat()
     removed = []
     for key in [k for k in state["sites"] if k in ts.FORMER_HOSTS]:
-        if state["sites"][key].get("last_seen") != today:
+        if key not in seen["sites"]:
             del state["sites"][key]
             removed.append(key)
     for kind in ("sites", "repos"):
         store = state[kind]
         for key, entry in list(store.items()):
-            if entry.get("last_seen") == today or not taken_down(entry):
+            if key in seen[kind] or not taken_down(entry):
                 entry.pop("down_since", None)  # back online, or not fully gone: start over
                 continue
             if entry.setdefault("down_since", today) <= cutoff:
@@ -514,10 +515,9 @@ def merge(store, found):
     return new
 
 
-def render(state):
-    today = TODAY.isoformat()
-    sites = {h: e for h, e in state["sites"].items() if e["last_seen"] == today}
-    repos = {r: e for r, e in state["repos"].items() if e["last_seen"] == today}
+def render(state, seen):
+    sites = {h: e for h, e in state["sites"].items() if h in seen["sites"]}
+    repos = {r: e for r, e in state["repos"].items() if r in seen["repos"]}
     gone_sites = {h: e for h, e in state["sites"].items() if h not in sites}
     gone_repos = {r: e for r, e in state["repos"].items() if r not in repos}
     out = [
@@ -617,12 +617,14 @@ def main():
         return
     state = load_state(tracker["body"] if tracker else "")
 
-    new_sites = merge(state["sites"], scan_sites(state["watch"]))
-    new_repos = merge(state["repos"], scan_repos())
+    found_sites, found_repos = scan_sites(state["watch"]), scan_repos()
+    seen = {"sites": set(found_sites), "repos": set(found_repos)}
+    new_sites = merge(state["sites"], found_sites)
+    new_repos = merge(state["repos"], found_repos)
     state["parked"] = describe_parked(state["watch"])
-    refresh_gone(state)
-    removed = prune_taken_down(state)
-    body = render(state)
+    refresh_gone(state, seen)
+    removed = prune_taken_down(state, seen)
+    body = render(state, seen)
     if len(body) > 65000:
         print("::warning::Warning issue is close to GitHub's size limit; consider lowering FORGET_DAYS.")
 
