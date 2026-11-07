@@ -11,6 +11,8 @@ payloads/Kexts/Plists/USB-Map.kext/Contents/Info.plist
 # notice (Constants.copyright_date) is kept there.
 opencore_legacy_patcher/constants.py
 
-# App bundle renamed: moved to payloads/Tools/OpenCore-Patcher-T2.app/Contents/Info.plist,
-# its NSHumanReadableCopyright still credits Dortania and OpenCore Legacy Patcher contributors.
+# App bundle renamed (OpenCore-Patcher.app -> OpenCore-Patcher-T2.app -> BridgePatcher.app):
+# moved to payloads/Tools/BridgePatcher.app/Contents/Info.plist, its
+# NSHumanReadableCopyright still credits Dortania and OpenCore Legacy Patcher contributors.
 payloads/Tools/OpenCore-Patcher.app/Contents/Info.plist
+payloads/Tools/OpenCore-Patcher-T2.app/Contents/Info.plist
