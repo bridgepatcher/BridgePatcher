@@ -1,7 +1,7 @@
 <div align="center">
   <h1>BridgePatcher</h1>
   <p><b>Developed & Maintained by <a href="https://github.com/albert-mueller">albert-mueller (Albert Müller)</a> in the <a href="https://github.com/bridgepatcher">bridgepatcher</a> organization, with community contributions</b></p>
-  <p><i>Restoring full graphics acceleration, Broadcom Wi-Fi, audio routing, and T1/T2 security on macOS 26 Tahoe & macOS 15 Sequoia</i></p>
+  <p><i>Restoring full graphics acceleration, Broadcom Wi-Fi, audio routing, and T1/T2 security chip on macOS 26 Tahoe & macOS 15 Sequoia</i></p>
 </div>
 
 ---
@@ -219,7 +219,7 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
   * macOS 15 3802 Helios Research
   * UEFI bootx64.efi research
   * universal2 build research
-  * Various documentation contributions
+  * Various documentation contributions in Dortania's OpenCore Legacy Patcher
 * [crystall1nedev](https://github.com/crystall1nedev)
   * Various contributions to Dortania's OpenCore Legacy Patcher and PatcherSupportPkg
 * Amazing users who've graciously donated hardware to the developers of Dortania's OpenCore Legacy Patcher:
