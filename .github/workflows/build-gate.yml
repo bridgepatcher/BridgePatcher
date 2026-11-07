@@ -1,0 +1,209 @@
+# .github/workflows/build-gate.yml
+#
+# Build gate: "CI - Build BridgePatcher" (build-release.yml) only builds, signs and uploads
+# the patcher (artifacts and release assets) once every job here has passed. While a licence
+# violation, an attribution violation or malware is present, nothing is built or uploaded.
+# The gate opens again by itself once the violation is gone.
+#
+#   license      License Guard's full audit of the commit being built against Dortania's
+#                upstream (removed/replaced copyright notices, Dortania's artwork, names,
+#                Discord links, ...), plus the license compliance check (Dortania's complete
+#                LICENSE.txt, LICENSE.txt bundled in the app, the acknowledgement in the README
+#                and on the website). Same scripts as license-guard.yml and
+#                license-compliance.yml, run on exactly the commit that would be built, so a
+#                branch that fixes a violation can build even before it is merged.
+#   malware      ClamAV over every file of the commit being built (binaries in payloads/
+#                included), plus the "high" malware techniques of the PR scanner
+#                (malware-scan.yml) over every tracked text file - not just a PR's diff, so
+#                malware that was pushed straight to a branch is caught too.
+#   open-issues  Blocks while one of these issues is open (pull requests are ignored):
+#                  attribution-violation    Attribution guard: Dortania's copyright, licence
+#                                           or credit notices removed or rewritten. The audit
+#                                           issue closes itself once fixed; per-commit issues
+#                                           are closed by hand after the notices are restored.
+#                  needs-credit             only the "Credit audit" issue (people removed from
+#                                           the Credits); closes itself once fixed.
+#                  malware                  malware delivery reported (e.g. by a maintainer or
+#                                           found outside this repository).
+#                  build-blocked            a maintainer stops all builds by hand.
+#                The License Guard issue is not listed: the license job above re-checks the
+#                commit itself, which is stricter and lets fixes build.
+#
+# Nothing here is ever executed from the checked-out files except the repository's own
+# check scripts; the scanned files are only read.
+#
+# Limits: a push runs the workflow files from the pushed commit, so someone who can push can
+# also remove this gate in the same push. Protect main with a ruleset (require pull requests,
+# CODEOWNERS review for .github/) so changes to the gate itself need review.
+
+name: Build gate
+
+on:
+  workflow_call: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: read
+
+env:
+  UPSTREAM_HOLDER: Dortania
+  UPSTREAM_REPO: dortania/OpenCore-Legacy-Patcher
+
+jobs:
+  license:
+    name: License and attribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout the commit to be built
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Determine audit range (upstream vs. fork)
+        id: range
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BRANCH=$(gh api "repos/$UPSTREAM_REPO" --jq .default_branch)
+          git fetch --no-tags "https://github.com/$UPSTREAM_REPO.git" "+refs/heads/$BRANCH:refs/remotes/upstream/$BRANCH"
+          UP="upstream/$BRANCH"
+          if git merge-base "$UP" HEAD >/dev/null 2>&1; then
+            echo "range=${UP}...HEAD" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No common history with $UPSTREAM_REPO, using a plain tree diff"
+            echo "range=${UP}..HEAD" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Same tools as license-guard.yml (artwork and image text checks)
+      - name: Install Pillow, OpenCV and tesseract
+        run: |
+          python -m pip install --disable-pip-version-check "pillow==11.3.0" "opencv-python-headless==4.11.0.86"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-eng
+
+      # Shares License Guard's OCR cache, so only new or changed images are read again.
+      - name: Restore OCR cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/license-guard-art-cache.json
+          key: license-guard-art-${{ hashFiles('.github/scripts/license_guard.py') }}-${{ github.run_id }}
+          restore-keys: |
+            license-guard-art-${{ hashFiles('.github/scripts/license_guard.py') }}-
+
+      - name: License Guard full audit
+        id: guard
+        env:
+          RANGE: ${{ steps.range.outputs.range }}
+          REPORT_PATH: ${{ runner.temp }}/license-report.md
+          ART_CACHE: ${{ runner.temp }}/license-guard-art-cache.json
+        run: python3 .github/scripts/license_guard.py "$RANGE"
+
+      - name: License compliance check
+        id: compliance
+        if: always() && steps.range.outcome == 'success'
+        env:
+          CHECK_WEBSITE: "1"
+        run: python3 .github/scripts/check_license_compliance.py .
+
+      - name: Block the build on violations
+        if: always()
+        env:
+          GUARD: ${{ steps.guard.outcome }}
+          VIOLATIONS: ${{ steps.guard.outputs.violations }}
+          COMPLIANCE: ${{ steps.compliance.outcome }}
+        run: |
+          fail=0
+          if [ "$GUARD" != "success" ] || [ -z "$VIOLATIONS" ]; then
+            echo "::error::License Guard couldn't audit this commit, so it isn't built."; fail=1
+          elif [ "$VIOLATIONS" != "0" ]; then
+            echo "::error::License Guard found $VIOLATIONS license/attribution violation(s). Nothing is built or uploaded until they are fixed - see the job summary."; fail=1
+          fi
+          if [ "$COMPLIANCE" != "success" ]; then
+            echo "::error::The license compliance check failed (Dortania's BSD 4-Clause terms). Nothing is built or uploaded until it passes."; fail=1
+          fi
+          exit $fail
+
+  malware:
+    name: Malware
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout the commit to be built
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Malware techniques in tracked files
+        id: patterns
+        run: node .github/scripts/malware_tree_scan.js .
+
+      # The official image ships with an up-to-date signature database; the scanner runs
+      # without network access and the checkout is mounted read-only.
+      - name: ClamAV scan of the whole tree
+        id: clamav
+        if: always()
+        run: |
+          set -uo pipefail
+          docker run --rm --network none --entrypoint clamscan \
+            -v "$GITHUB_WORKSPACE:/scan:ro" \
+            clamav/clamav:stable \
+            --recursive --infected --no-summary \
+            --exclude-dir='^/scan/\.git$' \
+            --max-filesize=200M --max-scansize=400M \
+            /scan > "$RUNNER_TEMP/clamav.txt" 2> "$RUNNER_TEMP/clamav-err.txt"
+          rc=$?
+          # 0 = clean, 1 = malware found, 2 = scanner error
+          if [ "$rc" -eq 1 ]; then
+            { echo "### ❌ ClamAV found malware"; echo; sed 's|^/scan/|- |' "$RUNNER_TEMP/clamav.txt"; } >> "$GITHUB_STEP_SUMMARY"
+            sed 's|^/scan/||' "$RUNNER_TEMP/clamav.txt" | while IFS= read -r l; do
+              echo "::error file=${l%%: *}::ClamAV: ${l#*: }"
+            done
+            echo "::error::ClamAV found malware. Nothing is built or uploaded until it is removed."
+            exit 1
+          elif [ "$rc" -ne 0 ]; then
+            echo "::error::ClamAV couldn't finish the scan (exit $rc), so this commit isn't built: $(head -c 1000 "$RUNNER_TEMP/clamav-err.txt")"
+            exit 1
+          fi
+          echo "ClamAV: no malware found."
+
+  open-issues:
+    name: Open violation reports
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Block the build while a violation is reported
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const BLOCKING = [
+              { label: 'attribution-violation', why: 'Attribution violation: Dortania\'s copyright, licence or credit notices were removed or rewritten' },
+              { label: 'needs-credit', title: 'Credit audit: contributors removed from Credits on main', why: 'Attribution violation: people were removed from the Credits' },
+              { label: 'malware', why: 'Malware delivery reported' },
+              { label: 'build-blocked', why: 'Builds blocked by a maintainer' },
+            ];
+            const found = [];
+            for (const b of BLOCKING) {
+              const open = await github.paginate(github.rest.issues.listForRepo,
+                { owner, repo, state: 'open', labels: b.label, per_page: 100 });
+              for (const i of open) {
+                if (i.pull_request || (b.title && i.title !== b.title)) continue;
+                found.push({ ...b, issue: i });
+              }
+            }
+            if (!found.length) { core.info('No open violation reports.'); return; }
+            const lines = found.map(f => `- **${f.why}**: [#${f.issue.number} ${f.issue.title}](${f.issue.html_url})`);
+            await core.summary.addRaw(['### ❌ Build blocked', '', ...lines, '',
+              'Fix the violation. The build is allowed again once these issues are closed ' +
+              '(the audit issues close themselves once the violation is gone).'].join('\n')).write();
+            for (const f of found) core.error(`${f.why}: #${f.issue.number} ${f.issue.title} (${f.issue.html_url})`);
+            core.setFailed(`${found.length} open violation report(s). Nothing is built or uploaded until they are resolved.`);
