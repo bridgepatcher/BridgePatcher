@@ -676,6 +676,14 @@ class GenerateScripts:
             "Library/LaunchAgents/com.bridgepatcher.bridgepatcher.auto-patch.plist"
         ]
 
+        # Only removed by the uninstaller: state of an automatic root patch update
+        # (sys_patch/auto_patcher/auto_update.py). Its one-shot LaunchDaemon is
+        # covered by _cleanLaunchService. An update must not remove it - the
+        # update in progress reports itself at the next login.
+        self.uninstall_only_files = [
+            "var/db/com.bridgepatcher.bridgepatcher",
+        ]
+
 
     def __generate_shebang(self) -> str:
         """
@@ -868,7 +876,7 @@ class GenerateScripts:
         _script += self._generate_label_bar()
         _script += "\n"
 
-        _files = self.files
+        _files = self.files + self.uninstall_only_files
 
         _script += "filesToRemove=(\n"
         for _file in _files:
