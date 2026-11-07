@@ -7,6 +7,7 @@ import concurrent.futures as cf
 import datetime
 import html
 import io
+import itertools
 import json
 import os
 import re
@@ -33,6 +34,13 @@ ALLOWLIST = {h.lower() for h in os.environ.get("ALLOWLIST", "").split()}
 # Former names of the project (e.g. OpenCore-Legacy-Patcher-T2): a working website whose address
 # contains one counts as a lookalike even if its page doesn't mention the project
 FORMER_NAMES = os.environ.get("FORMER_NAMES", "").split()
+# Words that lookalike download sites put around the name (get-oclp.com, oclp-download.net).
+# They're added to the keywords as written, not to every typo of them.
+AFFIXES = [a.lower() for a in os.environ.get("AFFIXES", "").split()]
+# Hosting platforms where anyone can claim <name>.<platform> (oclp.netlify.app, oclp.itch.io).
+# Those addresses share the platform's wildcard certificate, so they never show up in
+# certificate-transparency logs or newly registered domain lists: they're checked directly.
+PLATFORMS = [p.lower().lstrip(".") for p in os.environ.get("PLATFORMS", "").split()]
 # Former official addresses of the project (e.g. oclp-t2.github.io). They no longer belong to it,
 # so they are reported as soon as anything is published there again. While they're down
 # (404 or no response) they're skipped. Their issues use their own marker (<host>#live), so a
@@ -192,14 +200,49 @@ def former_name_pages():
     return hosts
 
 
+def _words(keyword):
+    return [w for w in re.split(r"[-_.\s]+", keyword.lower()) if w]
+
+
+def name_forms(keyword):
+    """The keyword's words in every order, joined with and without dashes, each also as a plural:
+    legacy-opencore-patcher, legacyopencorepatcher, opencorelegacypatchers, ... Typo variants
+    alone miss these, because reordering words or adding a letter is more than two typos."""
+    words = _words(keyword)
+    orders = itertools.permutations(words) if len(words) <= 3 else [words]
+    out = set()
+    for order in orders:
+        for sep in ("", "-"):
+            v = sep.join(order)
+            out.update((v, v + "s"))
+    return {v for v in out if HOST_LABEL.match(v)}
+
+
+def affixed(keyword):
+    """The keyword with AFFIXES in front or behind: getoclp, oclp-download, ..."""
+    words = _words(keyword)
+    out = set()
+    for base in {"".join(words), "-".join(words)}:
+        for a in AFFIXES:
+            for sep in ("", "-"):
+                out.update((a + sep + base, base + sep + a))
+    return {v for v in out if HOST_LABEL.match(v)}
+
+
+def platform_of(host):
+    """The hosting platform a host is a subdomain of (e.g. "netlify.app"), or ""."""
+    return next((p for p in PLATFORMS if host.endswith("." + p)), "")
+
+
 def domain_candidates(keywords):
     hosts = set()
     for kw in keywords:
-        for v in variants(kw):
-            if HOST_LABEL.match(v):
-                hosts.update(f"{v}.{tld}" for tld in TLDS)
-        for v in homograph_variants(kw):
+        labels = {v for v in variants(kw) if HOST_LABEL.match(v)} | name_forms(kw) | affixed(kw)
+        for v in labels | homograph_variants(kw):
             hosts.update(f"{v}.{tld}" for tld in TLDS)
+        # Platform subdomains only for the name itself (GitHub account names: at most 39 characters)
+        for v in name_forms(kw):
+            hosts.update(f"{v}.{p}" for p in PLATFORMS if len(v) <= 39)
     return hosts
 
 

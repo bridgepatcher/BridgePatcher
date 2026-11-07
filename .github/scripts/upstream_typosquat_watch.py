@@ -36,6 +36,13 @@ ALLOW_REPOS = {s.lower() for s in os.environ.get("ALLOWLIST_REPOS", "").split()}
 # Former names of the project in ISSUE_REPO (e.g. OpenCore-Legacy-Patcher-T2). Repos that aren't
 # GitHub forks but still carry one in their name are listed as lookalikes of upstream too.
 FORMER_NAMES = os.environ.get("FORMER_NAMES", "").split()
+# Repos named like upstream plus extra words (OpenCore-Legacy-Patcher-Download) are listed when
+# their README sends people to downloads outside GitHub, they show impersonation signals, or
+# the extra words pretend to be the real release (and they publish their own downloads).
+# Plainly named derivatives with their own releases (OpenCore-Legacy-Patcher-NOSWAP) are not.
+IMPERSONATION_WORDS = {w.lower() for w in os.environ.get(
+    "IMPERSONATION_WORDS", "download downloads official latest release releases installer setup free "
+    "crack cracked pkg dmg stable").split()}
 # How long a newly registered lookalike domain without content keeps being re-checked
 WATCH_DAYS = int(os.environ.get("WATCH_DAYS", "60"))
 # Entries not seen for this long are dropped from the list entirely
@@ -47,6 +54,19 @@ OFFICIAL_SOURCES = os.environ.get("OFFICIAL_SOURCES", "").strip()
 PROJECT = os.environ.get("PROJECT_NAME", "OpenCore Legacy Patcher")
 # GitHub users mentioned once, in a comment when the warning issue is first created
 MENTIONS = [m if m.startswith("@") else "@" + m for m in os.environ.get("MENTIONS", "").split()]
+
+# Spam repositories named after the project's abbreviation (oclp, oclpu, oclpy, ...) that are
+# filled with unrelated gambling ads to rank in searches. A repo counts as spam when at least
+# SPAM_MIN_FILES of its top-level file names contain one of SPAM_TERMS. The terms are specific
+# Chinese gambling vocabulary on purpose: a plain "lottery" would also match honest projects.
+SPAM_NAMES = [n.lower() for n in os.environ.get("SPAM_NAMES", "").split()]
+SPAM_TERMS = [t for t in os.environ.get("SPAM_TERMS", "").split("|") if t.strip()]
+SPAM_MIN_FILES = int(os.environ.get("SPAM_MIN_FILES", "10"))
+SPAM_MAX_AGE_DAYS = int(os.environ.get("SPAM_MAX_AGE_DAYS", "365"))
+# Sites the maintainers checked by hand that harm visitors without imitating the name (misleading
+# articles, malicious ads). One per line: host | what it does | where it's documented
+OTHER_SITES = [[c.strip() for c in line.split("|")] for line in os.environ.get("OTHER_SITES", "").splitlines()
+               if line.strip() and not line.strip().startswith("#")]
 
 LABEL = "upstream-typosquat"
 MARKER = "<!-- upstream-typosquat-tracker -->"
@@ -112,7 +132,15 @@ def readme_download_links(full):
     return sorted(found)
 
 
-def evaluate_repo(full, owner_sq, root, up_owner):
+def impersonation_words(name):
+    """Words in a repo name, beyond upstream's own name, that pretend to be the real release."""
+    own = {w for n in REPO_NAMES for w in re.split(r"[-_. ]+", n.lower())}
+    return sorted(set(re.split(r"[-_. ]+", name.lower())) & (IMPERSONATION_WORDS - own))
+
+
+def evaluate_repo(full, owner_sq, root, up_owner, extended=False):
+    """extended: the name only contains upstream's name (with extra words) instead of being
+    upstream's name or a typo of it, so it takes stronger evidence to be listed."""
     repo = get(f"/repos/{full}")
     if not repo:
         return None
@@ -138,6 +166,10 @@ def evaluate_repo(full, owner_sq, root, up_owner):
     suspicious, signals = assess(repo, owner_sq, up_owner)
     if not reasons and not suspicious:
         return None  # a harmless copy without its own downloads
+    if extended and not (ext or suspicious or (assets and impersonation_words(repo["name"]))):
+        return None  # a derivative under its own name (OpenCore-Legacy-Patcher-NOSWAP), not a fake
+    if extended and assets and impersonation_words(repo["name"]):
+        reasons.append("name presents it as the real release (" + ", ".join(impersonation_words(repo["name"])) + ")")
     if public_offline(full, asset_urls):
         return None  # hidden from the public: listed under "no longer reachable" until it's pruned
     return {"reasons": cell("; ".join(reasons + signals), 160),
@@ -278,6 +310,12 @@ def report_info(host, ips=None):
                     dns="GitHub", hosting=abuse_contact("GitHub"))
         info["dns"] = info["hosting"]
         return {k: cell(v, 200) for k, v in info.items()}
+    platform = ts.platform_of(host)
+    if platform:
+        # The platform takes such pages down; the registrar of its own domain has nothing to do with it
+        info.update(registered="—", registrar=f"— ({platform})", dns=platform,
+                    hosting=f"{platform} (report the page there, e.g. its abuse or report form)")
+        return {k: cell(v, 200) for k, v in info.items()}
     reg = domain_rdap(host)
     info["registered"] = reg.get("registered") or "—"
     info["registrar"] = abuse_contact(reg.get("registrar") or "", reg.get("abuse") or "")
@@ -322,6 +360,9 @@ def site_owner(host, ips=None):
     the registration date and the hosting network."""
     if host.endswith(".github.io"):
         return gh_account(host[: -len(".github.io")].split(".")[-1])
+    platform = ts.platform_of(host)
+    if platform:
+        return cell(f"{platform} account {host[: -len(platform) - 1]} (anyone can sign up there)", 160)
     reg = domain_rdap(host)
     parts = [f"registrant {reg['registrant']}" if reg.get("registrant") else
              ("owner hidden (privacy protection)" if reg else "no registration data")]
@@ -368,14 +409,66 @@ def scan_repos():
                 continue
             if (name.lower() in exact or any(looks_like(name, n) for n in REPO_NAMES)
                     or contains_name(name, FORMER_NAMES)):
-                candidates[full] = looks_like(owner, up_owner)
+                candidates[full] = (looks_like(owner, up_owner), False)
+            elif contains_name(name, REPO_NAMES):  # upstream's name plus extra words
+                candidates[full] = (looks_like(owner, up_owner), True)
     print(f"{len(candidates)} repository candidates")
     found = {}
-    for full, owner_sq in sorted(candidates.items()):
-        info = evaluate_repo(full, owner_sq, root, up_owner)
+    for full, (owner_sq, extended) in sorted(candidates.items()):
+        info = evaluate_repo(full, owner_sq, root, up_owner, extended)
         if info:
             found[full] = info
     return found
+
+
+def spam_files(full):
+    """Top-level file names of a repo that carry gambling spam terms."""
+    listing = get(f"/repos/{full}/contents") or []
+    names = [item.get("name", "") for item in listing if isinstance(item, dict)]
+    return [n for n in names if any(t in n for t in SPAM_TERMS)]
+
+
+def scan_spam(skip):
+    """Spam repositories named after the project (see SPAM_NAMES)."""
+    if not SPAM_NAMES or not SPAM_TERMS:
+        return {}
+    since = (TODAY - datetime.timedelta(days=SPAM_MAX_AGE_DAYS)).isoformat()
+    found = {}
+    for n in SPAM_NAMES:
+        path = f"/search/repositories?q={urllib.parse.quote(f'{n} in:name fork:false created:>{since}')}&per_page=100"
+        items = paginate(path)
+        time.sleep(2.2)
+        for item in items:
+            full = item["full_name"]
+            if full in skip or n not in re.sub(r"[^a-z0-9]", "", item["name"].lower()):
+                continue
+            hits = spam_files(full)
+            if len(hits) < SPAM_MIN_FILES:
+                continue
+            found[full] = {
+                "reasons": cell(f"gambling / lottery ads, nothing about {PROJECT}: {len(hits)} pages like "
+                                f"'{hits[0][:40]}'", 160),
+                "owner": gh_account(item["owner"]["login"]),
+                "status": repo_status(item),
+            }
+    print(f"{len(found)} spam repositories")
+    return found
+
+
+def scan_other_sites():
+    """OTHER_SITES with their current status and report details."""
+    out = {}
+    for row in OTHER_SITES:
+        host, what, doc = (row + ["", "", ""])[:3]
+        host = host.lower()
+        if not host:
+            continue
+        st, _, page = ts.fetch(f"https://{host}/")
+        online = bool(st and st < 400) or bool(page)
+        out[host] = {"what": cell(what, 300), "doc": cell(doc, 120),
+                     "status": "🟢 online" if online else f"🔴 down ({st or 'no response'})",
+                     "owner": site_owner(host), "report": report_info(host)}
+    return out
 
 
 # ----------------------------------------------------------------- websites --
@@ -401,6 +494,11 @@ def scan_sites(watch):
     print(f"{len(targets)} hostnames to check")
     with cf.ThreadPoolExecutor(max_workers=48) as ex:
         results = [r for r in ex.map(lambda hp: ts.inspect(*hp), targets.items()) if r]
+    searched = {h: u for h, u in search_candidates().items() if h not in {r["host"] for r in results}}
+    with cf.ThreadPoolExecutor(max_workers=8) as ex:
+        hits = ex.map(lambda hu: ts.inspect(hu[0], urllib.parse.urlsplit(hu[1]).path or "/"), searched.items())
+        # A page found by search only counts if it also offers downloads (a guide doesn't)
+        results += [r for r in hits if r and r["download_hosts"]]
     found = {}
     for r in results:
         found[r["host"]] = {
@@ -433,6 +531,32 @@ def scan_sites(watch):
     return found
 
 
+def search_candidates():
+    """Web search hits (Brave Search API, optional) that could imitate the project: pages on
+    hosting platforms under any account name (someone.itch.io/opencore-legacy-patcher) and
+    hosts with the project's name in them. News sites, blogs and download portals that only
+    write about the project aren't candidates: their address doesn't imitate it."""
+    if not ts.SEARCH_QUERIES:
+        return {}
+    if not ts.BRAVE_KEY:
+        print("::notice::No Brave Search API key set; web search for lookalike pages skipped.")
+        return {}
+    names = {re.sub(r"[^a-z0-9]", "", v) for kw in ts.KEYWORDS for v in ts.name_forms(kw)}
+    names = {n for n in names if len(n) >= 6}  # "oclp" alone is too short to judge a hostname by
+    urls = {}
+    for query in ts.SEARCH_QUERIES:
+        for url in ts.brave_search(query):
+            host = (urllib.parse.urlsplit(url).hostname or "").lower()
+            flat = re.sub(r"[^a-z0-9]", "", ts.unpuny(host))
+            if not host or ts.allowed(host, "") or host_in(host, ts.FARM_ALLOWLIST):
+                continue
+            if ts.platform_of(host) or any(n in flat for n in names):
+                urls.setdefault(host, url)
+        time.sleep(1.2)  # free plan: about one request per second
+    print(f"{len(urls)} hosts from web search to check")
+    return urls
+
+
 def describe_parked(watch):
     """Newly registered lookalike domains that have no website yet."""
     hosts = sorted(watch)
@@ -450,11 +574,13 @@ def refresh_gone(state, seen):
     an earlier run on the same day has already stamped today's date on entries that are gone now."""
     gone_sites = [h for h in state["sites"] if h not in seen["sites"]]
     gone_repos = [r for r in state["repos"] if r not in seen["repos"]]
+    gone_repos += [("spam", r) for r in state["spam"] if r not in seen["spam"]]
     with cf.ThreadPoolExecutor(max_workers=4) as ex:
         for h, s in zip(gone_sites, ex.map(site_status, gone_sites)):
             state["sites"][h]["status"] = s
     for r in gone_repos:
-        state["repos"][r]["status"] = gone_repo_status(r)
+        kind, r = r if isinstance(r, tuple) else ("repos", r)
+        state[kind][r]["status"] = gone_repo_status(r)
 
 
 def taken_down(entry):
@@ -472,7 +598,7 @@ def prune_taken_down(state, seen):
         if key not in seen["sites"]:
             del state["sites"][key]
             removed.append(key)
-    for kind in ("sites", "repos"):
+    for kind in ("sites", "repos", "spam"):
         store = state[kind]
         for key, entry in list(store.items()):
             if key in seen[kind] or not taken_down(entry):
@@ -495,9 +621,9 @@ def prune_taken_down(state, seen):
 def load_state(body):
     m = STATE_RE.search(body or "")
     if not m:
-        return {"sites": {}, "repos": {}, "watch": {}, "parked": {}}
+        return {"sites": {}, "repos": {}, "spam": {}, "watch": {}, "parked": {}}
     state = json.loads(base64.b64decode(m.group(1)))
-    for k in ("sites", "repos", "watch", "parked"):
+    for k in ("sites", "repos", "spam", "watch", "parked"):
         state.setdefault(k, {})
     return state
 
@@ -520,6 +646,9 @@ def render(state, seen):
     repos = {r: e for r, e in state["repos"].items() if r in seen["repos"]}
     gone_sites = {h: e for h, e in state["sites"].items() if h not in sites}
     gone_repos = {r: e for r, e in state["repos"].items() if r not in repos}
+    spam = {r: e for r, e in state["spam"].items() if r in seen["spam"]}
+    gone_repos.update({r: e for r, e in state["spam"].items() if r not in spam})
+    other = state.get("other") or {}
     out = [
         f"The websites and GitHub repositories below use names that imitate **{PROJECT}**. "
         "They are **not** run by its developers or by this project. Please don't download anything "
@@ -534,10 +663,10 @@ def render(state, seen):
         f"### Websites ({len(sites)})",
     ]
     if sites:
-        out += ["| Site | Status | Belongs to | Page title | Download links point to | First seen |",
-                "|---|---|---|---|---|---|"]
+        out += ["| Site | Status | Belongs to | Page title | Download links point to | First seen | Last seen |",
+                "|---|---|---|---|---|---|---|"]
         out += [f"| `{h}` | {e.get('status', '—')} | {e.get('owner', '—')} | {e['title']} | {e['downloads']} "
-                f"| {e['first_seen']} |" for h, e in sorted(sites.items())]
+                f"| {e['first_seen']} | {e['last_seen']} |" for h, e in sorted(sites.items())]
     else:
         out.append("None found right now.")
     parked = state.get("parked") or {}
@@ -547,7 +676,13 @@ def render(state, seen):
                 "They're listed so you recognise them if they go live.", "",
                 "| Domain | Status | Belongs to | Noticed |", "|---|---|---|---|"]
         out += [f"| `{h}` | {e['status']} | {e['owner']} | {e['since']} |" for h, e in sorted(parked.items())]
-    to_report = {h: e["report"] for h, e in {**sites, **parked}.items() if e.get("report")}
+    if other:
+        out += ["", f"### Other sites to avoid ({len(other)})",
+                "These don't imitate the name, but the maintainers found that they mislead visitors about "
+                f"{PROJECT} or expose them to malicious ads.", "",
+                "| Site | Status | Belongs to | What we found | Details |", "|---|---|---|---|---|"]
+        out += [f"| `{h}` | {e['status']} | {e['owner']} | {e['what']} | {e['doc']} |" for h, e in sorted(other.items())]
+    to_report = {h: e["report"] for h, e in {**sites, **parked, **other}.items() if e.get("report")}
     if to_report:
         out += ["", "<details><summary>Where to report these sites (IP addresses, registrar, DNS, hosting)"
                 "</summary>", "",
@@ -561,11 +696,21 @@ def render(state, seen):
         out += ["", "</details>"]
     out += ["", f"### GitHub repositories ({len(repos)})"]
     if repos:
-        out += ["| Repository | Status | Belongs to | Why it's listed | First seen |", "|---|---|---|---|---|"]
-        out += [f"| `{r}` | {e.get('status', '—')} | {e.get('owner', '—')} | {e['reasons']} | {e['first_seen']} |"
-                for r, e in sorted(repos.items())]
+        out += ["| Repository | Status | Belongs to | Why it's listed | First seen | Last seen |",
+                "|---|---|---|---|---|---|"]
+        out += [f"| `{r}` | {e.get('status', '—')} | {e.get('owner', '—')} | {e['reasons']} | {e['first_seen']} "
+                f"| {e['last_seen']} |" for r, e in sorted(repos.items())]
     else:
         out.append("None found right now.")
+    if spam:
+        out += ["", f"### Spam repositories using the name ({len(spam)})",
+                "Named after the project's abbreviation but filled with unrelated gambling ads, to show up in "
+                "searches for it. They don't offer the software. You can report them to GitHub at "
+                "https://github.com/contact/report-abuse (reason: spam).", "",
+                "| Repository | Status | Belongs to | What's in it | First seen | Last seen |",
+                "|---|---|---|---|---|---|"]
+        out += [f"| `{r}` | {e.get('status', '—')} | {e.get('owner', '—')} | {e['reasons']} | {e['first_seen']} "
+                f"| {e['last_seen']} |" for r, e in sorted(spam.items())]
     if gone_sites or gone_repos:
         out += ["", f"<details><summary>No longer imitating or reachable ({len(gone_sites) + len(gone_repos)})"
                 "</summary>", "", "| Name | Status now | Belonged to | Last seen |", "|---|---|---|---|"]
@@ -574,8 +719,9 @@ def render(state, seen):
         out += ["", "</details>"]
     out += [
         "",
-        "<sub>Found with automated checks: lookalike domain names, certificate-transparency logs, "
-        "newly registered domains and GitHub search. **Belongs to** shows the GitHub account, or for domains the "
+        "<sub>Found with automated checks: lookalike domain names (typos, reordered words, added words "
+        "like \"download\"), addresses on hosting platforms, certificate-transparency logs, newly registered "
+        f"domains{', web search' if ts.BRAVE_KEY else ''} and GitHub search. **Belongs to** shows the GitHub account, or for domains the "
         "registrant (often hidden by privacy protection), registrar and hosting network from public RDAP data. "
         "**Status** is checked on every run; entries that stay taken down (🔴) for "
         f"{TAKEDOWN_DAYS} day{'s' if TAKEDOWN_DAYS != 1 else ''} are removed automatically. "
@@ -618,7 +764,10 @@ def main():
     state = load_state(tracker["body"] if tracker else "")
 
     found_sites, found_repos = scan_sites(state["watch"]), scan_repos()
-    seen = {"sites": set(found_sites), "repos": set(found_repos)}
+    found_spam = scan_spam(set(found_repos))
+    seen = {"sites": set(found_sites), "repos": set(found_repos), "spam": set(found_spam)}
+    new_spam = merge(state["spam"], found_spam)
+    state["other"] = scan_other_sites()
     new_sites = merge(state["sites"], found_sites)
     new_repos = merge(state["repos"], found_repos)
     state["parked"] = describe_parked(state["watch"])
@@ -632,6 +781,8 @@ def main():
         summary(f"- new site: `{h}` — {state['sites'][h]['title']}")
     for r in new_repos:
         summary(f"- new repository: `{r}` — {state['repos'][r]['reasons']}")
+    for r in new_spam:
+        summary(f"- new spam repository: `{r}` — {state['spam'][r]['reasons']}")
     for k in removed:
         summary(f"- removed (taken down): `{k}`")
     summary(f"\n{len(new_sites)} new sites, {len(new_repos)} new repositories, {len(removed)} removed.")

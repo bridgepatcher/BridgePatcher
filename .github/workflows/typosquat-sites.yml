@@ -37,18 +37,24 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
           SITE_URL: ""   # empty = detected from the repo's GitHub Pages settings
           # Names whose typo variants are checked as domains under each TLD
-          KEYWORDS: "opencore-legacy-patcher-t2 oclp-t2 opencorelegacypatchert2 oclpt2"
+          # bridgepatcher: the project's current name (the others are its former names)
+          KEYWORDS: "bridgepatcher bridge-patcher opencore-legacy-patcher-t2 oclp-t2 opencorelegacypatchert2 oclpt2"
+          # Words lookalike download sites put around the name (getbridgepatcher.com, bridgepatcher-download.net)
+          AFFIXES: "download get official app mac free install"
+          # Hosting platforms where anyone can claim <name>.<platform>; checked directly because
+          # wildcard certificates keep these addresses out of certificate-transparency logs
+          PLATFORMS: "github.io gitlab.io netlify.app vercel.app pages.dev web.app firebaseapp.com onrender.com surge.sh glitch.me itch.io"
           TLDS: "com net org io app dev info site xyz top online shop pro co cc"
           # Substrings searched for in certificate-transparency logs (crt.sh)
-          CT_KEYWORDS: "legacy-patcher-t2 legacypatchert2 oclp-t2 oclpt2"
+          CT_KEYWORDS: "bridgepatcher bridge-patcher legacy-patcher-t2 legacypatchert2 oclp-t2 oclpt2"
           # Newly registered domains (WhoisDS daily lists): days to look back, and names to
           # match in them; a hit is filed even before the domain shows any content
           NRD_DAYS: "7"
-          NRD_KEYWORDS: "opencore-legacy-patcher-t2 oclp-t2 legacy-patcher-t2"
+          NRD_KEYWORDS: "bridgepatcher opencore-legacy-patcher-t2 oclp-t2 legacy-patcher-t2"
           # A site only counts if its page mentions one of these (case-insensitive, | separated)
-          CONTENT_MARKERS: "opencore legacy patcher t2|opencore-legacy-patcher-t2|oclp-t2|oclp t2"
+          CONTENT_MARKERS: "bridgepatcher|opencore legacy patcher t2|opencore-legacy-patcher-t2|oclp-t2|oclp t2"
           # Hosts (and their subdomains) that are never flagged
-          ALLOWLIST: "github.com githubusercontent.com dortania.github.io"
+          ALLOWLIST: "github.com githubusercontent.com dortania.github.io bridgepatcher.github.io"
           # Former names of this project: a working website with one in its address (including
           # <name>.github.io) counts as a lookalike even if its page doesn't mention the project
           FORMER_NAMES: "OpenCore-Legacy-Patcher-T2 OCLP-T2"
@@ -57,9 +63,10 @@ jobs:
           # --- Content farms (any domain), found through the Brave Search API ---
           # Free key from https://api-dashboard.search.brave.com, stored as repo secret
           # BRAVE_SEARCH_API_KEY. Without it this part is skipped.
-          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+          # (BRAVE_API_KEY, the impersonation watch's name for the same key, works too)
+          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY || secrets.BRAVE_API_KEY }}
           # Search queries (| separated); each costs one request per run
-          SEARCH_QUERIES: "\"OpenCore Legacy Patcher T2\" download|\"OCLP-T2\"|\"OpenCore-Legacy-Patcher-T2\"|OCLP T2 Tahoe T2 Mac download"
+          SEARCH_QUERIES: "\"BridgePatcher\" download|\"BridgePatcher\" macOS T2|\"OpenCore Legacy Patcher T2\" download|\"OCLP-T2\"|\"OpenCore-Legacy-Patcher-T2\"|OCLP T2 Tahoe T2 Mac download"
           SEARCH_RESULTS: "20"
           # Forums, news, video and code sites that are never treated as content farms
           FARM_ALLOWLIST: "bridgepatcher.github.io reddit.com youtube.com youtu.be x.com twitter.com insanelymac.com tonymacx86.com macrumors.com forums.macrumors.com stackexchange.com stackoverflow.com apple.com wikipedia.org discord.com discord.gg gitlab.com"
