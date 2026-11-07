@@ -992,7 +992,7 @@ class Constants:
 
     @property
     def helper_app_path(self):
-        return self.payload_path / Path("Tools/OpenCore-Patcher-T2.app/Contents/MacOS/OpenCore-Patcher-T2")
+        return self.payload_path / Path("Tools/BridgePatcher.app/Contents/MacOS/BridgePatcher")
 
     @property
     def rsrrepair_userspace_path(self):
