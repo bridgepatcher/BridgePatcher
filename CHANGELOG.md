@@ -1,4 +1,7 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000002.1 - 4.0.0 alpha 20.2.1
+This release updates the README only inside the patcher's About BridgePatcher menu
+
 ## 4.0.0.2000002 - 4.0.0 alpha 20.2
 This release:
 - fixes a bug where AMFIPass gets to be injected, even when disabling AMFI pass is explicitly set to True
