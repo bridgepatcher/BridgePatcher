@@ -66,6 +66,18 @@ jobs:
           FORMER_NAMES: "OpenCore-Legacy-Patcher-T2 OCLP-T2"
           # Former official addresses: listed as typosquats whenever something is published there
           FORMER_HOSTS: "oclp-t2.github.io"
+          # Spam repositories named after the abbreviation (oclp, oclpu, oclpy, ...) and filled with
+          # gambling ads: listed when at least SPAM_MIN_FILES top-level file names contain one of
+          # SPAM_TERMS (| separated). Only specific Chinese gambling terms, so an honest repo that
+          # merely mentions a lottery (e.g. an Oregon Lottery presentation) never matches.
+          SPAM_NAMES: "oclp"
+          SPAM_TERMS: "彩票|购彩|博彩|时时彩|六合彩|快3|快三|竞彩|体彩|百家乐|棋牌|牛牛|飞艇|大小单双|倍投|下注|赌场|娱乐城"
+          SPAM_MIN_FILES: "10"
+          # --- Other sites to avoid (checked by hand) ---
+          # Sites that don't imitate the name but mislead visitors about the project or serve
+          # malicious ads. One per line: host | what was found | where it's documented
+          OTHER_SITES: |
+            en.soydemac.com | Machine-written article that falsely claims Dortania's OpenCore Legacy Patcher now supports T2 Macs; its ads led to a fake payment page, a fake Steam login (phishing), notification spam and a browser hijacker | bridgepatcher/BridgePatcher#599
           # --- Websites ---
           # Names whose typo variants are checked as domains under each TLD
           KEYWORDS: "opencore-legacy-patcher opencorelegacypatcher oclp opencore-patcher opencore-legacy-patcher-t2 oclp-t2"

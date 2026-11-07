@@ -55,6 +55,19 @@ PROJECT = os.environ.get("PROJECT_NAME", "OpenCore Legacy Patcher")
 # GitHub users mentioned once, in a comment when the warning issue is first created
 MENTIONS = [m if m.startswith("@") else "@" + m for m in os.environ.get("MENTIONS", "").split()]
 
+# Spam repositories named after the project's abbreviation (oclp, oclpu, oclpy, ...) that are
+# filled with unrelated gambling ads to rank in searches. A repo counts as spam when at least
+# SPAM_MIN_FILES of its top-level file names contain one of SPAM_TERMS. The terms are specific
+# Chinese gambling vocabulary on purpose: a plain "lottery" would also match honest projects.
+SPAM_NAMES = [n.lower() for n in os.environ.get("SPAM_NAMES", "").split()]
+SPAM_TERMS = [t for t in os.environ.get("SPAM_TERMS", "").split("|") if t.strip()]
+SPAM_MIN_FILES = int(os.environ.get("SPAM_MIN_FILES", "10"))
+SPAM_MAX_AGE_DAYS = int(os.environ.get("SPAM_MAX_AGE_DAYS", "365"))
+# Sites the maintainers checked by hand that harm visitors without imitating the name (misleading
+# articles, malicious ads). One per line: host | what it does | where it's documented
+OTHER_SITES = [[c.strip() for c in line.split("|")] for line in os.environ.get("OTHER_SITES", "").splitlines()
+               if line.strip() and not line.strip().startswith("#")]
+
 LABEL = "upstream-typosquat"
 MARKER = "<!-- upstream-typosquat-tracker -->"
 STATE_RE = re.compile(r"<!-- state:([A-Za-z0-9+/=]*) -->")
@@ -408,6 +421,56 @@ def scan_repos():
     return found
 
 
+def spam_files(full):
+    """Top-level file names of a repo that carry gambling spam terms."""
+    listing = get(f"/repos/{full}/contents") or []
+    names = [item.get("name", "") for item in listing if isinstance(item, dict)]
+    return [n for n in names if any(t in n for t in SPAM_TERMS)]
+
+
+def scan_spam(skip):
+    """Spam repositories named after the project (see SPAM_NAMES)."""
+    if not SPAM_NAMES or not SPAM_TERMS:
+        return {}
+    since = (TODAY - datetime.timedelta(days=SPAM_MAX_AGE_DAYS)).isoformat()
+    found = {}
+    for n in SPAM_NAMES:
+        path = f"/search/repositories?q={urllib.parse.quote(f'{n} in:name fork:false created:>{since}')}&per_page=100"
+        items = paginate(path)
+        time.sleep(2.2)
+        for item in items:
+            full = item["full_name"]
+            if full in skip or n not in re.sub(r"[^a-z0-9]", "", item["name"].lower()):
+                continue
+            hits = spam_files(full)
+            if len(hits) < SPAM_MIN_FILES:
+                continue
+            found[full] = {
+                "reasons": cell(f"gambling / lottery ads, nothing about {PROJECT}: {len(hits)} pages like "
+                                f"'{hits[0][:40]}'", 160),
+                "owner": gh_account(item["owner"]["login"]),
+                "status": repo_status(item),
+            }
+    print(f"{len(found)} spam repositories")
+    return found
+
+
+def scan_other_sites():
+    """OTHER_SITES with their current status and report details."""
+    out = {}
+    for row in OTHER_SITES:
+        host, what, doc = (row + ["", "", ""])[:3]
+        host = host.lower()
+        if not host:
+            continue
+        st, _, page = ts.fetch(f"https://{host}/")
+        online = bool(st and st < 400) or bool(page)
+        out[host] = {"what": cell(what, 300), "doc": cell(doc, 120),
+                     "status": "🟢 online" if online else f"🔴 down ({st or 'no response'})",
+                     "owner": site_owner(host), "report": report_info(host)}
+    return out
+
+
 # ----------------------------------------------------------------- websites --
 
 def scan_sites(watch):
@@ -511,11 +574,13 @@ def refresh_gone(state, seen):
     an earlier run on the same day has already stamped today's date on entries that are gone now."""
     gone_sites = [h for h in state["sites"] if h not in seen["sites"]]
     gone_repos = [r for r in state["repos"] if r not in seen["repos"]]
+    gone_repos += [("spam", r) for r in state["spam"] if r not in seen["spam"]]
     with cf.ThreadPoolExecutor(max_workers=4) as ex:
         for h, s in zip(gone_sites, ex.map(site_status, gone_sites)):
             state["sites"][h]["status"] = s
     for r in gone_repos:
-        state["repos"][r]["status"] = gone_repo_status(r)
+        kind, r = r if isinstance(r, tuple) else ("repos", r)
+        state[kind][r]["status"] = gone_repo_status(r)
 
 
 def taken_down(entry):
@@ -533,7 +598,7 @@ def prune_taken_down(state, seen):
         if key not in seen["sites"]:
             del state["sites"][key]
             removed.append(key)
-    for kind in ("sites", "repos"):
+    for kind in ("sites", "repos", "spam"):
         store = state[kind]
         for key, entry in list(store.items()):
             if key in seen[kind] or not taken_down(entry):
@@ -556,9 +621,9 @@ def prune_taken_down(state, seen):
 def load_state(body):
     m = STATE_RE.search(body or "")
     if not m:
-        return {"sites": {}, "repos": {}, "watch": {}, "parked": {}}
+        return {"sites": {}, "repos": {}, "spam": {}, "watch": {}, "parked": {}}
     state = json.loads(base64.b64decode(m.group(1)))
-    for k in ("sites", "repos", "watch", "parked"):
+    for k in ("sites", "repos", "spam", "watch", "parked"):
         state.setdefault(k, {})
     return state
 
@@ -581,6 +646,9 @@ def render(state, seen):
     repos = {r: e for r, e in state["repos"].items() if r in seen["repos"]}
     gone_sites = {h: e for h, e in state["sites"].items() if h not in sites}
     gone_repos = {r: e for r, e in state["repos"].items() if r not in repos}
+    spam = {r: e for r, e in state["spam"].items() if r in seen["spam"]}
+    gone_repos.update({r: e for r, e in state["spam"].items() if r not in spam})
+    other = state.get("other") or {}
     out = [
         f"The websites and GitHub repositories below use names that imitate **{PROJECT}**. "
         "They are **not** run by its developers or by this project. Please don't download anything "
@@ -608,7 +676,13 @@ def render(state, seen):
                 "They're listed so you recognise them if they go live.", "",
                 "| Domain | Status | Belongs to | Noticed |", "|---|---|---|---|"]
         out += [f"| `{h}` | {e['status']} | {e['owner']} | {e['since']} |" for h, e in sorted(parked.items())]
-    to_report = {h: e["report"] for h, e in {**sites, **parked}.items() if e.get("report")}
+    if other:
+        out += ["", f"### Other sites to avoid ({len(other)})",
+                "These don't imitate the name, but the maintainers found that they mislead visitors about "
+                f"{PROJECT} or expose them to malicious ads.", "",
+                "| Site | Status | Belongs to | What we found | Details |", "|---|---|---|---|---|"]
+        out += [f"| `{h}` | {e['status']} | {e['owner']} | {e['what']} | {e['doc']} |" for h, e in sorted(other.items())]
+    to_report = {h: e["report"] for h, e in {**sites, **parked, **other}.items() if e.get("report")}
     if to_report:
         out += ["", "<details><summary>Where to report these sites (IP addresses, registrar, DNS, hosting)"
                 "</summary>", "",
@@ -628,6 +702,15 @@ def render(state, seen):
                 f"| {e['last_seen']} |" for r, e in sorted(repos.items())]
     else:
         out.append("None found right now.")
+    if spam:
+        out += ["", f"### Spam repositories using the name ({len(spam)})",
+                "Named after the project's abbreviation but filled with unrelated gambling ads, to show up in "
+                "searches for it. They don't offer the software. You can report them to GitHub at "
+                "https://github.com/contact/report-abuse (reason: spam).", "",
+                "| Repository | Status | Belongs to | What's in it | First seen | Last seen |",
+                "|---|---|---|---|---|---|"]
+        out += [f"| `{r}` | {e.get('status', '—')} | {e.get('owner', '—')} | {e['reasons']} | {e['first_seen']} "
+                f"| {e['last_seen']} |" for r, e in sorted(spam.items())]
     if gone_sites or gone_repos:
         out += ["", f"<details><summary>No longer imitating or reachable ({len(gone_sites) + len(gone_repos)})"
                 "</summary>", "", "| Name | Status now | Belonged to | Last seen |", "|---|---|---|---|"]
@@ -681,7 +764,10 @@ def main():
     state = load_state(tracker["body"] if tracker else "")
 
     found_sites, found_repos = scan_sites(state["watch"]), scan_repos()
-    seen = {"sites": set(found_sites), "repos": set(found_repos)}
+    found_spam = scan_spam(set(found_repos))
+    seen = {"sites": set(found_sites), "repos": set(found_repos), "spam": set(found_spam)}
+    new_spam = merge(state["spam"], found_spam)
+    state["other"] = scan_other_sites()
     new_sites = merge(state["sites"], found_sites)
     new_repos = merge(state["repos"], found_repos)
     state["parked"] = describe_parked(state["watch"])
@@ -695,6 +781,8 @@ def main():
         summary(f"- new site: `{h}` — {state['sites'][h]['title']}")
     for r in new_repos:
         summary(f"- new repository: `{r}` — {state['repos'][r]['reasons']}")
+    for r in new_spam:
+        summary(f"- new spam repository: `{r}` — {state['spam'][r]['reasons']}")
     for k in removed:
         summary(f"- removed (taken down): `{k}`")
     summary(f"\n{len(new_sites)} new sites, {len(new_repos)} new repositories, {len(removed)} removed.")
