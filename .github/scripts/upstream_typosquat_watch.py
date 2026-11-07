@@ -534,10 +534,10 @@ def render(state, seen):
         f"### Websites ({len(sites)})",
     ]
     if sites:
-        out += ["| Site | Status | Belongs to | Page title | Download links point to | First seen |",
-                "|---|---|---|---|---|---|"]
+        out += ["| Site | Status | Belongs to | Page title | Download links point to | First seen | Last seen |",
+                "|---|---|---|---|---|---|---|"]
         out += [f"| `{h}` | {e.get('status', '—')} | {e.get('owner', '—')} | {e['title']} | {e['downloads']} "
-                f"| {e['first_seen']} |" for h, e in sorted(sites.items())]
+                f"| {e['first_seen']} | {e['last_seen']} |" for h, e in sorted(sites.items())]
     else:
         out.append("None found right now.")
     parked = state.get("parked") or {}
@@ -561,9 +561,10 @@ def render(state, seen):
         out += ["", "</details>"]
     out += ["", f"### GitHub repositories ({len(repos)})"]
     if repos:
-        out += ["| Repository | Status | Belongs to | Why it's listed | First seen |", "|---|---|---|---|---|"]
-        out += [f"| `{r}` | {e.get('status', '—')} | {e.get('owner', '—')} | {e['reasons']} | {e['first_seen']} |"
-                for r, e in sorted(repos.items())]
+        out += ["| Repository | Status | Belongs to | Why it's listed | First seen | Last seen |",
+                "|---|---|---|---|---|---|"]
+        out += [f"| `{r}` | {e.get('status', '—')} | {e.get('owner', '—')} | {e['reasons']} | {e['first_seen']} "
+                f"| {e['last_seen']} |" for r, e in sorted(repos.items())]
     else:
         out.append("None found right now.")
     if gone_sites or gone_repos:
