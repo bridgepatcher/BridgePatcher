@@ -25,5 +25,5 @@ features:
     details: "Whether it's getting started or learning the specifics, ask in BridgePatcher's GitHub Discussions, where users and maintainers of this project help each other."
     link: https://github.com/bridgepatcher/BridgePatcher/discussions
     linkText: Open the discussions
-footer: "This product includes software developed by Dortania and OpenCore Legacy Patcher contributors. Copyright © Dortania 2020-2025 · BridgePatcher © 2026 Albert Müller and BridgePatcher contributors"
+footer: "This product includes software developed by Dortania and OpenCore Legacy Patcher contributors. Copyright © Dortania 2020-2025 · BridgePatcher © 2026 Albert Steinhof and BridgePatcher contributors"
 ---

@@ -115,7 +115,7 @@ body:
         - Other application related issues / Andere verwandte Anwendungsprobleme
         - Security vulnerability - in the main project, please do not report it here and go to Security and quality and report a vulnerability there / - Sicherheitslücke - in der Hauptprojekt, bitte melden Sie diese nicht hier, sondern im Bereich „Security and quality“.
         - Malicious website delivering malware disguised as BridgePatcher or Dortania's OpenCore Legacy Patcher / Bösartige Webseite, die sich als BridgePatcher oder Dortanias OpenCore Legacy Patcher tarnt, um Malware einzuschleusen
-        - Malicious, typosquatting site trying to impersonate Dortania or Albert Müller / Bösartiges, Tippfehler-Webseite, die sich als Dortania oder Albert Müller tarnt
+        - Malicious, typosquatting site trying to impersonate Dortania or Albert Steinhof / Bösartiges, Tippfehler-Webseite, die sich als Dortania oder Albert Steinhof tarnt
         - Typosquatting repository (e.g. BridgеPatcher with a Cyrillic е, or anything still named OpenCore-Legacy-Patcher-T2 / OCLP-T2) / Repository mit Tippfehlern (z.B. BridgеPatcher mit kyrillischem е, oder alles, was noch OpenCore-Legacy-Patcher-T2 / OCLP-T2 heißt)
         - Malicious fork / Bösartiges Fork
         - Suggestion about a new feature / Empfehlung für neues Funktion

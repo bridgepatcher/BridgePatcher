@@ -52,7 +52,7 @@ Reports concerning these deliberate bypasses will be closed as **By Design**.
 Forks should not typosquat their names (e.g. BridgеPatcher with a Cyrillic е). The project's former names, OpenCore Legacy Patcher T2 / OpenCore-Legacy-Patcher-T2 / OCLP-T2, also count as typosquats now: they imitate both Dortania's OpenCore Legacy Patcher and this project. If users detect such forks, they should report immediately to the maintainer via Issues. This is an example of typosquatting:
 <img width="1712" height="910" alt="image" src="https://github.com/user-attachments/assets/cce043f6-90bd-478a-a4dd-edab048cb79e" />
 
-Also, forks shouldn't spoof their version as if it were newer than it is without disclosing that their project is not affiliated with Albert Müller or its contributors. This is an example of version spoofing:
+Also, forks shouldn't spoof their version as if it were newer than it is without disclosing that their project is not affiliated with Albert Steinhof or its contributors. This is an example of version spoofing:
 <img width="1712" height="910" alt="image" src="https://github.com/user-attachments/assets/f114a2e9-a41a-40b6-a8dc-aad2a20bb1d4" />
 
 ### Verifying Official Builds
