@@ -410,10 +410,19 @@ def scan_sites(watch):
             "ips": r.get("ips") or [],
         }
         watch.pop(r["host"], None)  # it has content now, so it's listed normally
-    # BridgePatcher's former official addresses are always listed: they no longer belong to it
+    # BridgePatcher's former official addresses no longer belong to it, so they're listed as soon
+    # as anything is published there again. While nothing is (404 or no response) they're left
+    # out instead of being shown as a 🔴 entry.
     for h in ts.FORMER_HOSTS:
-        info = found.setdefault(h, {"title": "—", "downloads": "—", "status": None, "ips": []})
-        info["title"] = cell("former BridgePatcher address, no longer official · " + info["title"])
+        if h not in found:
+            st, _, page = ts.fetch(f"https://{h}/")
+            if not st or st >= 400 or not page.strip():
+                print(f"Former address {h} is down ({st or 'no response'}); not listed")
+                continue
+            found[h] = {"title": "—", "downloads": "—",
+                        "status": "🟢 online" + (f" (HTTP {st})" if st != 200 else ""),
+                        "ips": ts.resolve(h) or []}
+        found[h]["title"] = cell("former BridgePatcher address, no longer official · " + found[h]["title"])
     with cf.ThreadPoolExecutor(max_workers=4) as ex:  # RDAP servers rate-limit bursts
         owners = dict(zip(found, ex.map(lambda h: site_owner(h, found[h]["ips"] or None), found)))
         status = dict(zip(found, ex.map(lambda h: found[h]["status"] or site_status(h), found)))
@@ -453,14 +462,19 @@ def taken_down(entry):
 
 def prune_taken_down(state):
     """Remove entries that have been taken down for TAKEDOWN_DAYS in a row. Former official
-    addresses stay listed on purpose: anyone could take them over again."""
+    addresses are removed as soon as nothing is published there any more; they come back
+    (with a new-entry comment) once something is."""
     today = TODAY.isoformat()
     cutoff = (TODAY - datetime.timedelta(days=TAKEDOWN_DAYS)).isoformat()
     removed = []
+    for key in [k for k in state["sites"] if k in ts.FORMER_HOSTS]:
+        if state["sites"][key].get("last_seen") != today:
+            del state["sites"][key]
+            removed.append(key)
     for kind in ("sites", "repos"):
         store = state[kind]
         for key, entry in list(store.items()):
-            if entry.get("last_seen") == today or key in ts.FORMER_HOSTS or not taken_down(entry):
+            if entry.get("last_seen") == today or not taken_down(entry):
                 entry.pop("down_since", None)  # back online, or not fully gone: start over
                 continue
             if entry.setdefault("down_since", today) <= cutoff:

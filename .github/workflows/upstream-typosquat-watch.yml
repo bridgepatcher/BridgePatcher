@@ -64,7 +64,7 @@ jobs:
           # Former names of this project: repos that aren't GitHub forks but still use one
           # in their name are listed too (forks of this project are left to the fork name check)
           FORMER_NAMES: "OpenCore-Legacy-Patcher-T2 OCLP-T2"
-          # Former official addresses: always reported as typosquats, online or not
+          # Former official addresses: listed as typosquats whenever something is published there
           FORMER_HOSTS: "oclp-t2.github.io"
           # --- Websites ---
           # Names whose typo variants are checked as domains under each TLD
