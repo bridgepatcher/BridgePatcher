@@ -467,42 +467,42 @@ class CheckBinaryUpdates:
 
         # Only reached for a newer build, or for an explicitly selected channel switch
         # (behebt eine Sicherheitslücke, die erlaubt Angreifern, Downgrade-Angriffen in Hintergrund ohne das Wissen von Benutzer zu starten)
-        # BridgePatcher.pkg is the installer since the rename. Releases from before it,
-        # still reachable through a channel switch, only carry OpenCore-Patcher-T2.pkg;
-        # releases built with --legacy-installer carry both, and then the new name wins.
+        # Only BridgePatcher.pkg is accepted. The pre-rename name OpenCore-Patcher-T2.pkg
+        # is deliberately not: falling back to it would let anyone able to attach assets
+        # to a release (e.g. a compromised account) offer an old, vulnerable pre-rename
+        # build under that name and so launch a downgrade attack.
         logging.info("A new version is available")
         assets_by_name = {}
         for asset in data_set["assets"]:
             logging.info(f"Found asset: {asset['name']}")
             assets_by_name.setdefault(asset["name"], asset)
-        for pkg_name in (constants.INSTALLER_PKG_NAME, constants.LEGACY_INSTALLER_PKG_NAME):
-            asset = assets_by_name.get(pkg_name)
-            if asset is not None:
-                # Only offer an update whose package has a published SHA256 checksum:
-                # without one the download can't be verified before it's installed.
-                # SHA256SUMS is attached by CI a few minutes after the release goes
-                # live, so a brand-new release is simply offered a little later.
-                expected_sha256, checksum_error = published_sha256(asset["browser_download_url"])
-                if expected_sha256 is None:
-                    logging.warning(f"Not offering {data_set['tag_name']}: {checksum_error}")
-                    self.last_error = (
-                        f"{constants.APP_NAME} {latest_remote_version} is available, but it can't be verified yet: "
-                        f"{checksum_error} The update will be offered once its checksums are published."
-                    )
-                    return None
-                logging.info(f"Published SHA256 of {asset['name']}: {expected_sha256}")
-                self.latest_details = {
-                    "SHA256": expected_sha256,
-                    "Name": asset["name"],
-                    "Version": latest_remote_version,
-                    "Link": asset["browser_download_url"],
-                    "Github Link": f"{self.constants.update_repo_link.rstrip('/')}/releases/tag/{quote(str(data_set['tag_name']), safe='')}",
-                    "Changelog": data_set.get("body") or "",
-                    "Channel": self.constants.update_channel,
-                    "ChannelSwitch": channel_switch,
-                    "Prerelease": bool(data_set.get("prerelease", False)),
-                }
-                return self.latest_details
+        asset = assets_by_name.get(constants.INSTALLER_PKG_NAME)
+        if asset is not None:
+            # Only offer an update whose package has a published SHA256 checksum:
+            # without one the download can't be verified before it's installed.
+            # SHA256SUMS is attached by CI a few minutes after the release goes
+            # live, so a brand-new release is simply offered a little later.
+            expected_sha256, checksum_error = published_sha256(asset["browser_download_url"])
+            if expected_sha256 is None:
+                logging.warning(f"Not offering {data_set['tag_name']}: {checksum_error}")
+                self.last_error = (
+                    f"{constants.APP_NAME} {latest_remote_version} is available, but it can't be verified yet: "
+                    f"{checksum_error} The update will be offered once its checksums are published."
+                )
+                return None
+            logging.info(f"Published SHA256 of {asset['name']}: {expected_sha256}")
+            self.latest_details = {
+                "SHA256": expected_sha256,
+                "Name": asset["name"],
+                "Version": latest_remote_version,
+                "Link": asset["browser_download_url"],
+                "Github Link": f"{self.constants.update_repo_link.rstrip('/')}/releases/tag/{quote(str(data_set['tag_name']), safe='')}",
+                "Changelog": data_set.get("body") or "",
+                "Channel": self.constants.update_channel,
+                "ChannelSwitch": channel_switch,
+                "Prerelease": bool(data_set.get("prerelease", False)),
+            }
+            return self.latest_details
 
         if channel_switch:
             self.last_error = f"The newest release of the {self.constants.update_channel_label} channel has no {constants.INSTALLER_PKG_NAME} asset."

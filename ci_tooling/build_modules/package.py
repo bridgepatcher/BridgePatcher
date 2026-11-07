@@ -62,21 +62,17 @@ from .package_scripts import GenerateScripts
 
 class GeneratePackage:
     """
-    Generate BridgePatcher.pkg (and, on request, OpenCore-Patcher-T2.pkg)
+    Generate BridgePatcher.pkg
+
+    The pre-rename installer name (OpenCore-Patcher-T2.pkg) is no longer built:
+    the updater does not accept it either, so a package under that name on a
+    release can't be used for a downgrade attack.
     """
 
-    def __init__(self, legacy_installer: bool = False) -> None:
+    def __init__(self) -> None:
         """
         Initialize
-
-        legacy_installer: also build OpenCore-Patcher-T2.pkg next to BridgePatcher.pkg.
-        Same app, same files; it only exists because builds from before the rename
-        look for that asset name when checking for updates (see support/updates.py
-        of those builds), and additionally leaves a compatibility link under the old
-        bundle name so their built-in updater recognizes the finished installation.
         """
-        self._legacy_installer = legacy_installer
-
         self._files = {
             f"./dist/{constants.APP_BUNDLE_NAME}": f"{constants.APP_INSTALL_DIRECTORY}/{constants.APP_BUNDLE_NAME}",
             "./ci_tooling/privileged_helper_tool/com.bridgepatcher.privileged-helper": "/Library/PrivilegedHelperTools/com.bridgepatcher.privileged-helper",
@@ -117,13 +113,10 @@ class GeneratePackage:
         """
         Installer packages generate() builds, in build order (file names in ./dist)
         """
-        _packages = [constants.INSTALLER_PKG_NAME]
-        if self._legacy_installer:
-            _packages.append(constants.LEGACY_INSTALLER_PKG_NAME)
-        return _packages
+        return [constants.INSTALLER_PKG_NAME]
 
 
-    def _generate_installer_welcome(self, is_legacy: bool = False) -> str:
+    def _generate_installer_welcome(self) -> str:
         """
         Generate Welcome message for installer PKG
         """
@@ -139,16 +132,10 @@ class GeneratePackage:
         _welcome += "\n\nA copy of LICENSE.txt, including the upstream BSD 4-Clause terms and the additional terms for this fork, is included in the application and can be found in the Settings Tab."
         _welcome += "\n\n"
 
-        if is_legacy:
-            _welcome += f"\n\nThis is the same installer as {constants.INSTALLER_PKG_NAME}, published under the app's former name so that versions from before the rename to BridgePatcher can still find and install this update. If you are installing manually, use {constants.INSTALLER_PKG_NAME} instead."
-            _welcome += "\n\n"
-
         _welcome += "## Files Installed"
         _welcome += "\n\nInstallation of this package will add the following files to your system:"
         for value in self._files.values():
             _welcome += f"\n\n- `{value}`"
-        if is_legacy:
-            _welcome += f"\n\n- `{constants.LEGACY_APP_INSTALL_DIRECTORY}/{constants.LEGACY_APP_BUNDLE_NAME}` (link to {constants.APP_BUNDLE_NAME}, removed again by the next update)"
 
         return _welcome
 
@@ -229,28 +216,25 @@ class GeneratePackage:
             pkg_welcome=self._generate_uninstaller_welcome(),
         )
 
-        # A leftover from an earlier build with --legacy-installer would otherwise
-        # be hashed into certificates.txt and could end up on a release by accident.
-        if not self._legacy_installer:
-            Path("./dist", constants.LEGACY_INSTALLER_PKG_NAME).unlink(missing_ok=True)
+        # A pre-rename installer left over from an earlier build (OpenCore-Patcher-T2.pkg,
+        # formerly built with --legacy-installer) would otherwise be hashed into
+        # certificates.txt and could end up on a release by accident.
+        Path("./dist", f"{constants.LEGACY_APP_NAME}.pkg").unlink(missing_ok=True)
 
         for _package in self.installer_packages:
-            _is_legacy = _package == constants.LEGACY_INSTALLER_PKG_NAME
             self._build_package(
                 _package,
                 pkg_output=f"./dist/{_package}",
-                # Same receipt identifier for both: they install the same product,
-                # so either one upgrades an install made by the other.
                 pkg_bundle_id="com.bridgepatcher.bridgepatcher-installer",
                 pkg_version=constants.Constants().patcher_version,
                 pkg_allow_relocation=False,
                 pkg_as_distribution=True,
                 pkg_background="./ci_tooling/pkg_assets/PkgBackground-Installer.png",
                 pkg_preinstall_script=self._write_temp_script(GenerateScripts().preinstall_pkg()),
-                pkg_postinstall_script=self._write_temp_script(GenerateScripts().postinstall_pkg(legacy_compatibility=_is_legacy)),
+                pkg_postinstall_script=self._write_temp_script(GenerateScripts().postinstall_pkg()),
                 pkg_file_structure=self._files,
                 pkg_title=constants.APP_NAME,
-                pkg_welcome=self._generate_installer_welcome(is_legacy=_is_legacy),
+                pkg_welcome=self._generate_installer_welcome(),
             )
 
         self._build_package(
