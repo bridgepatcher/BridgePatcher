@@ -360,36 +360,6 @@ class ZSHFunctions:
         return _script
 
 
-    def generate_create_legacy_compatibility_link(self) -> str:
-        """
-        ZSH function for OpenCore-Patcher-T2.pkg only: link the old bundle name
-        in the old install directory to the renamed app
-
-        The built-in updater of builds from before the rename decides whether an
-        update succeeded by looking at OpenCore-Patcher-T2.app/Contents/Info.plist
-        in their install directory, the one now called LEGACY_INSTALL_DIRECTORY.
-        Without this link it reports a failed update and opens the macOS Installer
-        a second time, although the update was installed. The link is relative, so
-        it also resolves when installing to another volume, and it is removed again
-        by the next install of either package and by the uninstaller.
-        """
-
-        _script = ""
-
-        _script += "function _createLegacyCompatibilityLink() {\n"
-        _script += "    local linkPath=\"$pathToTargetVolume/$legacyAppPath\"\n\n"
-
-        _script += "    /bin/mkdir -p \"$(/usr/bin/dirname \"$linkPath\")\"\n"
-        _script += "    if [[ -e $linkPath && ! -L $linkPath ]]; then\n"
-        _script += "        /bin/rm -rf \"$linkPath\"\n"
-        _script += "    fi\n"
-        _script += "    echo \"Creating compatibility link: $linkPath\"\n"
-        _script += f"    /bin/ln -sfh \"{LEGACY_DIRECTORY_LINK_TARGET}\" \"$linkPath\"\n"
-        _script += "}\n"
-
-        return _script
-
-
     def generate_migrate_legacy_install_directory(self) -> str:
         """
         ZSH function (preinstall) moving installs out of the install directory
@@ -629,7 +599,7 @@ class ZSHFunctions:
         return _script
 
 
-    def generate_postinstall_main(self, is_autopkg: bool = False, legacy_compatibility: bool = False) -> str:
+    def generate_postinstall_main(self, is_autopkg: bool = False) -> str:
         """
         ZSH function for postinstall's main
         """
@@ -640,8 +610,6 @@ class ZSHFunctions:
         _script += "    _setSUIDBit \"$pathToTargetVolume/$helperPath\"\n"
         _script += "    _createAlias \"$pathToTargetVolume/$mainAppPath\" \"$pathToTargetVolume/$shimAppPath\"\n"
         _script += "    _linkLegacyInstallDirectory\n"
-        if legacy_compatibility:
-            _script += "    _createLegacyCompatibilityLink\n"
         _script += "    _migrateLaunchServices\n"
         _script += "    _prewarmGatekeeper \"$pathToTargetVolume/$mainAppPath\"\n"
         _script += "    _loadUpdateCheckAgent\n"
@@ -698,9 +666,8 @@ class GenerateScripts:
             "Library/PrivilegedHelperTools/com.albert-mueller.opencore-legacy-patcher.privileged-helper",
             # Helper path before the rename to BridgePatcher (only this fork ever wrote it)
             "Library/PrivilegedHelperTools/com.albert-mueller.opencore-patcher-t2.privileged-helper",
-            # App bundle and /Applications link before the rename to BridgePatcher.
-            # OpenCore-Patcher-T2.pkg puts LEGACY_MAIN_APP_PATH back as a link in
-            # its postinstall script, after this cleanup.
+            # App bundle and /Applications link before the rename to BridgePatcher
+            # (also removes the compatibility link the former OpenCore-Patcher-T2.pkg left)
             LEGACY_SHIM_APP_PATH,
             LEGACY_MAIN_APP_PATH,
         ]
@@ -808,7 +775,7 @@ class GenerateScripts:
         return _script
 
 
-    def _generate_postinstall_script(self, is_autopkg: bool = False, legacy_compatibility: bool = False) -> str:
+    def _generate_postinstall_script(self, is_autopkg: bool = False) -> str:
         """
         """
 
@@ -836,8 +803,6 @@ class GenerateScripts:
         _script += "helperPath=\"Library/PrivilegedHelperTools/com.bridgepatcher.privileged-helper\"\n"
         _script += f"mainAppPath=\"{MAIN_APP_PATH}\"\n"
         _script += f"shimAppPath=\"{SHIM_APP_PATH}\"\n"
-        if legacy_compatibility:
-            _script += f"legacyAppPath=\"{LEGACY_INSTALL_DIRECTORY}/{constants.LEGACY_APP_BUNDLE_NAME}\"\n"
         if is_autopkg:
             _script += f"executablePath=\"{EXECUTABLE_PATH}\"\n"
 
@@ -859,9 +824,6 @@ class GenerateScripts:
         _script += "\n"
         _script += self.zsh_functions.generate_link_legacy_install_directory()
         _script += "\n"
-        if legacy_compatibility:
-            _script += self.zsh_functions.generate_create_legacy_compatibility_link()
-            _script += "\n"
         if is_autopkg:
             _script += self.zsh_functions.generate_start_patching()
             _script += "\n"
@@ -872,7 +834,7 @@ class GenerateScripts:
             _script += self.zsh_functions.generate_reboot()
             _script += "\n"
 
-        _script += self.zsh_functions.generate_postinstall_main(is_autopkg, legacy_compatibility)
+        _script += self.zsh_functions.generate_postinstall_main(is_autopkg)
         _script += "\n\n"
 
         _script += "# MARK: Main\n"
@@ -965,14 +927,11 @@ class GenerateScripts:
         return self._generate_preinstall_script(is_autopkg=True)
 
 
-    def postinstall_pkg(self, legacy_compatibility: bool = False) -> str:
+    def postinstall_pkg(self) -> str:
         """
         Generate postinstall script for PKG
-
-        legacy_compatibility: for OpenCore-Patcher-T2.pkg, see
-        generate_create_legacy_compatibility_link()
         """
-        return self._generate_postinstall_script(legacy_compatibility=legacy_compatibility)
+        return self._generate_postinstall_script()
 
 
     def postinstall_autopkg(self) -> str:

@@ -5,3 +5,12 @@
 # USB-Map.kext Info.plist moved to payloads/Kexts/Plists/AppleUSBMaps/Info.plist
 # (+ Info-Tahoe.plist); "Copyright © Dortania" notice is kept there.
 payloads/Kexts/Plists/USB-Map.kext/Contents/Info.plist
+
+# Python package renamed to bridgepatcher: moved to bridgepatcher/constants.py,
+# Dortania's "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors"
+# notice (Constants.copyright_date) is kept there.
+opencore_legacy_patcher/constants.py
+
+# App bundle renamed: moved to payloads/Tools/OpenCore-Patcher-T2.app/Contents/Info.plist,
+# its NSHumanReadableCopyright still credits Dortania and OpenCore Legacy Patcher contributors.
+payloads/Tools/OpenCore-Patcher.app/Contents/Info.plist

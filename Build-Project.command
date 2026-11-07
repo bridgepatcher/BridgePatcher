@@ -1,7 +1,6 @@
 #!./.bridgepatcher-venv/bin/python
 """
 Build-Project.command: Generates BridgePatcher.app and BridgePatcher.pkg
-(plus OpenCore-Patcher-T2.pkg with --legacy-installer)
 """
 
 import os
@@ -271,7 +270,6 @@ from ci_tooling.build_modules import (
 from bridgepatcher import constants
 
 
-# One more with --legacy-installer (signing OpenCore-Patcher-T2.pkg), set in main()
 TOTAL_STEPS = 9
 
 # Written by the build thread, read by the spinner in the main thread.
@@ -399,7 +397,7 @@ def resolve_application_identity(requested: str, auto_detect: bool) -> "str | No
 
 
 def main() -> None:
-    global status, TOTAL_STEPS
+    global status
     parser = argparse.ArgumentParser(description="Build BridgePatcher Suite")
 
     # Signing & Notarization
@@ -420,12 +418,6 @@ def main() -> None:
     parser.add_argument("--no-install-openssl", action="store_true", help="Fail instead of installing OpenSSL 3 via MacPorts when it is missing")
     parser.add_argument("--use-python-openssl", action="store_true", help="Use the OpenSSL 3 bundled with this Python (python.org builds) instead of MacPorts' openssl3")
     parser.add_argument("--update-channel", type=str, default=None, choices=["official", "medelcartelinc"], help="Set the default update channel for this build")
-    parser.add_argument(
-        "--legacy-installer", action="store_true",
-        help=f"Also build {constants.LEGACY_INSTALLER_PKG_NAME} next to {constants.INSTALLER_PKG_NAME}. "
-             f"Same app. Needed on any release that installs from before the rename to BridgePatcher "
-             f"should be offered, as their updater only looks for {constants.LEGACY_INSTALLER_PKG_NAME}",
-    )
 
     # Steps
     parser.add_argument("--run-as-individual-steps", action="store_true")
@@ -434,10 +426,6 @@ def main() -> None:
     parser.add_argument("--prepare-assets", action="store_true")
 
     args = parser.parse_args()
-
-    if args.legacy_installer:
-        TOTAL_STEPS += 1
-        rich.print(f"[cyan]Also building {constants.LEGACY_INSTALLER_PKG_NAME} for installs from before the rename[/cyan]")
 
     # Passwort-Sicherheit: Umgebungsvariable hat Vorrang vor CLI-Argument
     notarization_password = os.environ.get("NOTARIZATION_PASSWORD") or args.notarization_password
@@ -528,7 +516,7 @@ def main() -> None:
             # Compressing the app with its disk images (well over 1 GB) into the installer
             # takes several minutes with no output, which reads as a hang otherwise.
             status = f"[5/{TOTAL_STEPS}] Building packages - this can take several minutes"
-            package_generator = package.GeneratePackage(legacy_installer=args.legacy_installer)
+            package_generator = package.GeneratePackage()
             package_generator.generate()
 
             # AutoPkg-Assets.pkg is installed by the app itself during auto patching,

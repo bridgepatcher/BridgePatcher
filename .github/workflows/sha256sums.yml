@@ -9,11 +9,11 @@ name: Publish SHA256SUMS
 #   2. a cron sweep that backfills any recent release still missing SHA256SUMS,
 #      which covers uploads that arrive long after the release went live
 #
-# Hashing only starts once an installer is attached: BridgePatcher.pkg, or for
-# releases from before the rename (and as the optional side-by-side package built
-# with Build-Project.command --legacy-installer) OpenCore-Patcher-T2.pkg. A release
-# that never gets either is still hashed once its assets stop changing and
-# MAX_WAIT_SECONDS has passed, with a warning.
+# Hashing only starts once the installer, BridgePatcher.pkg, is attached. The
+# pre-rename name OpenCore-Patcher-T2.pkg is no longer built or accepted by the
+# updater, so it isn't waited for. A release that never gets BridgePatcher.pkg is
+# still hashed once its assets stop changing and MAX_WAIT_SECONDS has passed, with
+# a warning.
 #
 # Note: this is separate from dist/certificates.txt, which Build-Project.command
 # writes at build time (pkgs + privileged helper) and which keeps its own format.
@@ -49,8 +49,8 @@ jobs:
       # the whole release history on every run.
       SCAN_DAYS: "7"
       SCAN_LIMIT: "10"
-      # Installer packages, current name first. Space separated, no spaces in names.
-      INSTALLER_ASSETS: "BridgePatcher.pkg OpenCore-Patcher-T2.pkg"
+      # Installer packages. Space separated, no spaces in names.
+      INSTALLER_ASSETS: "BridgePatcher.pkg"
       PRIMARY_INSTALLER: "BridgePatcher.pkg"
     steps:
       - name: Determine target releases

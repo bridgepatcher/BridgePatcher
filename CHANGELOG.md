@@ -1,4 +1,12 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000002 - 4.0.0 alpha 20.2
+This release:
+- fixes a bug where AMFIPass gets to be injected, even when disabling AMFI pass is explicitly set to True
+- fixes a vulnerability where the updater still accepted OpenCore-Patcher-T2.pkg, the installer's name from before the rename, when a release had no BridgePatcher.pkg
+Impact: an attacker who compromised the maintainer's account (or a channel's repository) could attach an old, vulnerable pre-rename build to a release as OpenCore-Patcher-T2.pkg, together with a matching SHA256SUMS, and the updater would offer it, launching a downgrade attack to exploit already known vulnerabilities. This is fixed by the updater only accepting BridgePatcher.pkg. A channel switch to a repository whose newest release only carries OpenCore-Patcher-T2.pkg now reports that it has no BridgePatcher.pkg instead
+- removes the `--legacy-installer` option of Build-Project.command: OpenCore-Patcher-T2.pkg, the same installer under the app's former name, can no longer be built, and a leftover copy in ./dist is deleted before packaging so it can't end up on a release by accident. Versions from before the rename (alpha 19.x and older), whose updater only looks for OpenCore-Patcher-T2.pkg, need to install BridgePatcher.pkg manually once
+
+
 ## 4.0.0.2000001 - 4.0.0 alpha 20.1
 This release:
 - switches back to this project's own PatcherSupportPkg (bridgepatcher/PatcherSupportPkg 2.5), which is bundled with the app again. Dortania's PatcherSupportPkg (dortania/PatcherSupportPkg 2.0.5) stays available as an option in Settings > App > PatcherSupportPkg, for anyone who prefers it. It isn't bundled: for now it is always downloaded online when root patching (about 850 MB, verified against its pinned SHA256), so it needs an internet connection, also for the Wi-Fi patches. Switching between the two requires reverting the root patches first and patching again. Macs that were root patched with Dortania's 2.0.5 by an earlier build are asked to revert and patch again once, unless Dortania's is selected in Settings

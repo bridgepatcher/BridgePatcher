@@ -21,7 +21,6 @@ LEGACY_APP_EXECUTABLE_NAME: str = LEGACY_APP_NAME
 APP_INSTALL_DIRECTORY:     str = "/Library/Application Support/albert-mueller/BridgePatcher"
 LEGACY_APP_INSTALL_DIRECTORY: str = "/Library/Application Support/albert-mueller/OpenCore-Patcher-T2"
 INSTALLER_PKG_NAME:        str = f"{APP_NAME}.pkg"
-LEGACY_INSTALLER_PKG_NAME: str = f"{LEGACY_APP_NAME}.pkg"
 UNINSTALLER_PKG_NAME:      str = f"{APP_NAME}-Uninstaller.pkg"
 LEGACY_UNINSTALLER_PKG_NAME: str = "OpenCore-Patcher-Uninstaller.pkg"
 NVRAM_GUID:          str = "4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"
@@ -39,7 +38,7 @@ LEGACY_ROOT_PATCH_MANIFEST_VERSION_KEY: str = "OpenCore Legacy Patcher"  # brand
 class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
-        self.patcher_version:                 str = "4.0.0.2000001"
+        self.patcher_version:                 str = "4.0.0.2000002"
         self.patcher_version_label=self.patcher_version
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
         self.bundle_identifier:               str = "com.bridgepatcher.bridgepatcher"
