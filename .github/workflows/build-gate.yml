@@ -15,7 +15,13 @@
 #   malware      ClamAV over every file of the commit being built (binaries in payloads/
 #                included), plus the "high" malware techniques of the PR scanner
 #                (malware-scan.yml) over every tracked text file - not just a PR's diff, so
-#                malware that was pushed straight to a branch is caught too.
+#                malware that was pushed straight to a branch is caught too. The kexts
+#                themselves are checked as well (kext_scan.js): every tracked .zip is opened
+#                in memory, each kext's executable must be a real kernel extension (not a
+#                program, library or script disguised as one), the files and binary strings
+#                inside are matched against the same rules, and archives that unpack outside
+#                their folder, contain escaping symlinks or encrypted entries, or can't be
+#                read are reported.
 #   open-issues  Blocks while one of these issues is open (pull requests are ignored):
 #                  attribution-violation    Attribution guard: Dortania's copyright, licence
 #                                           or credit notices removed or rewritten. The audit
@@ -142,7 +148,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Malware techniques in tracked files
+      - name: Malware techniques in tracked files and kexts
         id: patterns
         run: node .github/scripts/malware_tree_scan.js .
 
