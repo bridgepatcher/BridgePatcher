@@ -1,4 +1,7 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000002.2 - 4.0.0 alpha 20.2.2
+This release changes the name of the executable inside BridgePatcher > payloads > Tools from OpenCore-Patcher-T2.app to BridgePatcher.app
+
 ## 4.0.0.2000002.1 - 4.0.0 alpha 20.2.1
 This release updates the README only inside the patcher's About BridgePatcher menu
 
