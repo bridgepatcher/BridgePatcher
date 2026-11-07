@@ -36,6 +36,13 @@ ALLOW_REPOS = {s.lower() for s in os.environ.get("ALLOWLIST_REPOS", "").split()}
 # Former names of the project in ISSUE_REPO (e.g. OpenCore-Legacy-Patcher-T2). Repos that aren't
 # GitHub forks but still carry one in their name are listed as lookalikes of upstream too.
 FORMER_NAMES = os.environ.get("FORMER_NAMES", "").split()
+# Repos named like upstream plus extra words (OpenCore-Legacy-Patcher-Download) are listed when
+# their README sends people to downloads outside GitHub, they show impersonation signals, or
+# the extra words pretend to be the real release (and they publish their own downloads).
+# Plainly named derivatives with their own releases (OpenCore-Legacy-Patcher-NOSWAP) are not.
+IMPERSONATION_WORDS = {w.lower() for w in os.environ.get(
+    "IMPERSONATION_WORDS", "download downloads official latest release releases installer setup free "
+    "crack cracked pkg dmg stable").split()}
 # How long a newly registered lookalike domain without content keeps being re-checked
 WATCH_DAYS = int(os.environ.get("WATCH_DAYS", "60"))
 # Entries not seen for this long are dropped from the list entirely
@@ -112,7 +119,15 @@ def readme_download_links(full):
     return sorted(found)
 
 
-def evaluate_repo(full, owner_sq, root, up_owner):
+def impersonation_words(name):
+    """Words in a repo name, beyond upstream's own name, that pretend to be the real release."""
+    own = {w for n in REPO_NAMES for w in re.split(r"[-_. ]+", n.lower())}
+    return sorted(set(re.split(r"[-_. ]+", name.lower())) & (IMPERSONATION_WORDS - own))
+
+
+def evaluate_repo(full, owner_sq, root, up_owner, extended=False):
+    """extended: the name only contains upstream's name (with extra words) instead of being
+    upstream's name or a typo of it, so it takes stronger evidence to be listed."""
     repo = get(f"/repos/{full}")
     if not repo:
         return None
@@ -138,6 +153,10 @@ def evaluate_repo(full, owner_sq, root, up_owner):
     suspicious, signals = assess(repo, owner_sq, up_owner)
     if not reasons and not suspicious:
         return None  # a harmless copy without its own downloads
+    if extended and not (ext or suspicious or (assets and impersonation_words(repo["name"]))):
+        return None  # a derivative under its own name (OpenCore-Legacy-Patcher-NOSWAP), not a fake
+    if extended and assets and impersonation_words(repo["name"]):
+        reasons.append("name presents it as the real release (" + ", ".join(impersonation_words(repo["name"])) + ")")
     if public_offline(full, asset_urls):
         return None  # hidden from the public: listed under "no longer reachable" until it's pruned
     return {"reasons": cell("; ".join(reasons + signals), 160),
@@ -278,6 +297,12 @@ def report_info(host, ips=None):
                     dns="GitHub", hosting=abuse_contact("GitHub"))
         info["dns"] = info["hosting"]
         return {k: cell(v, 200) for k, v in info.items()}
+    platform = ts.platform_of(host)
+    if platform:
+        # The platform takes such pages down; the registrar of its own domain has nothing to do with it
+        info.update(registered="—", registrar=f"— ({platform})", dns=platform,
+                    hosting=f"{platform} (report the page there, e.g. its abuse or report form)")
+        return {k: cell(v, 200) for k, v in info.items()}
     reg = domain_rdap(host)
     info["registered"] = reg.get("registered") or "—"
     info["registrar"] = abuse_contact(reg.get("registrar") or "", reg.get("abuse") or "")
@@ -322,6 +347,9 @@ def site_owner(host, ips=None):
     the registration date and the hosting network."""
     if host.endswith(".github.io"):
         return gh_account(host[: -len(".github.io")].split(".")[-1])
+    platform = ts.platform_of(host)
+    if platform:
+        return cell(f"{platform} account {host[: -len(platform) - 1]} (anyone can sign up there)", 160)
     reg = domain_rdap(host)
     parts = [f"registrant {reg['registrant']}" if reg.get("registrant") else
              ("owner hidden (privacy protection)" if reg else "no registration data")]
@@ -368,11 +396,13 @@ def scan_repos():
                 continue
             if (name.lower() in exact or any(looks_like(name, n) for n in REPO_NAMES)
                     or contains_name(name, FORMER_NAMES)):
-                candidates[full] = looks_like(owner, up_owner)
+                candidates[full] = (looks_like(owner, up_owner), False)
+            elif contains_name(name, REPO_NAMES):  # upstream's name plus extra words
+                candidates[full] = (looks_like(owner, up_owner), True)
     print(f"{len(candidates)} repository candidates")
     found = {}
-    for full, owner_sq in sorted(candidates.items()):
-        info = evaluate_repo(full, owner_sq, root, up_owner)
+    for full, (owner_sq, extended) in sorted(candidates.items()):
+        info = evaluate_repo(full, owner_sq, root, up_owner, extended)
         if info:
             found[full] = info
     return found
@@ -401,6 +431,11 @@ def scan_sites(watch):
     print(f"{len(targets)} hostnames to check")
     with cf.ThreadPoolExecutor(max_workers=48) as ex:
         results = [r for r in ex.map(lambda hp: ts.inspect(*hp), targets.items()) if r]
+    searched = {h: u for h, u in search_candidates().items() if h not in {r["host"] for r in results}}
+    with cf.ThreadPoolExecutor(max_workers=8) as ex:
+        hits = ex.map(lambda hu: ts.inspect(hu[0], urllib.parse.urlsplit(hu[1]).path or "/"), searched.items())
+        # A page found by search only counts if it also offers downloads (a guide doesn't)
+        results += [r for r in hits if r and r["download_hosts"]]
     found = {}
     for r in results:
         found[r["host"]] = {
@@ -431,6 +466,32 @@ def scan_sites(watch):
         info.pop("ips", None)
         info["owner"], info["status"], info["report"] = owners[h], status[h], reports[h]
     return found
+
+
+def search_candidates():
+    """Web search hits (Brave Search API, optional) that could imitate the project: pages on
+    hosting platforms under any account name (someone.itch.io/opencore-legacy-patcher) and
+    hosts with the project's name in them. News sites, blogs and download portals that only
+    write about the project aren't candidates: their address doesn't imitate it."""
+    if not ts.SEARCH_QUERIES:
+        return {}
+    if not ts.BRAVE_KEY:
+        print("::notice::No Brave Search API key set; web search for lookalike pages skipped.")
+        return {}
+    names = {re.sub(r"[^a-z0-9]", "", v) for kw in ts.KEYWORDS for v in ts.name_forms(kw)}
+    names = {n for n in names if len(n) >= 6}  # "oclp" alone is too short to judge a hostname by
+    urls = {}
+    for query in ts.SEARCH_QUERIES:
+        for url in ts.brave_search(query):
+            host = (urllib.parse.urlsplit(url).hostname or "").lower()
+            flat = re.sub(r"[^a-z0-9]", "", ts.unpuny(host))
+            if not host or ts.allowed(host, "") or host_in(host, ts.FARM_ALLOWLIST):
+                continue
+            if ts.platform_of(host) or any(n in flat for n in names):
+                urls.setdefault(host, url)
+        time.sleep(1.2)  # free plan: about one request per second
+    print(f"{len(urls)} hosts from web search to check")
+    return urls
 
 
 def describe_parked(watch):
@@ -575,8 +636,9 @@ def render(state, seen):
         out += ["", "</details>"]
     out += [
         "",
-        "<sub>Found with automated checks: lookalike domain names, certificate-transparency logs, "
-        "newly registered domains and GitHub search. **Belongs to** shows the GitHub account, or for domains the "
+        "<sub>Found with automated checks: lookalike domain names (typos, reordered words, added words "
+        "like \"download\"), addresses on hosting platforms, certificate-transparency logs, newly registered "
+        f"domains{', web search' if ts.BRAVE_KEY else ''} and GitHub search. **Belongs to** shows the GitHub account, or for domains the "
         "registrant (often hidden by privacy protection), registrar and hosting network from public RDAP data. "
         "**Status** is checked on every run; entries that stay taken down (🔴) for "
         f"{TAKEDOWN_DAYS} day{'s' if TAKEDOWN_DAYS != 1 else ''} are removed automatically. "
