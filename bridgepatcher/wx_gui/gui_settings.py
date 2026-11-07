@@ -30,6 +30,7 @@ from ..datasets import (
     smbios_data,
     os_data,
 )
+from ..sys_patch.auto_patcher import auto_update
 
 
 class SettingsFrame(wx.Frame):
@@ -361,6 +362,31 @@ class SettingsFrame(wx.Frame):
                         "downloaded online (needs internet).",
                         "Switching requires reverting root patches.",
                     ],
+                },
+                # Opt-outs for auto_update.py. Deliberately on the App tab and not under
+                # Advanced: turning an automatic system change off must never need
+                # Experimental Features.
+                "Turn Off Auto Root Patch Updates": {
+                    "type": "checkbox",
+                    "value": not auto_update.auto_root_patch_updates_enabled(),
+                    "variable": auto_update.AUTO_ROOT_PATCH_UPDATES_KEY,
+                    "description": [
+                        "When enabled, root patches are no longer",
+                        "updated automatically after BridgePatcher",
+                        "was updated. Use the root patching menu.",
+                    ],
+                    "override_function": self._toggle_automatic_update_setting,
+                },
+                "Turn Off Auto OpenCore Updates": {
+                    "type": "checkbox",
+                    "value": not auto_update.auto_opencore_updates_enabled(),
+                    "variable": auto_update.AUTO_OPENCORE_UPDATES_KEY,
+                    "description": [
+                        "When enabled, OpenCore is no longer",
+                        "built and installed automatically after",
+                        "an update. You are asked first instead.",
+                    ],
+                    "override_function": self._toggle_automatic_update_setting,
                 },
                 "wrap_around 1": {
                     "type": "wrap_around",
@@ -848,6 +874,28 @@ Hardware Information:
         self.constants.app_mode = "matteo" if value else "albert"
 
         self._restart_app(f"Developer Mode is now {'enabled' if value else 'disabled'}.")
+
+    def _toggle_automatic_update_setting(self, variable: str, value: bool, constants_variable: str = None) -> None:
+        """
+        "Turn Off Auto Root Patch Updates" / "Turn Off Auto OpenCore Updates"
+
+        The checkbox says "Turn Off", the stored setting says "enabled", so the
+        stored value is the opposite of the checkbox. Written straight to the
+        global settings: the auto patcher and the boot daemon are separate
+        processes and read them from there (see auto_update.py).
+        """
+        enabled = not bool(value)
+        logging.info(f"Updating Global Setting: {variable} = {enabled}")
+        global_settings.GlobalEnviromentSettings().write_property(variable, enabled)
+
+        if variable == auto_update.AUTO_ROOT_PATCH_UPDATES_KEY and enabled is False and Path(auto_update.STATE_FILE).exists():
+            wx.MessageBox(
+                "An automatic root patch update is already prepared. It is cancelled at the next restart, "
+                "and your Mac then starts without root patches until you patch it again from the root patching menu.",
+                "Automatic Root Patch Update Cancelled",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+
 
     def toggle_auto_updates(self, variable: str = None, value: bool = None, constants_variable: str = None) -> None:
         """

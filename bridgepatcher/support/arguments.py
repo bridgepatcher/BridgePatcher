@@ -19,7 +19,7 @@ from .. import constants
 from ..wx_gui import gui_entry
 from ..efi_builder import build
 from ..sys_patch import sys_patch
-from ..sys_patch.auto_patcher import StartAutomaticPatching
+from ..sys_patch.auto_patcher import StartAutomaticPatching, AutomaticUpdates
 
 from ..datasets import (
     model_array,
@@ -81,6 +81,10 @@ class arguments:
             self._sys_patch_auto_handler()
             return
 
+        if self.args.auto_root_patch_update:
+            self._auto_root_patch_update_handler()
+            return
+
         if self.args.check_updates:
             self._check_updates_handler()
             return
@@ -126,6 +130,15 @@ class arguments:
 
         logging.info("Set Auto patching")
         StartAutomaticPatching(self.constants).start_auto_patch()
+
+
+    def _auto_root_patch_update_handler(self) -> None:
+        """
+        Finish an automatic root patch update (one-shot LaunchDaemon, at boot)
+        """
+
+        logging.info("Set automatic root patch update")
+        AutomaticUpdates(self.constants).run_boot_daemon()
 
 
     def _other_instance_running(self) -> bool:
