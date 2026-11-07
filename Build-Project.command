@@ -264,13 +264,12 @@ from ci_tooling.build_modules import (
     package,
     release_guard,
     sign_notarize,
-    hash as hash_pkg,
     print_scripts
 )
 from bridgepatcher import constants
 
 
-TOTAL_STEPS = 9
+TOTAL_STEPS = 8
 
 # Written by the build thread, read by the spinner in the main thread.
 status = f"[0/{TOTAL_STEPS}] Starting"
@@ -534,9 +533,6 @@ def main() -> None:
                     notarization_team_id=args.notarization_team_id,
                 ).sign_and_notarize()
                 step += 1
-
-            status = f"[{TOTAL_STEPS}/{TOTAL_STEPS}] Generating hashes"
-            hash_pkg.GenerateHash()
     except Exception as e:
         if build_result["cancelled"]:
             # Ctrl+C reaches the running tool (pkgbuild, productbuild, ...) too, which
