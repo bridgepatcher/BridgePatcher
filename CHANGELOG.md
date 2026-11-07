@@ -1,4 +1,12 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000002 - 4.0.0 alpha 20.2
+This release:
+- fixes a bug where AMFIPass gets to be injected, even when the root patches aren't signed by Dortania at all, causing a kernel panic or malfunction of the root patches
+- fixes a vulnerability where the updater still accepted OpenCore-Patcher-T2.pkg, the installer's name from before the rename, when a release had no BridgePatcher.pkg
+Impact: an attacker who compromised the maintainer's account (or a channel's repository) could attach an old, vulnerable pre-rename build to a release as OpenCore-Patcher-T2.pkg, together with a matching SHA256SUMS, and the updater would offer it, launching a downgrade attack to exploit already known vulnerabilities. This is fixed by the updater only accepting BridgePatcher.pkg. A channel switch to a repository whose newest release only carries OpenCore-Patcher-T2.pkg now reports that it has no BridgePatcher.pkg instead
+- removes the `--legacy-installer` option of Build-Project.command: OpenCore-Patcher-T2.pkg, the same installer under the app's former name, can no longer be built, and a leftover copy in ./dist is deleted before packaging so it can't end up on a release by accident. Versions from before the rename (alpha 19.x and older), whose updater only looks for OpenCore-Patcher-T2.pkg, need to install BridgePatcher.pkg manually once
+
+
 ## 4.0.0.2000001 - 4.0.0 alpha 20.1
 This release:
 - switches back to this project's own PatcherSupportPkg (bridgepatcher/PatcherSupportPkg 2.5), which is bundled with the app again. Dortania's PatcherSupportPkg (dortania/PatcherSupportPkg 2.0.5) stays available as an option in Settings > App > PatcherSupportPkg, for anyone who prefers it. It isn't bundled: for now it is always downloaded online when root patching (about 850 MB, verified against its pinned SHA256), so it needs an internet connection, also for the Wi-Fi patches. Switching between the two requires reverting the root patches first and patching again. Macs that were root patched with Dortania's 2.0.5 by an earlier build are asked to revert and patch again once, unless Dortania's is selected in Settings
@@ -6,9 +14,6 @@ This release:
 - fixes the EFI's volume icon not showing in Apple's boot picker (Option key at startup, or `PickerMode` Apple): BridgePatcher's new drive icons only contained modern PNG images, while the firmware boot picker reads the legacy 128x128 `it32`/`t8mk` image. The internal, external, SSD and SD card icons now include the legacy 16x16, 32x32 and 128x128 images too (`ci_tooling/build_modules/volume_icon_legacy.py` adds them again after artwork changes). Thx @gandolf243
 - stops demanding building the patcher locally, now it can be done using GitHub Actions for the main repository (not tested if this works in forks)
 - renames the source launcher and PyInstaller spec from OpenCore-Patcher-GUI.command / OpenCore-Patcher-GUI.spec to BridgePatcher-GUI.command / BridgePatcher-GUI.spec. To run from source, use `python3 BridgePatcher-GUI.command`
-- fixes a vulnerability where the updater still accepted OpenCore-Patcher-T2.pkg, the installer's name from before the rename, when a release had no BridgePatcher.pkg
-Impact: an attacker who compromised the maintainer's account (or a channel's repository) could attach an old, vulnerable pre-rename build to a release as OpenCore-Patcher-T2.pkg, together with a matching SHA256SUMS, and the updater would offer it, launching a downgrade attack to exploit already known vulnerabilities. This is fixed by the updater only accepting BridgePatcher.pkg. A channel switch to a repository whose newest release only carries OpenCore-Patcher-T2.pkg now reports that it has no BridgePatcher.pkg instead
-- removes the `--legacy-installer` option of Build-Project.command: OpenCore-Patcher-T2.pkg, the same installer under the app's former name, can no longer be built, and a leftover copy in ./dist is deleted before packaging so it can't end up on a release by accident. Versions from before the rename (alpha 19.x and older), whose updater only looks for OpenCore-Patcher-T2.pkg, need to install BridgePatcher.pkg manually once
 
 Inside the repository itself only:
 - fixes a vulnerability discovered by @albert-mueller and @claude where an attacker could intentionally set up many branches to launch a denial of service attack, without ever touching the code, by running the same action from multiple branches at the same time
