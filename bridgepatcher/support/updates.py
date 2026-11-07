@@ -31,10 +31,12 @@ from .. import constants
 
 
 # SHA256 checksum files published on a release, next to the installer package:
-# - SHA256SUMS: written by .github/workflows/sha256sums.yml, "<sha256>  <file>" per line
-# - certificates.txt: written at build time by ci_tooling/build_modules/hash.py,
-#   "Resource certificates:" followed by "<file>: <sha256>" lines
-# The package's own preinstall script checks the same two files (see
+# - SHA256SUMS: written by .github/workflows/sha256sums.yml, "<sha256>  <file>" per line.
+#   This is the only checksum file new releases carry.
+# - certificates.txt: legacy, no longer built or uploaded. Older releases may still
+#   carry it ("Resource certificates:" followed by "<file>: <sha256>" lines), so it
+#   is still read as a fallback when updating to one of them.
+# The package's own preinstall script only checks SHA256SUMS (see
 # ci_tooling/build_modules/package_scripts.py, generate_verify_package()).
 CHECKSUM_FILE_NAMES = ("SHA256SUMS", "certificates.txt")
 _CHECKSUM_TIMEOUT = 20

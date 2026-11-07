@@ -217,8 +217,7 @@ jobs:
         if: github.event_name == 'release'
         # Uses the preinstalled GitHub CLI instead of a third-party action,
         # which avoids the Node `url.parse()` deprecation warning (DEP0169).
-        # Checksums are published separately as SHA256SUMS by sha256sums.yml;
-        # dist/certificates.txt is no longer uploaded.
+        # Checksums are published separately as SHA256SUMS by sha256sums.yml.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}

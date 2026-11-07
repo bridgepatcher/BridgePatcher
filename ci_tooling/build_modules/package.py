@@ -201,7 +201,7 @@ class GeneratePackage:
         Generate the uninstaller, installer and AutoPkg-Assets packages
         """
         # An uninstaller under its former name, left over from a build before the rename,
-        # would otherwise be hashed into certificates.txt and could end up on a release.
+        # could otherwise end up on a release by accident.
         Path("./dist", constants.LEGACY_UNINSTALLER_PKG_NAME).unlink(missing_ok=True)
 
         self._build_package(
@@ -217,8 +217,8 @@ class GeneratePackage:
         )
 
         # A pre-rename installer left over from an earlier build (OpenCore-Patcher-T2.pkg,
-        # formerly built with --legacy-installer) would otherwise be hashed into
-        # certificates.txt and could end up on a release by accident.
+        # formerly built with --legacy-installer) could otherwise end up on a release
+        # by accident.
         Path("./dist", f"{constants.LEGACY_APP_NAME}.pkg").unlink(missing_ok=True)
 
         for _package in self.installer_packages:

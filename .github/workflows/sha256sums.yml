@@ -15,9 +15,8 @@ name: Publish SHA256SUMS
 # still hashed once its assets stop changing and MAX_WAIT_SECONDS has passed, with
 # a warning.
 #
-# SHA256SUMS is the only checksum file uploaded to releases. dist/certificates.txt,
-# which Build-Project.command still writes at build time, is no longer attached;
-# the updater and the package preinstall check only fall back to it for older
+# SHA256SUMS is the only checksum file on releases. The old certificates.txt is no
+# longer built or uploaded; the in-app updater only falls back to it for older
 # releases that still carry one.
 
 on:
