@@ -206,26 +206,26 @@ SPECIFIC BOOT-ARGS EXPLANATION FOR MACBOOKPRO14,x
 T1 SECURITY CHIP & AUTHENTICATION ON MACOS TAHOE (26.x)
 ============================================================
 
-• Why is Touch ID inactive on Tahoe?
-  Apple completely removed support for the T1 chip's USB bridge
-  in the latest macOS versions. Forcing old kexts and frameworks from
-  Ventura (AppleKeyStore 13.6, biometrickitd, SharedUtils 13.6) creates a
-  severe ABI/IPC incompatibility with native Tahoe security daemons
-  (securityd, LocalAuthentication, akd), blocking password prompts
-  in System Settings and Apple Account access.
+• Why is Touch ID off on Tahoe by default?
+  The T1 kexts that bring Touch ID back on Tahoe (AppleKeyStore-Tahoe is the
+  Ventura 13.6 AppleKeyStore with patched argument checks) break the keystore
+  for userspace: "aks connection failed", Data Protection class C stays
+  locked after login, dasd blocks iCloud Photos / Messages / Maps sync
+  (classCLocked == 1) and the keychain keeps asking for the Mac password.
 
-• How does Native Software Keystore mode work on Tahoe?
-  1. Preserves Tahoe's native kernel drivers (AppleKeyStore & AppleCredentialManager)
-     running them in software mode (Intel Kaby Lake CPU crypto).
-  2. 100% restores PASSWORD authorization in System Settings.
-  3. Allows modification and management of account passwords and the keychain.
-  4. Unlocks Apple Account / iCloud access thanks to the integration of
-     AMFIPass (-amfipassbeta) and attestation bypass (-oas_skip_attestation).
-  5. Keeps the Touch Bar (TouchBarServer / AppleHSSPISupport) fully stable.
+• Default: native keystore on Tahoe
+  1. The T1 kexts and their Block entries are capped at MaxKernel 24.99.99,
+     so Tahoe runs its own AppleKeyStore & AppleCredentialManager.
+     Sonoma and Sequoia keep full T1 support from the same EFI.
+  2. Password authentication, keychain, Apple Account and iCloud sync work.
+  3. Root patches skip the Touch ID / Apple Pay userspace on Tahoe and only
+     turn off the KyberInTheSEPRegisteredKeys feature flag.
+  4. No Touch ID on Tahoe. The Touch Bar keeps working.
 
-• Result:
-  Reliable local and cloud authentication, working system lock unlock,
-  operational Apple Account, with no black screens or SecurityAgent crashes.
+• Opt-in: Settings > Extras > "T1 Touch ID on macOS Tahoe"
+  Experimental. Loads the T1 kexts on Tahoe for Touch ID, with the sync and
+  keychain issue above. After changing it: rebuild and install OpenCore,
+  reboot, then revert and reapply root patches.
 """
 
     def _get_wifi_audio_text(self) -> str:

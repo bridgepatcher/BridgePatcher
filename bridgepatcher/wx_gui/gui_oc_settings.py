@@ -377,6 +377,7 @@ class OCSettingsFrame(wx.Frame):
         # a different, non-T2 target should see full Security customization,
         # not the host's own T2 restrictions.
         target_is_t2_mac = (self.constants.custom_model or self.constants.computer.real_model) in model_array.T2Macs
+        target_is_t1_mac = (self.constants.custom_model or self.constants.computer.real_model) in ["MacBookPro13,2", "MacBookPro13,3", "MacBookPro14,2", "MacBookPro14,3"]
 
         settings = {
             "General": {
@@ -589,6 +590,19 @@ class OCSettingsFrame(wx.Frame):
                         "this may aid in prolonged idle stability.",
                     ],
                     "condition": gui_support.CheckProperties(self.constants).host_has_3802_gpu()
+                },
+                "T1 Touch ID on macOS Tahoe": {
+                    "type": "checkbox",
+                    "value": self.constants.t1_tahoe_touch_id,
+                    "variable": "t1_tahoe_touch_id",
+                    "description": [
+                        "Experimental. Loads the T1 kexts",
+                        "on Tahoe for Touch ID. Breaks",
+                        "iCloud sync and the keychain.",
+                        "Off: native keystore, no Touch ID.",
+                    ],
+                    "warning": "This loads the legacy T1 kexts (AppleKeyStore-Tahoe, AppleSSE, AppleCredentialManager, KernelRelayHost, corecrypto_T1) on macOS Tahoe to bring back Touch ID.\n\nWith them, macOS can't reach the keystore: Data Protection class C stays locked, so iCloud Photos, Messages and Maps stop syncing and the keychain keeps asking for your Mac password.\n\nAfter changing this setting, rebuild and install OpenCore, reboot, then revert and reapply root patches.\n\nEnable anyway?",
+                    "condition": target_is_t1_mac,
                 },
                 "wrap_around 1": {
                     "type": "wrap_around",

@@ -7,6 +7,7 @@ from ..base import BaseHardware, HardwareVariant
 from ...base import PatchType
 
 from .....constants import Constants
+from .....support   import utilities
 
 from .....datasets.os_data import os_data
 
@@ -15,6 +16,8 @@ class T1SecurityChip(BaseHardware):
 
     def __init__(self, xnu_major, xnu_minor, os_build, global_constants: Constants) -> None:
         super().__init__(xnu_major, xnu_minor, os_build, global_constants)
+
+        self._t1_kexts_loaded: bool = None  # Cached result of _tahoe_t1_kexts_loaded()
 
 
     def name(self) -> str:
@@ -45,12 +48,46 @@ class T1SecurityChip(BaseHardware):
         return HardwareVariant.MISCELLANEOUS
 
 
+    def _tahoe_t1_kexts_loaded(self) -> bool:
+        """
+        Whether the booted EFI injected the legacy T1 kexts on macOS Tahoe
+
+        KernelRelayHost is gone from macOS since 15.0 Beta 3, so on Tahoe it's only loaded when
+        OpenCore injected it, i.e. when the EFI was built with "T1 Touch ID on macOS Tahoe"
+        (constants.t1_tahoe_touch_id). By default the EFI leaves Tahoe on its native keystore:
+        the Touch ID userspace below can't do anything there, so it isn't installed.
+        """
+        if self._t1_kexts_loaded is None:
+            try:
+                self._t1_kexts_loaded = utilities.check_kext_loaded("com.apple.driver.KernelRelayHost") != ""
+            except OSError:  # kmutil / kextstat missing (not running on macOS)
+                self._t1_kexts_loaded = False
+        return self._t1_kexts_loaded
+
+
     def patches(self) -> dict:
         """
         Patches for T1 Security Chip
         """
         if self.native_os() is True:
             return {}
+
+        # Tahoe: turn off the KyberInTheSEPRegisteredKeys feature flag (MessageProtection) on T1 Macs.
+        # Ported from upstream dortania/OpenCore-Legacy-Patcher b8ae03e ("Fix the Skylake patches on Tahoe").
+        tahoe_feature_flags = {
+            PatchType.EXECUTE: {
+                "/usr/bin/defaults write /Library/Preferences/FeatureFlags/Domain/MessageProtection.plist KyberInTheSEPRegisteredKeys -dict Enabled -bool false": True,
+            },
+        }
+
+        if self._xnu_major >= os_data.tahoe.value and self._tahoe_t1_kexts_loaded() is False:
+            # Native keystore on Tahoe (default EFI build): no Touch ID / Apple Pay userspace, as the
+            # Ventura biometrickitd and the 25G229 seld / LocalAuthenticationCore have no T1 kexts to talk to.
+            return {
+                "T1 Security Chip": {
+                    **tahoe_feature_flags,
+                },
+            }
 
         return {
             "T1 Security Chip": {
@@ -94,12 +131,6 @@ class T1SecurityChip(BaseHardware):
                         **({ "NearField.framework": "14.7.2-25" if self._xnu_major >= os_data.tahoe.value else "14.7.2" } if self._xnu_major >= os_data.sequoia else {}),
                     },
                 },
-                # Tahoe: turn off the KyberInTheSEPRegisteredKeys feature flag (MessageProtection) on T1 Macs.
-                # Ported from upstream dortania/OpenCore-Legacy-Patcher b8ae03e ("Fix the Skylake patches on Tahoe").
-                **({
-                    PatchType.EXECUTE: {
-                        "/usr/bin/defaults write /Library/Preferences/FeatureFlags/Domain/MessageProtection.plist KyberInTheSEPRegisteredKeys -dict Enabled -bool false": True,
-                    },
-                } if self._xnu_major >= os_data.tahoe.value else {}),
+                **(tahoe_feature_flags if self._xnu_major >= os_data.tahoe.value else {}),
             },
         }

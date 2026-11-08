@@ -507,6 +507,10 @@ class BuildOpenCore:
                 logging.info(f"BUILD PROFILE: {profile_name}")
                 if has_t1:
                     logging.info("T1 SECURITY CHIP: ENABLED")
+                    if getattr(self.constants, "t1_tahoe_touch_id", False) is True:
+                        logging.info("T1 ON MACOS TAHOE: TOUCH ID (EXPERIMENTAL, BREAKS ICLOUD SYNC / KEYCHAIN)")
+                    else:
+                        logging.info("T1 ON MACOS TAHOE: NATIVE KEYSTORE (NO TOUCH ID)")
                 logging.info("")
                 logging.info("Wi-Fi:")
                 if getattr(self.constants, "computer", None) is not None and self.constants.computer.wifi:
