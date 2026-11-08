@@ -469,12 +469,26 @@ class BuildMiscellaneous:
     def _t1_handling(self) -> None:
         """T1 Security Chip Handler with Crash Protection."""
         if self.model in ["MacBookPro13,2", "MacBookPro13,3", "MacBookPro14,2", "MacBookPro14,3"]: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern den if not self.model in ["MacBookPro13,2", "MacBookPro13,3", "MacBookPro14,2", "MacBookPro14,3"], invalider Syntax zu injizieren, um Kexts fürs T1 Hardware aud nicht-T1 macs zu injizieren
-            # The legacy T1 kexts (13.6) are injected on every supported macOS version again.
-            # On macOS Tahoe (Darwin 25+), OpenCore loads AppleKeyStore-Tahoe.kext (Dortania, MinKernel 25.0.0)
-            # instead of the Ventura AppleKeyStore.kext (MaxKernel 24.99.99) - required for Touch ID on T1.
-            # The previous "Native Software Keystore Mode" skipped all T1 kexts on Tahoe and on every
-            # build profile except TEST-A (it also used detected_os, i.e. the host OS, not the target OS).
-            logging.info("- Enabling T1 Security Chip support")
+            # The legacy T1 kexts (13.6) are injected on Sonoma and Sequoia, where they're needed for Touch ID,
+            # Apple Pay and password authentication through the T1.
+            #
+            # macOS 26 Tahoe (Darwin 25+): AppleKeyStore-Tahoe.kext (v1.2.0) is the Ventura 13.6 AppleKeyStore with
+            # patched argument checks in AppleKeyStoreUserClient. It brings Touch ID back, but on current Tahoe
+            # releases userspace can't talk to the keystore through it (aks_get_lock_state: aks connection failed,
+            # MKBGetDeviceLockStateInfo returns NULL). The Data Protection class C keybag never unlocks after login,
+            # so dasd keeps blocking iCloud Photos / Messages / Maps sync (classCLocked == 1) and the keychain keeps
+            # asking for the Mac password. Tahoe's own AppleKeyStore + AppleCredentialManager work fine on a T1 Mac
+            # without the T1 kexts, only Touch ID is lost.
+            #
+            # So by default every T1 kext and every "Allow ... Downgrade" Block entry is capped at MaxKernel 24.99.99:
+            # Sonoma/Sequoia keep full T1 support, Tahoe boots with its native keystore. The same EFI stays correct
+            # for every installed macOS version, since OpenCore picks the entries via MinKernel/MaxKernel.
+            # Touch ID on Tahoe (with the sync/keychain issue above) is opt-in via constants.t1_tahoe_touch_id.
+            touch_id_on_tahoe = self.constants.t1_tahoe_touch_id is True
+            if touch_id_on_tahoe:
+                logging.info("- Enabling T1 Security Chip support (Touch ID on macOS Tahoe enabled, experimental)")
+            else:
+                logging.info("- Enabling T1 Security Chip support (macOS Tahoe uses its native keystore, no Touch ID)")
             try:
                 builder = support.BuildSupport(self.model, self.constants, self.config)
                 identifiers = ["com.apple.driver.AppleSSE", "com.apple.driver.AppleKeyStore", "com.apple.driver.AppleCredentialManager"]
@@ -482,18 +496,24 @@ class BuildMiscellaneous:
                 self.config.setdefault("Kernel", {}).setdefault("Block", [])
                 for identifier in identifiers:
                     item = builder.get_item_by_kv(self.config["Kernel"]["Block"], "Identifier", identifier)
-                    if item: item["Enabled"] = True
+                    if item:
+                        item["Enabled"] = True
+                        item["MaxKernel"] = "" if touch_id_on_tahoe else "24.99.99"
 
                 kexts_to_enable = [
                     ("corecrypto_T1.kext", self.constants.t1_corecrypto_version, self.constants.t1_corecrypto_path),
                     ("AppleSSE.kext", self.constants.t1_sse_version, self.constants.t1_sse_path),
                     ("AppleKeyStore.kext", self.constants.t1_key_store_version, self.constants.t1_key_store_path),
-                    ("AppleKeyStore-Tahoe.kext", self.constants.t1_key_store_tahoe_version, self.constants.t1_key_store_tahoe_path),
                     ("AppleCredentialManager.kext", self.constants.t1_credential_version, self.constants.t1_credential_path),
                     ("KernelRelayHost.kext", self.constants.kernel_relay_version, self.constants.kernel_relay_path),
                 ]
+                if touch_id_on_tahoe:
+                    kexts_to_enable.append(("AppleKeyStore-Tahoe.kext", self.constants.t1_key_store_tahoe_version, self.constants.t1_key_store_tahoe_path))
+
                 for name, version, path in kexts_to_enable:
                     builder.enable_kext(name, version, path)
+                    if not touch_id_on_tahoe:
+                        builder.get_kext_by_bundle_path(name)["MaxKernel"] = "24.99.99"
             except Exception as e:
                 logging.error(f"CRITICAL: Failed to configure T1 Security Chip: {e}")
                 logging.exception("Stack Trace:")

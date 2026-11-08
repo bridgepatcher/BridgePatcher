@@ -302,6 +302,11 @@ class Constants:
         self.disable_cs_lv:  bool = False  # Disable Library validation
         self.disable_amfi:   bool = False  # Disable AMFI
 
+        ## T1 Security Chip Settings
+        self.t1_tahoe_touch_id: bool = False  # macOS 26 Tahoe on T1 Macs: inject the legacy T1 kexts (AppleKeyStore-Tahoe etc.) for Touch ID.
+                                              # Off by default: with them, userspace can't reach the keystore (aks connection failed), Data Protection
+                                              # class C stays locked and iCloud sync (Photos, Messages, Maps) and keychain break. Off = Tahoe's native keystore.
+
         ## OS Settings
         self.os_support:        float = 12.0
         self.detected_os:         int = 0  #  Major Kernel Version
