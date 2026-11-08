@@ -299,6 +299,14 @@ class VerifyBuildFrame(wx.Frame):
         for token in spec["boot_args_forbidden"]:
             if token in tokens:
                 self._fail(f"boot-args contains forbidden '{token}'")
+        seen_keys = {}
+        for token in boot_args_raw.split():
+            if "=" not in token:
+                continue
+            k = token.split("=", 1)[0]
+            if k in seen_keys and seen_keys[k] != token:
+                self._fail(f"boot-args sets '{k}' twice ('{seen_keys[k]}' and '{token}'); the kernel only reads the first one")
+            seen_keys.setdefault(k, token)
 
         nvram_delete = _typed(_typed(nvram, "Delete", dict, {}), APPLE_BOOT_GUID, list, []) if "Delete" in nvram else []
         if "boot-args" not in nvram_delete:

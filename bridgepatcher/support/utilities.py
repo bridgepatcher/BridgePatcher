@@ -27,6 +27,40 @@ from ..datasets import (
 )
 
 
+def merge_boot_args(current: str, additions: str) -> str:
+    """
+    Merge boot-arg tokens into an existing boot-args string.
+
+    - Flags ("-v") and exact duplicates are only added once.
+    - "key=value" tokens replace an existing token with the same key in place
+      (e.g. "debug=0x144" replaces "debug=0x100") instead of being appended.
+      XNU only reads the first occurrence of a boot-arg, so an appended second
+      "debug=" or "agdpmod=" would otherwise be silently ignored.
+    - Duplicate keys already present in `current` are collapsed to one entry.
+    """
+    tokens = []
+    key_index = {}
+
+    def _put(token: str) -> None:
+        if "=" in token:
+            k = token.split("=", 1)[0]
+            if k in key_index:
+                tokens[key_index[k]] = token
+                return
+            key_index[k] = len(tokens)
+        elif token in tokens:
+            return
+        tokens.append(token)
+
+    for t in (current or "").split():
+        if "=" in t and t.split("=", 1)[0] in key_index:
+            continue  # keep the first one, the value XNU actually reads
+        _put(t)
+    for t in (additions or "").split():
+        _put(t)
+    return " ".join(tokens)
+
+
 def is_t2_mac(model: str, global_constants=None) -> bool:
     """
     Return True if the given model has a T2 security chip.
