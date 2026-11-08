@@ -38,30 +38,17 @@ LEGACY_ROOT_PATCH_MANIFEST_VERSION_KEY: str = "OpenCore Legacy Patcher"  # brand
 class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
-        self.patcher_version:                 str = "4.0.0.2000002.2"
+        self.patcher_version:                 str = "4.0.0.2000003"
         self.patcher_version_label=self.patcher_version
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
         self.bundle_identifier:               str = "com.bridgepatcher.bridgepatcher"
 
         # URLs
-        # PatcherSupportPkg (Universal-Binaries.dmg) sources, picked in Settings > App.
-        # The active version and download URL are 'patcher_support_pkg_version' and
-        # 'url_patcher_support_pkg' below, derived from 'patcher_support_pkg_source'.
-        #
-        # "bridgepatcher" is the default and the only source bundled with the app
-        # (ci_tooling/build_modules/disk_images.py packages it). Every other source is
-        # never bundled: it is always downloaded online when root patching
-        # (sys_patch/utilities/dmg_mount.py), so it needs an internet connection.
-        # Keep each version's SHA256 pinned in datasets/patcher_support_pkg_data.py.
-        #
-        # The root patch manifest records the version, and a different version than
-        # the one installed requires reverting first - so two sources must never share
-        # a version number.
         self.patcher_support_pkg_sources: dict = {
             "bridgepatcher": {
                 "label":   "BridgePatcher (bundled)",
                 "url":     "https://github.com/bridgepatcher/PatcherSupportPkg/releases/download/",
-                "version": "2.5",
+                "version": "2.6",
                 "bundled": True,
             },
             "dortania": {
@@ -106,8 +93,8 @@ class Constants:
         self.installer_pkg_url:               str = f"{self.repo_link.rstrip('/')}/releases/download/{self.patcher_version}/AutoPkg-Assets-T2.pkg"
 
         # OpenCore Versioning
-        self.opencore_version_t2:     str  = "2.0.7" #T2 Macs
-        self.opencore_version_non_t2: str  = "1.0.8" #Non-T2 Macs
+        self.opencore_version_t2:     str  = "2.0.7" # T2 Macs
+        self.opencore_version_non_t2: str  = "1.0.8" # Non-T2 Macs
         self.opencore_build_for_t2:   bool = True    # Set by efi_builder/build.py for the target model
 
 
