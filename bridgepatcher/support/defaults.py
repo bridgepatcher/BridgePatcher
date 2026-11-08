@@ -62,6 +62,7 @@ class GenerateDefaults:
         self.constants.disable_connectdrivers = False
         self.constants.amd_gop_injection = False
         self.constants.nvidia_kepler_gop_injection = False
+        self.constants.t1_tahoe_touch_id = False
         self.constants.disable_cs_lv = False
         self.constants.disable_amfi = False
         self.constants.secure_status = False

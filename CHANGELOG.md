@@ -1,4 +1,12 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## Unreleased
+This release:
+- fixes iCloud sync and the keychain on T1 Macs (MacBookPro13,2, MacBookPro13,3, MacBookPro14,2, MacBookPro14,3) running macOS 26 Tahoe. The bundled AppleKeyStore-Tahoe.kext (v1.2.0) is the Ventura 13.6 AppleKeyStore with patched argument checks, and on current Tahoe releases userspace can't reach the keystore through it (`aks_get_lock_state: aks connection failed`, `MKBGetDeviceLockStateInfo` returns NULL). Data Protection class C never unlocks after login, so dasd keeps blocking iCloud Photos, Messages and Maps (`classCLocked == 1`) and macOS keeps asking for the Mac password. Thx @albert-mueller and @repaulshadow for tracking this down
+  - by default, the T1 kexts (corecrypto_T1, AppleSSE, AppleKeyStore, AppleCredentialManager, KernelRelayHost) and their "Allow ... Downgrade" Block entries are now capped at MaxKernel 24.99.99, and AppleKeyStore-Tahoe.kext is no longer injected. Tahoe uses its own keystore, Sonoma and Sequoia keep full T1 support from the same EFI. Touch ID isn't available on Tahoe in this mode
+  - Touch ID on Tahoe is still available as an opt-in: Settings > Extras > "T1 Touch ID on macOS Tahoe" (experimental, with the sync and keychain issue above)
+  - root patching on Tahoe now only installs the Touch ID / Apple Pay files (biometrickitd, seld, LocalAuthenticationCore, NearField, ...) when the T1 kexts are actually loaded. Otherwise the "T1 Security Chip" patch only turns off the `KyberInTheSEPRegisteredKeys` feature flag
+  - to switch an existing install: rebuild and install OpenCore, reboot, then revert and reapply root patches. Workarounds that hide the lock state in dasd (e.g. swizzling `_DASFileProtectionPolicy`) aren't needed any more and can be removed
+
 ## 4.0.0.2000002.2 - 4.0.0 alpha 20.2.2
 This release changes the name of the executable inside BridgePatcher > payloads > Tools from OpenCore-Patcher-T2.app to BridgePatcher.app
 
