@@ -101,8 +101,8 @@ class BuildSecurity:
 
     def _update_nvram_string(self, uuid: str, key: str, value: str) -> None:
         """
-        Appends boot-arg tokens to an NVRAM string variable, only for
-        tokens not already present.
+        Merges boot-arg tokens into an NVRAM string variable. Flags are only
+        added once; key=value tokens replace an existing token with the same key.
         """
         if "NVRAM" not in self.config:
             self.config["NVRAM"] = {"Add": {}}
@@ -112,20 +112,9 @@ class BuildSecurity:
             self.config["NVRAM"]["Add"][uuid] = {}
 
         current_value = self.config["NVRAM"]["Add"][uuid].get(key, "")
-
-        existing_tokens = set(current_value.split())
-        new_tokens = value.strip().split()
-
-        tokens_to_add = [t for t in new_tokens if t not in existing_tokens]
-        if not tokens_to_add:
-            return
-
-        if current_value.strip():
-            self.config["NVRAM"]["Add"][uuid][key] = (
-                current_value.rstrip() + " " + " ".join(tokens_to_add)
-            )
-        else:
-            self.config["NVRAM"]["Add"][uuid][key] = " ".join(tokens_to_add)
+        merged = utilities.merge_boot_args(current_value, value)
+        if merged or key in self.config["NVRAM"]["Add"][uuid]:
+            self.config["NVRAM"]["Add"][uuid][key] = merged
 
     def _set_nvram_value(self, uuid: str, key: str, value: any, overwrite: bool = False) -> None:
         """
