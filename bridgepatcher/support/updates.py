@@ -6,6 +6,7 @@ Returns dict with Link and Version of the latest binary update if available
 """
 
 import re
+import time
 import hashlib
 import logging
 
@@ -65,7 +66,101 @@ def _parse_checksum_file(text: str) -> dict:
     return checksums
 
 
-def published_sha256(download_url: str) -> tuple[Optional[str], str]:
+_CHECKSUM_ATTEMPTS = 3
+_CHECKSUM_RETRY_DELAY = 2
+_RELEASE_DOWNLOAD_URL = re.compile(r"^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)$")
+_API_DIGEST = re.compile(r"^sha256:([0-9a-fA-F]{64})$")
+
+# Outcome of fetching one checksum file
+_FETCH_OK = "ok"                    # downloaded, body returned
+_FETCH_ABSENT = "absent"            # GitHub answered 404: the release doesn't carry it
+_FETCH_UNREACHABLE = "unreachable"  # network error, timeout, 5xx, or not a checksum file
+
+
+def _fetch_release_file(url: str, accept: Optional[str] = None) -> tuple[str, Optional["network_handler.requests.Response"], str]:
+    """
+    GET a small file from GitHub, retrying transient failures
+
+    Release assets are not served by github.com itself: ".../releases/download/..."
+    redirects to release-assets.githubusercontent.com (or objects.githubusercontent.com).
+    On some Wi-Fi networks (hotels, schools, offices, captive portals, flaky IPv6,
+    DNS filters) that second host times out, is reset, or is answered by the
+    network's own proxy - even though api.github.com works fine. That used to be
+    swallowed by NetworkUtilities.get() into an empty Response and reported as
+    "the release publishes no SHA256 checksums", which is wrong: the file exists,
+    it just couldn't be downloaded on this network.
+
+    Returns:
+        (_FETCH_OK, response, "") / (_FETCH_ABSENT, None, reason) / (_FETCH_UNREACHABLE, None, reason)
+    """
+    headers = {"Accept": accept} if accept else None
+    reason = ""
+    for attempt in range(1, _CHECKSUM_ATTEMPTS + 1):
+        try:
+            response = network_handler.SESSION.get(url, timeout=_CHECKSUM_TIMEOUT, headers=headers)
+        except network_handler.requests.exceptions.RequestException as error:
+            reason = f"{type(error).__name__}: {error}"
+        else:
+            if response.status_code == 200:
+                return _FETCH_OK, response, ""
+            if response.status_code in (404, 410):
+                return _FETCH_ABSENT, None, f"HTTP {response.status_code}"
+            reason = f"HTTP {response.status_code} from {response.url}"
+            # 4xx other than rate limiting won't change on retry
+            if response.status_code < 500 and response.status_code != 429:
+                break
+        logging.warning(f"Attempt {attempt}/{_CHECKSUM_ATTEMPTS} to fetch {url} failed: {reason}")
+        if attempt < _CHECKSUM_ATTEMPTS:
+            time.sleep(_CHECKSUM_RETRY_DELAY * attempt)
+    return _FETCH_UNREACHABLE, None, reason
+
+
+def _release_metadata(base_url: str) -> Optional[dict]:
+    """
+    The GitHub API entry of the release a ".../releases/download/<tag>" URL belongs to
+
+    Served by api.github.com, the same host the update check itself already reached,
+    so it usually works on networks that block the release-assets host.
+    """
+    match = _RELEASE_DOWNLOAD_URL.match(base_url)
+    if not match:
+        return None
+    owner, repo, tag = match.groups()
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
+    status, response, reason = _fetch_release_file(api_url, accept="application/vnd.github+json")
+    if status != _FETCH_OK:
+        logging.warning(f"Could not read release metadata from {api_url}: {reason or status}")
+        return None
+    try:
+        release = response.json()
+    except ValueError:
+        logging.warning(f"Release metadata from {api_url} is not JSON")
+        return None
+    return release if isinstance(release, dict) else None
+
+
+def _api_asset_digest(release: Optional[dict], asset_name: str) -> Optional[str]:
+    """
+    SHA256 GitHub itself computed for an asset when it was uploaded
+    (the "digest": "sha256:..." field of the releases API), lowercase hex
+    """
+    if not release:
+        return None
+    for asset in release.get("assets") or []:
+        if isinstance(asset, dict) and asset.get("name") == asset_name:
+            match = _API_DIGEST.match(str(asset.get("digest") or ""))
+            return match.group(1).lower() if match else None
+    return None
+
+
+def _release_lists_checksum_file(release: Optional[dict]) -> bool:
+    if not release:
+        return False
+    names = {asset.get("name") for asset in release.get("assets") or [] if isinstance(asset, dict)}
+    return any(file_name in names for file_name in CHECKSUM_FILE_NAMES)
+
+
+def published_sha256(download_url: str, release: Optional[dict] = None) -> tuple[Optional[str], str]:
     """
     Look up the SHA256 published for a release asset
 
@@ -73,13 +168,20 @@ def published_sha256(download_url: str) -> tuple[Optional[str], str]:
     (".../releases/download/<tag>/<file>"), so they always describe exactly the
     package that will be downloaded.
 
+    If they are attached to the release but can't be downloaded on the current
+    network (see _fetch_release_file()), the SHA256 GitHub computed for the
+    package on upload is used instead. It comes from api.github.com, describes the
+    same bytes, and is trusted no less than SHA256SUMS (both come from GitHub over
+    TLS). Whenever both are available they must agree.
+
     Parameters:
         download_url (str): browser_download_url of the installer package
+        release (dict): the release's GitHub API entry, if the caller already has it
 
     Returns:
         (sha256, "") if the release publishes exactly one SHA256 for the asset,
         (None, reason) otherwise - no checksum files, the asset isn't listed in
-        them, or they disagree with each other.
+        them, they disagree with each other, or they couldn't be downloaded.
     """
     base_url, _, asset_name = str(download_url).rpartition("/")
     asset_name = unquote(asset_name)
@@ -87,27 +189,60 @@ def published_sha256(download_url: str) -> tuple[Optional[str], str]:
         return None, f"Invalid download link: {download_url}"
 
     found_files = []
+    unreachable = {}
     digests = set()
     for file_name in CHECKSUM_FILE_NAMES:
         url = f"{base_url}/{file_name}"
-        try:
-            response = network_handler.NetworkUtilities().get(url, timeout=_CHECKSUM_TIMEOUT)
-        except Exception as error:
-            logging.warning(f"Failed to fetch {url}: {error}")
+        status, response, reason = _fetch_release_file(url)
+        if status == _FETCH_ABSENT:
+            logging.info(f"No {file_name} on this release ({reason})")
             continue
-        if getattr(response, "status_code", None) != 200:
-            logging.info(f"No {file_name} on this release ({getattr(response, 'status_code', None)})")
+        if status == _FETCH_UNREACHABLE:
+            logging.warning(f"Could not download {file_name}: {reason}")
+            unreachable[file_name] = reason
+            continue
+        parsed = _parse_checksum_file(response.text)
+        if not parsed:
+            # A 200 with no checksum lines at all is not a checksum file: typically a
+            # captive portal or filtering proxy answering in GitHub's place.
+            logging.warning(f"{url} returned no checksum lines (final URL {response.url}), ignoring it")
+            unreachable[file_name] = f"unexpected content from {response.url}"
             continue
         found_files.append(file_name)
-        listed = _parse_checksum_file(response.text).get(asset_name, set())
+        listed = parsed.get(asset_name, set())
         if listed:
             logging.info(f"{file_name} lists {asset_name}: {', '.join(sorted(listed))}")
         digests |= listed
 
+    # GitHub's own digest: only looked up when needed, or when the caller already has it
+    if release is None and (unreachable or not found_files):
+        release = _release_metadata(base_url)
+    api_digest = _api_asset_digest(release, asset_name)
+    if api_digest:
+        logging.info(f"GitHub reports SHA256 {api_digest} for {asset_name}")
+
     if not found_files:
+        if unreachable and api_digest and _release_lists_checksum_file(release):
+            logging.warning(
+                f"Checksum files are attached to the release but couldn't be downloaded on this network "
+                f"({'; '.join(f'{k}: {v}' for k, v in unreachable.items())}), using GitHub's SHA256 of {asset_name}"
+            )
+            return api_digest, ""
+        if unreachable:
+            return None, (
+                f"The SHA256 checksums for {asset_name} couldn't be downloaded from GitHub "
+                f"({'; '.join(f'{k}: {v}' for k, v in unreachable.items())}). "
+                "Your network may be blocking or interrupting downloads from GitHub "
+                "(release-assets.githubusercontent.com). Try again later or on another network."
+            )
         return None, f"The release publishes no SHA256 checksums ({' or '.join(CHECKSUM_FILE_NAMES)}) for {asset_name}."
     if not digests:
         return None, f"The release's checksum files ({', '.join(found_files)}) don't list {asset_name}."
+    if api_digest and digests != {api_digest}:
+        return None, (
+            f"The release's checksum files ({', '.join(found_files)}) don't match the SHA256 GitHub reports "
+            f"for {asset_name} ({', '.join(sorted(digests))} vs. {api_digest})."
+        )
     if len(digests) > 1:
         return None, f"The release's checksum files ({', '.join(found_files)}) publish different SHA256 checksums for {asset_name}."
     return digests.pop(), ""
@@ -484,13 +619,16 @@ class CheckBinaryUpdates:
             # without one the download can't be verified before it's installed.
             # SHA256SUMS is attached by CI a few minutes after the release goes
             # live, so a brand-new release is simply offered a little later.
-            expected_sha256, checksum_error = published_sha256(asset["browser_download_url"])
+            expected_sha256, checksum_error = published_sha256(asset["browser_download_url"], release=data_set)
             if expected_sha256 is None:
                 logging.warning(f"Not offering {data_set['tag_name']}: {checksum_error}")
-                self.last_error = (
-                    f"{constants.APP_NAME} {latest_remote_version} is available, but it can't be verified yet: "
-                    f"{checksum_error} The update will be offered once its checksums are published."
-                )
+                if "couldn't be downloaded" in checksum_error:
+                    self.last_error = f"{constants.APP_NAME} {latest_remote_version} is available, but it can't be verified right now: {checksum_error}"
+                else:
+                    self.last_error = (
+                        f"{constants.APP_NAME} {latest_remote_version} is available, but it can't be verified yet: "
+                        f"{checksum_error} The update will be offered once its checksums are published."
+                    )
                 return None
             logging.info(f"Published SHA256 of {asset['name']}: {expected_sha256}")
             self.latest_details = {

@@ -1,4 +1,8 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## Unreleased
+This release:
+- fixes a bug where on certain Wi-Fi networks the updater reported "The release publishes no SHA256 checksums" and refused to offer an update that does have them. Release files are served from release-assets.githubusercontent.com, not github.com itself; on networks where that host times out, resets the connection or is answered by a captive portal, the failed download of SHA256SUMS was treated as "not published". The updater now retries transient failures, tells a failed download apart from a missing file, ignores pages that aren't checksum files, and, when SHA256SUMS is attached to the release but can't be downloaded, uses the SHA256 that GitHub itself computed for BridgePatcher.pkg (from api.github.com, which those networks still reach). When both are available they must match. If neither works, the error now says it is a network problem instead of blaming the release
+
 ## 4.0.0.2000003 - 4.0.0 alpha 20.3
 This release:
 - fixes iCloud sync and the keychain on T1 Macs (MacBookPro13,2, MacBookPro13,3, MacBookPro14,2, MacBookPro14,3) running macOS 26 Tahoe. The bundled AppleKeyStore-Tahoe.kext (v1.2.0) is the Ventura 13.6 AppleKeyStore with patched argument checks, and on current Tahoe releases userspace can't reach the keystore through it (`aks_get_lock_state: aks connection failed`, `MKBGetDeviceLockStateInfo` returns NULL). Data Protection class C never unlocks after login, so dasd keeps blocking iCloud Photos, Messages and Maps (`classCLocked == 1`) and macOS keeps asking for the Mac password. Thx @albert-mueller and @repaulshadow for tracking this down
