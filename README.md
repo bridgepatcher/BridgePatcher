@@ -136,7 +136,7 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
     * for fixing framebuffer issues and boot args
     * testing and troubleshooting
 * [vit9696](https://github.com/vit9696)
-* [Albert Steinhof](https://github.com/albert-steinhof/)
+* [Albert Steinhof](https://github.com/albert-steinhof/) and [Albert Robert Schumann](https://github.com/albert-robert-schumann)
     * Main author of BridgePatcher
     * Adding support for unsupported T2 Macs
     * Help troubleshooting, determining fixes, fixing security vulnerabilities and writing patches
