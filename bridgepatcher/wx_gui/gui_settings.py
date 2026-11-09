@@ -378,9 +378,10 @@ class SettingsFrame(wx.Frame):
                 },
                 "Update Channel": {
                     "type": "choice",
-                    # Fork channels whose GitHub account is gone are left out
-                    # (see support/update_channel_availability.py)
-                    "choices": [channel["label"] for channel in self.constants.available_update_channels.values()],
+                    # Only forks confirmed reachable this session are offered,
+                    # plus the selected one (see constants.selectable_update_channels
+                    # and support/update_channel_availability.py)
+                    "choices": [channel["label"] for channel in self.constants.selectable_update_channels.values()],
                     "value": self.constants.update_channel_label,
                     "variable": "UpdateChannel",
                     "width": 200,
