@@ -1255,6 +1255,26 @@ class Constants:
         }
 
     @property
+    def selectable_update_channels(self) -> dict:
+        """
+        Channels offered in the Settings dropdown: the official one, every fork
+        whose repository was confirmed reachable in this session, and the
+        currently selected channel unless it is known to be gone.
+
+        Forks that are still unchecked (launch check not finished yet) or whose
+        state is unknown (no internet, timeout, rate limit, GitHub hiccup) are
+        left out, so a fork that isn't available right now is never offered.
+        The selected channel stays listed while unknown, so a user who is just
+        offline doesn't see their choice silently replaced in the dropdown.
+        """
+        return {
+            key: channel for key, channel in self.update_channels.items()
+            if key == "official"
+            or self.update_channel_status.get(key) is True
+            or (key == self.update_channel and self.update_channel_status.get(key) is not False)
+        }
+
+    @property
     def update_channel_switch_pending(self) -> bool:
         """
         True when the user picked a different channel than the one the

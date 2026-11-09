@@ -16,6 +16,12 @@ refresh() checks every non-official channel once per session:
     the channel is left untouched. A user who is simply offline must never be
     moved away from the channel they picked.
 
+The "Update Channel" dropdown only offers forks that were confirmed reachable
+(constants.selectable_update_channels): a fork that is unchecked or unknown is
+not shown either, unless it is the selected channel. A fork whose account is
+only temporarily unavailable therefore doesn't show up as an option while it
+can't deliver anything.
+
 The check uses the public github.com page (HEAD) instead of api.github.com:
 the unauthenticated API answers 403 once its 60 requests/hour are used up,
 which is indistinguishable from other errors, while github.com reliably answers
