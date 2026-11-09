@@ -153,6 +153,43 @@ def _api_asset_digest(release: Optional[dict], asset_name: str) -> Optional[str]
     return None
 
 
+# Accept header that makes the API asset URL serve the file itself (a redirect to
+# release-assets.githubusercontent.com) instead of the asset's JSON description
+API_ASSET_DOWNLOAD_HEADERS = {"Accept": "application/octet-stream"}
+_API_ASSET_URL = re.compile(r"^https://api\.github\.com/repos/[^/]+/[^/]+/releases/assets/\d+$")
+
+
+def release_asset_api_url(download_url: str, release: Optional[dict] = None) -> Optional[str]:
+    """
+    API URL of a release asset (https://api.github.com/repos/<owner>/<repo>/releases/assets/<id>)
+
+    Downloads the same bytes as the asset's browser_download_url when requested with
+    API_ASSET_DOWNLOAD_HEADERS, but without github.com's ".../releases/download/..."
+    redirect, which regularly takes 10 seconds or more to answer and sometimes fails
+    with HTTP 504. Used as the fallback download address for checksum files and the
+    update package.
+
+    Parameters:
+        download_url (str): browser_download_url of the asset
+        release (dict): the release's GitHub API entry, fetched if not given
+
+    Returns:
+        The API URL, or None if the release or asset can't be found
+    """
+    base_url, _, asset_name = str(download_url).rpartition("/")
+    asset_name = unquote(asset_name)
+    if release is None:
+        release = _release_metadata(base_url)
+    if not release:
+        return None
+    for asset in release.get("assets") or []:
+        if isinstance(asset, dict) and asset.get("name") == asset_name:
+            url = str(asset.get("url") or "")
+            # Only ever an api.github.com asset URL, whatever the JSON says
+            return url if _API_ASSET_URL.match(url) else None
+    return None
+
+
 def _release_lists_checksum_file(release: Optional[dict]) -> bool:
     if not release:
         return False
@@ -217,6 +254,27 @@ def published_sha256(download_url: str, release: Optional[dict] = None) -> tuple
     # GitHub's own digest: only looked up when needed, or when the caller already has it
     if release is None and (unreachable or not found_files):
         release = _release_metadata(base_url)
+
+    # Files that couldn't be downloaded through github.com: try the API asset URL
+    for file_name in list(unreachable):
+        api_url = release_asset_api_url(f"{base_url}/{quote(file_name)}", release) if release else None
+        if not api_url:
+            continue
+        status, response, reason = _fetch_release_file(api_url, accept=API_ASSET_DOWNLOAD_HEADERS["Accept"])
+        if status != _FETCH_OK:
+            logging.warning(f"Could not download {file_name} through the GitHub API either: {reason or status}")
+            continue
+        parsed = _parse_checksum_file(response.text)
+        if not parsed:
+            logging.warning(f"{file_name} from the GitHub API contains no checksum lines, ignoring it")
+            continue
+        logging.info(f"Downloaded {file_name} through the GitHub API ({api_url})")
+        del unreachable[file_name]
+        found_files.append(file_name)
+        listed = parsed.get(asset_name, set())
+        if listed:
+            logging.info(f"{file_name} lists {asset_name}: {', '.join(sorted(listed))}")
+        digests |= listed
     api_digest = _api_asset_digest(release, asset_name)
     if api_digest:
         logging.info(f"GitHub reports SHA256 {api_digest} for {asset_name}")

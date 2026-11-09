@@ -196,7 +196,18 @@ class UpdateFrame(wx.Frame):
             sys.exit(3)
         self.expected_sha256 = published
 
-        download_obj = network_handler.DownloadObject(self.url, self.download_path)
+        # github.com's ".../releases/download/..." redirect is often slow and sometimes
+        # answers 504; the API asset URL serves the same file without it. The download
+        # switches to it (resuming) if the first URL fails. The SHA256 check after the
+        # download is the same either way.
+        fallback_url = updates.release_asset_api_url(self.url)
+        if fallback_url:
+            logging.info(f"Alternative download URL: {fallback_url}")
+        download_obj = network_handler.DownloadObject(
+            self.url, self.download_path,
+            fallback_url=fallback_url,
+            fallback_headers=updates.API_ASSET_DOWNLOAD_HEADERS,
+        )
         download_frame = gui_download.DownloadFrame(
             self.frame,
             title=self.title,
