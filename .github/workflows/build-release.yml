@@ -31,6 +31,11 @@ jobs:
       commiturl: ${{ github.event_name == 'push' && github.event.head_commit.url || github.event_name == 'release' && github.event.release.html_url || format('{0}/{1}/commit/{2}', github.server_url, github.repository, github.sha) }}
       commitdate: ${{ github.event_name == 'push' && github.event.head_commit.timestamp || github.event_name == 'release' && github.event.release.published_at || '' }}
 
+      # Authenticates the GitHub API calls made by Build-Project.command (release guard,
+      # PatcherSupportPkg checksum lookup). Anonymous calls from shared macOS runners
+      # often hit the 60 requests/hour limit and fail with HTTP 403.
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # Release guard
       IGNORE_RELEASE_ARGS: ${{ github.event_name != 'release' && '--ignore-release' || '' }}
     steps:

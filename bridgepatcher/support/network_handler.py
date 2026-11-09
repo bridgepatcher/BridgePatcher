@@ -10,6 +10,7 @@ import enum
 import hashlib
 from typing import Optional
 from pathlib import Path
+from urllib.parse import urlsplit
 from . import utilities
 
 SESSION = requests.Session()
@@ -65,9 +66,25 @@ class DownloadObject:
     MAX_DOWNLOAD_RETRIES = 5
     RETRY_BACKOFF_BASE_SECONDS = 3
 
-    def __init__(self, url: str, path: str, checksum_algo: Optional["hashlib._Hash"] = None) -> None:
+    def __init__(self, url: str, path: str, checksum_algo: Optional["hashlib._Hash"] = None,
+                 fallback_url: Optional[str] = None, fallback_headers: Optional[dict] = None) -> None:
+        """
+        Parameters:
+            url (str): URL to download
+            path (str): Where to save the file
+            checksum_algo: hashlib object fed with every downloaded byte
+            fallback_url (str): Second URL serving the same bytes, switched to (resuming
+                where the first one stopped) after a transient failure of the first one.
+                For GitHub release assets this is the API asset URL, see
+                updates.release_asset_api_url().
+            fallback_headers (dict): Extra request headers for fallback_url
+        """
         try:
             self.url = url
+            self.fallback_url = fallback_url
+            self.fallback_headers = dict(fallback_headers or {})
+            self._active_url = url
+            self._active_headers: dict = {}
             self.status = DownloadStatus.INACTIVE
             self.error_msg = ""
             self.filename = self._get_filename()
@@ -78,7 +95,7 @@ class DownloadObject:
             self.error = False
             self.should_stop = False
             self.download_complete = False
-            self.has_network = NetworkUtilities(self.url).verify_network_connection()
+            self.has_network = self._detect_network()
             self._checksum_storage = checksum_algo
             self.checksum = None
             if self.has_network:
@@ -90,6 +107,49 @@ class DownloadObject:
             logging.info("Bitte suchen Sie manuell nach Updates.")
             logging.info("Please check for updates manually.")
 
+
+    def _detect_network(self) -> bool:
+        """
+        Whether the server(s) of this download can be reached at all
+
+        Checks the host (e.g. https://github.com/), not the file's own URL. A file URL
+        can be slow to answer without the network being down: github.com's
+        ".../releases/download/..." redirect regularly takes 10 seconds or more, and
+        sometimes answers 504. A HEAD of it with a 5 second timeout failed, so the
+        download was refused with "No network connection detected before download"
+        even though everything else worked. Slow or failing file URLs are handled by
+        the retries in _download() instead.
+        """
+        for url in (self.url, self.fallback_url):
+            if not url:
+                continue
+            parts = urlsplit(url)
+            if not parts.scheme or not parts.netloc:
+                continue
+            if NetworkUtilities(f"{parts.scheme}://{parts.netloc}/").verify_network_connection():
+                return True
+        return False
+
+    @staticmethod
+    def _is_transient_http_error(error: Exception) -> bool:
+        """
+        Server-side or rate-limit errors (5xx, 429) that are worth retrying
+        """
+        response = getattr(error, "response", None)
+        status = getattr(response, "status_code", None)
+        return isinstance(status, int) and (status >= 500 or status == 429)
+
+    def _switch_to_fallback(self) -> bool:
+        """
+        Continue the download from fallback_url, if there is one and it isn't used yet
+        """
+        if not self.fallback_url or self._active_url == self.fallback_url:
+            return False
+        logging.warning(f"Wechsle zur alternativen Download-Adresse: {self.fallback_url}")
+        logging.warning(f"Switching to the alternative download URL: {self.fallback_url}")
+        self._active_url = self.fallback_url
+        self._active_headers = dict(self.fallback_headers)
+        return True
 
     # --- RESTORED DIAGNOSTIC/HELPER METHODS ---
     def _get_filename(self) -> str:
@@ -122,6 +182,8 @@ class DownloadObject:
             # (e.g. github.com -> release-assets.githubusercontent.com) more slack
             # on higher-latency or slower links before we give up on a real size.
             result = SESSION.head(self.url, allow_redirects=True, timeout=10)
+            # An error page's Content-Length (e.g. 0 for a 504) is not the file's size
+            result.raise_for_status()
 
             if 'Content-Length' in result.headers:
                 self.total_file_size = float(result.headers['Content-Length'])
@@ -195,8 +257,13 @@ class DownloadObject:
 
         try:
             # Stage 1: Network Check
+            # Only a hint: if the pre-check failed, the download is still attempted
+            # (with retries), so a slow pre-check can't block a working download.
             if not self.has_network:
-                raise ConnectionError("No network connection detected before download.")
+                self.has_network = self._detect_network()
+            if not self.has_network:
+                logging.warning("Netzwerkprüfung fehlgeschlagen, versuche den Download trotzdem")
+                logging.warning("Network pre-check failed, attempting the download anyway")
 
             # Stage 2: Filesystem Check
             if not self._prepare_working_directory(self.filepath):
@@ -213,15 +280,19 @@ class DownloadObject:
                     self._download_stream()
                     break
                 except (requests.exceptions.Timeout, requests.exceptions.ConnectionError,
-                        requests.exceptions.ChunkedEncodingError) as transient_error:
+                        requests.exceptions.ChunkedEncodingError, requests.exceptions.HTTPError) as transient_error:
                     if self.should_stop:
+                        raise
+                    if isinstance(transient_error, requests.exceptions.HTTPError) and not self._is_transient_http_error(transient_error):
                         raise
                     attempt += 1
                     if attempt > self.MAX_DOWNLOAD_RETRIES:
                         logging.error(f"Maximale Anzahl an Wiederholungsversuchen ({self.MAX_DOWNLOAD_RETRIES}) erreicht, gebe auf.")
                         logging.error(f"Exhausted maximum retries ({self.MAX_DOWNLOAD_RETRIES}), giving up.")
                         raise
-                    wait = min(self.RETRY_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), 30)
+                    # The same bytes from the alternative URL, resumed via Range like any retry
+                    switched = self._switch_to_fallback()
+                    wait = 1 if switched else min(self.RETRY_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), 30)
                     logging.warning(
                         f"Netzwerkfehler beim Herunterladen (Versuch {attempt}/{self.MAX_DOWNLOAD_RETRIES}), "
                         f"setze in {wait}s bei Byte {int(self.downloaded_file_size)} fort: {transient_error}"
@@ -278,7 +349,7 @@ class DownloadObject:
         logging.info("Opening network stream...")
         logging.debug("Opening network stream...")
 
-        headers = {}
+        headers = dict(self._active_headers)
         mode = 'wb'
         if self.downloaded_file_size > 0:
             headers['Range'] = f"bytes={int(self.downloaded_file_size)}-"
@@ -288,11 +359,26 @@ class DownloadObject:
         # NetworkUtilities.get, which swallows connection/timeout errors
         # into an empty Response) so transient failures surface as real
         # exceptions that the retry loop in _download() can catch.
-        response = SESSION.get(self.url, stream=True, timeout=15, headers=headers)
+        logging.info(f"Download-Adresse: {self._active_url}")
+        logging.info(f"Download URL: {self._active_url}")
+        response = SESSION.get(self._active_url, stream=True, timeout=15, headers=headers)
 
         # 200 = full response, 206 = partial/resumed response.
         if response.status_code not in (200, 206):
-            raise requests.exceptions.HTTPError(f"HTTP Status Code {response.status_code}")
+            raise requests.exceptions.HTTPError(f"HTTP Status Code {response.status_code}", response=response)
+
+        # The size pre-check (HEAD) can fail on a slow redirect; the GET's own headers
+        # still give the size, so the progress bar shows a percentage instead of pulsing.
+        if self.total_file_size == 0.0:
+            try:
+                if response.status_code == 200 and "Content-Length" in response.headers:
+                    self.total_file_size = float(response.headers["Content-Length"])
+                elif response.status_code == 206 and "/" in response.headers.get("Content-Range", ""):
+                    self.total_file_size = float(response.headers["Content-Range"].rsplit("/", 1)[1])
+                if self.total_file_size:
+                    logging.info(f"File size from the download response: {self.total_file_size} bytes")
+            except ValueError:
+                self.total_file_size = 0.0
 
         if response.status_code == 200 and mode == 'ab':
             # Server ignored our Range request and is resending the whole
