@@ -191,7 +191,7 @@ class InstallUSBFrame(wx.Frame):
         os.makedirs(self.backup_path, exist_ok=True)
         efi_dir = os.path.join(self.mount_point, "EFI")
         if os.path.exists(efi_dir):
-            subprocess.run(["cp", "-R", efi_dir + "/", self.backup_path + "/"])
+            subprocess.run(["/bin/cp", "-R", efi_dir + "/", self.backup_path + "/"])
             self._append_log("Backup completed.")
         else:
             self._append_log("No existing EFI folder found on target partition.")
@@ -213,8 +213,8 @@ class InstallUSBFrame(wx.Frame):
         os.makedirs(target_efi, exist_ok=True)
 
         self._append_log("Copying new EFI/OC and EFI/BOOT...")
-        subprocess.run(["cp", "-R", os.path.join(source_efi, "OC"), target_efi + "/"])
-        subprocess.run(["cp", "-R", os.path.join(source_efi, "BOOT"), target_efi + "/"])
+        subprocess.run(["/bin/cp", "-R", os.path.join(source_efi, "OC"), target_efi + "/"])
+        subprocess.run(["/bin/cp", "-R", os.path.join(source_efi, "BOOT"), target_efi + "/"])
 
         self._append_log("Copy complete. Verifying SHA256 of config.plist...")
         source_config = os.path.join(source_efi, "OC", "config.plist")

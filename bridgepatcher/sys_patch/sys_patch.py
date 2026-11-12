@@ -305,7 +305,7 @@ class PatchSysVolume:
             pane = "x-apple.systempreferences:com.apple.Software-Update-Settings.extension"
 
         logging.info("- Launching Software Update...")
-        subprocess.run(["open", pane])
+        subprocess.run(["/usr/bin/open", pane])
 
 
     def _merge_kdk_with_root(self, save_hid_cs: bool = False) -> None:
