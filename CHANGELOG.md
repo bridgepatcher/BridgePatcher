@@ -1,4 +1,9 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000003.2 - 4.0.0 alpha 20.3.2
+This version:
+- now will list BridgePatcher as Utility rather than uncategorized category
+- fixes the following vulnerabilities:
+
 ## 4.0.0.2000003.1 - 4.0.0 alpha 20.3.1
 This release:
 - fixes a bug where the updater reported "The release publishes no SHA256 checksums" and refused to offer an update that does have them. Release files are downloaded through github.com's ".../releases/download/..." address, which redirects to release-assets.githubusercontent.com. That redirect regularly takes 10 seconds or more to answer and sometimes fails with HTTP 504 (on any network), and on some Wi-Fi networks the release-assets host is blocked or answered by a captive portal. Every such failure was treated as "not published". The updater now retries transient failures, tells a failed download apart from a missing file, downloads the checksum files through the GitHub API (api.github.com/.../releases/assets/<id>) when github.com's address fails, and, if they still can't be downloaded, uses the SHA256 that GitHub itself computed for BridgePatcher.pkg. When both are available they must match
