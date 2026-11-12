@@ -23,6 +23,8 @@ Only the Python standard library is used.
   update_user_agents.py               update the files in place
   update_user_agents.py --check       only report, exit 1 if something is out of date
   update_user_agents.py --summary F   also write a Markdown summary of the changes to F
+
+Set ROOT_DIR to update a checkout other than the one this script is in.
 """
 import argparse
 import json
@@ -32,7 +34,8 @@ import sys
 import urllib.request
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+# The repository to update: ROOT_DIR, or the checkout this script lives in
+ROOT = Path(os.environ.get("ROOT_DIR") or Path(__file__).resolve().parents[2]).resolve()
 SEARCH_DIRS = ("bridgepatcher", "ci_tooling")
 
 CHROME_URL = "https://versionhistory.googleapis.com/v1/chrome/platforms/mac/channels/stable/versions?pageSize=20"
@@ -110,6 +113,8 @@ def update_line(line: str, latest: dict) -> str:
 
 
 def source_files():
+    if not all((ROOT / d).is_dir() for d in SEARCH_DIRS):
+        raise SystemExit(f"::error::{ROOT} is not a BridgePatcher checkout (no {' or '.join(SEARCH_DIRS)} folder)")
     for d in SEARCH_DIRS:
         yield from sorted((ROOT / d).rglob("*.py"))
 
