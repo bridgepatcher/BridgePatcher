@@ -61,8 +61,8 @@ jobs:
           # Owners / repos (owner/name) that are never listed
           ALLOWLIST_OWNERS: "bridgepatcher albert-steinhof"
           ALLOWLIST_REPOS: ""
-          # Former names of this project: repos that aren't GitHub forks but still use one
-          # in their name are listed too (forks of this project are left to the fork name check)
+          # Former names of this project: repos that still use one in their name are listed
+          # too, whether they're GitHub forks (of upstream or of this project) or not
           FORMER_NAMES: "OpenCore-Legacy-Patcher-T2 OCLP-T2"
           # Former official addresses: listed as typosquats whenever something is published there
           FORMER_HOSTS: "oclp-t2.github.io"

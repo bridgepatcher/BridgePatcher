@@ -33,8 +33,8 @@ DRY_RUN = os.environ.get("DRY_RUN", "true").lower() == "true"
 REPO_NAMES = os.environ.get("REPO_NAMES", UPSTREAM.split("/")[1]).split()
 ALLOW_OWNERS = {s.lower() for s in os.environ.get("ALLOWLIST_OWNERS", "").split()}
 ALLOW_REPOS = {s.lower() for s in os.environ.get("ALLOWLIST_REPOS", "").split()}
-# Former names of the project in ISSUE_REPO (e.g. OpenCore-Legacy-Patcher-T2). Repos that aren't
-# GitHub forks but still carry one in their name are listed as lookalikes of upstream too.
+# Former names of the project in ISSUE_REPO (e.g. OpenCore-Legacy-Patcher-T2). Repos that still
+# carry one in their name are listed as lookalikes of upstream too, GitHub forks included.
 FORMER_NAMES = os.environ.get("FORMER_NAMES", "").split()
 # Repos named like upstream plus extra words (OpenCore-Legacy-Patcher-Download) are listed when
 # their README sends people to downloads outside GitHub, they show impersonation signals, or
@@ -144,13 +144,18 @@ def evaluate_repo(full, owner_sq, root, up_owner, extended=False):
     repo = get(f"/repos/{full}")
     if not repo:
         return None
-    if repo.get("fork") and (repo.get("source") or {}).get("full_name", "").lower() == root:
+    source = (repo.get("source") or {}).get("full_name", "") if repo.get("fork") else ""
+    # BridgePatcher's former name is never official any more, so a repo still using it is listed
+    # whether it's a fork (of upstream, of this project or of anything else) or not.
+    former = contains_name(repo.get("name", ""), FORMER_NAMES)
+    if not former and source.lower() == root:
         return None  # a normal fork inside the upstream fork network
-    if repo.get("fork") and (repo.get("source") or {}).get("full_name", "").lower() == ISSUE_REPO.lower():
-        return None  # a fork of this project; the fork name check asks those to rename
+    if not former and source.lower() == ISSUE_REPO.lower():
+        return None  # a fork of this project under its own name
     reasons = []
-    if not repo.get("fork") and contains_name(repo.get("name", ""), FORMER_NAMES):
-        reasons.append("uses BridgePatcher's former name (" + ", ".join(FORMER_NAMES) + ")")
+    if former:
+        reasons.append("uses BridgePatcher's former name (" + ", ".join(FORMER_NAMES) + ")"
+                       + (f", fork of {source}" if source else ""))
     assets, asset_urls = set(), []
     for rel in get(f"/repos/{full}/releases?per_page=10") or []:
         for a in rel.get("assets", []):
@@ -412,6 +417,23 @@ def scan_repos():
                 candidates[full] = (looks_like(owner, up_owner), False)
             elif contains_name(name, REPO_NAMES):  # upstream's name plus extra words
                 candidates[full] = (looks_like(owner, up_owner), True)
+    # The searches above leave forks out, but a fork still called by BridgePatcher's former name
+    # (OpenCore-Legacy-Patcher-T2-Fork, a fork of upstream or of this project) is listed too.
+    # Forks of this project made before the rename keep the old name, so its fork list is walked
+    # as well: repository search doesn't always return forks.
+    former_items = []
+    for n in FORMER_NAMES:
+        former_items += paginate(f"/search/repositories?q={urllib.parse.quote(n + ' in:name fork:true')}&per_page=100")
+        time.sleep(2.2)
+    if FORMER_NAMES:
+        former_items += paginate(f"/repos/{ISSUE_REPO}/forks?per_page=100")
+    for item in former_items:
+        full, owner, name = item["full_name"], item["owner"]["login"], item["name"]
+        if (owner.lower() == up_owner.lower() or owner.lower() in ALLOW_OWNERS
+                or full.lower() in ALLOW_REPOS or full.lower() == ISSUE_REPO.lower()):
+            continue
+        if contains_name(name, FORMER_NAMES):
+            candidates[full] = (looks_like(owner, up_owner), False)
     print(f"{len(candidates)} repository candidates")
     found = {}
     for full, (owner_sq, extended) in sorted(candidates.items()):
@@ -725,7 +747,8 @@ def render(state, seen):
         "registrant (often hidden by privacy protection), registrar and hosting network from public RDAP data. "
         "**Status** is checked on every run; entries that stay taken down (🔴) for "
         f"{TAKEDOWN_DAYS} day{'s' if TAKEDOWN_DAYS != 1 else ''} are removed automatically. "
-        "Repositories are only listed if they aren't forks "
+        "Repositories still using BridgePatcher's former name are always listed, forks included. "
+        "Other repositories are only listed if they aren't forks "
         "and offer their own downloads or show other impersonation signals. A listing means the name "
         "imitates the project; it isn't proof that the content is malicious. Names are shown as code on "
         "purpose, so they aren't clickable.</sub>",
