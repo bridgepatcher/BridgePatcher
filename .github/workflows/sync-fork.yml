@@ -23,7 +23,24 @@ name: Sync fork with upstream
 #      workflow changes fails with a message saying so.
 #
 # Run it by hand from the Actions tab ("Run workflow"); tick "force" to update
-# every branch that is behind, however recently it fell behind.
+# every branch that is behind, however recently it fell behind (and, with
+# automatic releases on, to release whenever there are new commits).
+#
+# Automatic releases (optional, off unless you turn them on):
+#   After the sync, if the last release of your repository is more than 19 days
+#   old and the default branch has commits since then, a new version is tagged
+#   and released, and "CI - Build BridgePatcher" builds and attaches the packages.
+#   The version bump lives only in the release tag, never on your default branch,
+#   so it can't conflict with upstream's bumps. To turn it on you need:
+#     - your own code signing identity in the secrets BRIDGEPATCHER_SIGNING_P12 and
+#       BRIDGEPATCHER_SIGNING_P12_PASSWORD (upstream's secrets are never shared
+#       with forks), with ci_tooling/certificates/BridgePatcher-Root-CA.crt.pem
+#       replaced by the root CA that signed it
+#     - FORK_SYNC_TOKEN (above): releases made with GITHUB_TOKEN start no build
+#     - the repository variable FORK_AUTO_RELEASE set to true
+#       (Settings > Secrets and variables > Actions > Variables)
+#   Also point repo_link in bridgepatcher/constants.py to your repository, or the
+#   app keeps looking for updates upstream; the run warns about this.
 
 on:
   schedule:
@@ -69,3 +86,30 @@ jobs:
           # Run a copy: merging upstream can change the script while bash is reading it.
           cp .github/scripts/sync_fork.sh "$RUNNER_TEMP/"
           bash "$RUNNER_TEMP/sync_fork.sh"
+
+  # Optional automatic releases, see "Automatic releases" at the top.
+  release:
+    needs: sync
+    # Runs after the sync, also when a PR branch failed to update.
+    if: ${{ !cancelled() && github.repository != 'bridgepatcher/BridgePatcher' && vars.FORK_AUTO_RELEASE == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      UPSTREAM: bridgepatcher/BridgePatcher
+      MAX_AGE_DAYS: 19
+      BRANCH: ${{ github.event.repository.default_branch }}
+      FORCE: ${{ inputs.force || false }}
+      GH_TOKEN: ${{ github.token }}
+      PUSH_TOKEN: ${{ github.token }}
+      RELEASE_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+      HAS_SIGNING: ${{ secrets.BRIDGEPATCHER_SIGNING_P12 != '' && secrets.BRIDGEPATCHER_SIGNING_P12_PASSWORD != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}   # as the sync left it
+          fetch-depth: 0   # all tags
+          persist-credentials: false
+
+      - name: Release if the last release is more than 19 days old and there are new commits
+        run: bash .github/scripts/fork_release.sh
