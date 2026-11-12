@@ -74,6 +74,10 @@ on:
         description: pip packages the check needs
         type: string
         required: true
+    secrets:
+      GEMINI_API_KEY:
+        description: Free Gemini key, used when GitHub Models doesn't answer (optional)
+        required: false
 
 permissions:
   contents: read
@@ -162,6 +166,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           MODELS_MODEL: ${{ vars.MODELS_MODEL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CONTEXT: ${{ inputs.context }}
           NAME: ${{ inputs.name }}
           SCRIPT: ${{ inputs.script }}
@@ -184,7 +189,11 @@ jobs:
         run: |
           set +e
           # Only tracked files count - the checks themselves unpack payloads into the tree
-          if git diff --quiet; then echo "No edits"; echo "accepted=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git diff --quiet; then
+            echo "No edits"; echo "accepted=false" >> "$GITHUB_OUTPUT"
+            [ -f "$RUNNER_TEMP/round_notes.md" ] && cat "$RUNNER_TEMP/round_notes.md" >> "$RUNNER_TEMP/attempts.md"
+            rm -f "$RUNNER_TEMP/round_notes.md"; exit 0
+          fi
           s="$RUNNER_TEMP/scripts"
           python3 "$s/$(basename "$SCRIPT")" --root . --json "$RUNNER_TEMP/after.json" --summary "$RUNNER_TEMP/after.md" > "$RUNNER_TEMP/after.log" 2>&1
           python3 "$s/check_python.py" --root . --json "$RUNNER_TEMP/py_after.json" > /dev/null
@@ -202,7 +211,9 @@ jobs:
             git reset -q --hard
             echo "accepted=false" >> "$GITHUB_OUTPUT"
           fi
-          rm -f "$RUNNER_TEMP/round_notes.md"   # notes of a rolled-back round don't belong in the PR
+          # Notes of a rolled-back round don't belong in the PR - only in the run summary
+          [ -f "$RUNNER_TEMP/round_notes.md" ] && cat "$RUNNER_TEMP/round_notes.md" >> "$RUNNER_TEMP/attempts.md"
+          rm -f "$RUNNER_TEMP/round_notes.md"
           remaining=$(python3 -c "import json;print(len(json.load(open('$RUNNER_TEMP/best.json')).get('new') or []))")
           echo "remaining=$remaining" >> "$GITHUB_OUTPUT"
 
@@ -212,6 +223,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           MODELS_MODEL: ${{ vars.MODELS_MODEL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CONTEXT: ${{ inputs.context }}
           NAME: ${{ inputs.name }}
           SCRIPT: ${{ inputs.script }}
@@ -234,7 +246,11 @@ jobs:
         run: |
           set +e
           # Only tracked files count - the checks themselves unpack payloads into the tree
-          if git diff --quiet; then echo "No edits"; echo "accepted=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git diff --quiet; then
+            echo "No edits"; echo "accepted=false" >> "$GITHUB_OUTPUT"
+            [ -f "$RUNNER_TEMP/round_notes.md" ] && cat "$RUNNER_TEMP/round_notes.md" >> "$RUNNER_TEMP/attempts.md"
+            rm -f "$RUNNER_TEMP/round_notes.md"; exit 0
+          fi
           s="$RUNNER_TEMP/scripts"
           python3 "$s/$(basename "$SCRIPT")" --root . --json "$RUNNER_TEMP/after.json" --summary "$RUNNER_TEMP/after.md" > "$RUNNER_TEMP/after.log" 2>&1
           python3 "$s/check_python.py" --root . --json "$RUNNER_TEMP/py_after.json" > /dev/null
@@ -252,7 +268,9 @@ jobs:
             git reset -q --hard
             echo "accepted=false" >> "$GITHUB_OUTPUT"
           fi
-          rm -f "$RUNNER_TEMP/round_notes.md"   # notes of a rolled-back round don't belong in the PR
+          # Notes of a rolled-back round don't belong in the PR - only in the run summary
+          [ -f "$RUNNER_TEMP/round_notes.md" ] && cat "$RUNNER_TEMP/round_notes.md" >> "$RUNNER_TEMP/attempts.md"
+          rm -f "$RUNNER_TEMP/round_notes.md"
           remaining=$(python3 -c "import json;print(len(json.load(open('$RUNNER_TEMP/best.json')).get('new') or []))")
           echo "remaining=$remaining" >> "$GITHUB_OUTPUT"
 
@@ -262,6 +280,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           MODELS_MODEL: ${{ vars.MODELS_MODEL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CONTEXT: ${{ inputs.context }}
           NAME: ${{ inputs.name }}
           SCRIPT: ${{ inputs.script }}
@@ -284,7 +303,11 @@ jobs:
         run: |
           set +e
           # Only tracked files count - the checks themselves unpack payloads into the tree
-          if git diff --quiet; then echo "No edits"; echo "accepted=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git diff --quiet; then
+            echo "No edits"; echo "accepted=false" >> "$GITHUB_OUTPUT"
+            [ -f "$RUNNER_TEMP/round_notes.md" ] && cat "$RUNNER_TEMP/round_notes.md" >> "$RUNNER_TEMP/attempts.md"
+            rm -f "$RUNNER_TEMP/round_notes.md"; exit 0
+          fi
           s="$RUNNER_TEMP/scripts"
           python3 "$s/$(basename "$SCRIPT")" --root . --json "$RUNNER_TEMP/after.json" --summary "$RUNNER_TEMP/after.md" > "$RUNNER_TEMP/after.log" 2>&1
           python3 "$s/check_python.py" --root . --json "$RUNNER_TEMP/py_after.json" > /dev/null
@@ -302,7 +325,9 @@ jobs:
             git reset -q --hard
             echo "accepted=false" >> "$GITHUB_OUTPUT"
           fi
-          rm -f "$RUNNER_TEMP/round_notes.md"   # notes of a rolled-back round don't belong in the PR
+          # Notes of a rolled-back round don't belong in the PR - only in the run summary
+          [ -f "$RUNNER_TEMP/round_notes.md" ] && cat "$RUNNER_TEMP/round_notes.md" >> "$RUNNER_TEMP/attempts.md"
+          rm -f "$RUNNER_TEMP/round_notes.md"
           remaining=$(python3 -c "import json;print(len(json.load(open('$RUNNER_TEMP/best.json')).get('new') or []))")
           echo "remaining=$remaining" >> "$GITHUB_OUTPUT"
 
@@ -329,6 +354,32 @@ jobs:
             fi
           fi
           echo "state=${state:-skip}" >> "$GITHUB_OUTPUT"
+
+          # Say what happened - a green run must not hide that nothing was fixed
+          {
+            echo "## Auto-fix"
+            echo
+            case "$state" in
+              patch)   echo "✅ A fix passed the checks - it goes into the auto-fix PR." ;;
+              nofix)   echo "⚠️ The check found problems, but no fix passed the checks - nothing to open a PR for." ;;
+              covered) echo "The open auto-fix PR already covers exactly these problems - the model wasn't asked again." ;;
+              clean)   echo "✅ The check is clean - nothing to fix." ;;
+              *)       echo "Nothing to do (no usable check result)." ;;
+            esac
+            if [ -s "$RUNNER_TEMP/model_unavailable" ] && [ ! -f "$RUNNER_TEMP/model_answered" ]; then
+              echo; echo "❌ **No model answered**: $(head -c 1500 "$RUNNER_TEMP/model_unavailable")"
+              echo; echo "Check that GitHub Models is enabled for this repository (organization settings > Models), and that the repository secret GEMINI_API_KEY (the fallback) is set and valid."
+            fi
+            if [ -s "$RUNNER_TEMP/notes.md" ] || [ -s "$RUNNER_TEMP/attempts.md" ]; then
+              echo; echo "### Model notes"; echo
+              cat "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP/attempts.md" 2>/dev/null | head -c 20000 | sed 's/@/@\xe2\x80\x8b/g'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -s "$RUNNER_TEMP/model_unavailable" ] && [ ! -f "$RUNNER_TEMP/model_answered" ] && [ "$state" != "patch" ]; then
+            echo "::error::No AI model answered, so nothing could be fixed: $(head -c 500 "$RUNNER_TEMP/model_unavailable")"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         if: steps.final.outputs.state == 'patch'

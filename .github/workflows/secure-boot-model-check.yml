@@ -313,6 +313,8 @@ jobs:
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/check-auto-fix.yml
+    secrets:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     with:
       name: SecureBootModel check
       script: .github/scripts/check_secure_boot_model.py
