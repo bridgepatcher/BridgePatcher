@@ -1,4 +1,11 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000003.2 - 4.0.0 alpha 20.3.2
+This version:
+- now will list BridgePatcher as Utility rather than uncategorized category
+- fixes the following vulnerabilities:
+  - a vulnerability where BridgePatcher started `open` (to show Software Update after root patching) and `cp` (to back up and replace the EFI from the USB installer window) by name instead of by their full path, so whichever program called `open` or `cp` came first in the PATH was the one that ran. Found by the Security check (bandit B607)
+  Impact: anybody who could place their own `open` or `cp` in a folder listed earlier in PATH, or change the PATH that BridgePatcher was started with, could have had it run instead, with the same rights as BridgePatcher. When copying the EFI, such a program could also have changed what gets written to the EFI partition, which decides how the Mac boots. This needs code already running as the user (for example a tampered shell profile when running from source with `python3 BridgePatcher-GUI.command`); the app started from Finder gets a fixed PATH from macOS. This is fixed by calling /usr/bin/open and /bin/cp by their full paths
+
 ## 4.0.0.2000003.1 - 4.0.0 alpha 20.3.1
 This release:
 - fixes a bug where the updater reported "The release publishes no SHA256 checksums" and refused to offer an update that does have them. Release files are downloaded through github.com's ".../releases/download/..." address, which redirects to release-assets.githubusercontent.com. That redirect regularly takes 10 seconds or more to answer and sometimes fails with HTTP 504 (on any network), and on some Wi-Fi networks the release-assets host is blocked or answered by a captive portal. Every such failure was treated as "not published". The updater now retries transient failures, tells a failed download apart from a missing file, downloads the checksum files through the GitHub API (api.github.com/.../releases/assets/<id>) when github.com's address fails, and, if they still can't be downloaded, uses the SHA256 that GitHub itself computed for BridgePatcher.pkg. When both are available they must match
