@@ -1,0 +1,115 @@
+name: Sync fork with upstream
+
+# Only for forks and copies of BridgePatcher: this job never runs in
+# bridgepatcher/BridgePatcher itself.
+#
+# Once a day it checks this repository's default branch and the branch of every
+# open pull request it has made to bridgepatcher/BridgePatcher. A branch is
+# updated when upstream has had commits it is missing for more than 19 days,
+# counted from when the first of those landed upstream. It then gets them as a
+# fast-forward when possible, otherwise as a merge commit (never a rebase or force
+# push, so a PR keeps its history and review comments). Branches that are up to
+# date, or fell behind less than 19 days ago, are left alone. A branch that
+# conflicts is skipped without pushing and the run fails so you can update it by
+# hand; the other branches are still updated.
+#
+# Setting it up in your fork or copy:
+#   1. GitHub turns off workflows in new forks: open the Actions tab and enable them.
+#   2. Upstream changes often touch .github/workflows, and GitHub never lets the
+#      built-in GITHUB_TOKEN push those. Create a fine-grained token for your
+#      repository with "Contents: Read and write" and "Workflows: Read and write"
+#      (or a classic token with the "repo" and "workflow" scopes) and save it as
+#      the repository secret FORK_SYNC_TOKEN. Without it, a sync that includes
+#      workflow changes fails with a message saying so.
+#
+# Run it by hand from the Actions tab ("Run workflow"); tick "force" to update
+# every branch that is behind, however recently it fell behind (and, with
+# automatic releases on, to release whenever there are new commits).
+#
+# Automatic releases (optional, off unless you turn them on):
+#   After the sync, if the last release of your repository is more than 19 days
+#   old and the default branch has commits since then, a new version is tagged
+#   and released, and "CI - Build BridgePatcher" builds and attaches the packages.
+#   The version bump lives only in the release tag, never on your default branch,
+#   so it can't conflict with upstream's bumps. To turn it on you need:
+#     - your own code signing identity in the secrets BRIDGEPATCHER_SIGNING_P12 and
+#       BRIDGEPATCHER_SIGNING_P12_PASSWORD (upstream's secrets are never shared
+#       with forks), with ci_tooling/certificates/BridgePatcher-Root-CA.crt.pem
+#       replaced by the root CA that signed it
+#     - FORK_SYNC_TOKEN (above): releases made with GITHUB_TOKEN start no build
+#     - the repository variable FORK_AUTO_RELEASE set to true
+#       (Settings > Secrets and variables > Actions > Variables)
+#   Also point repo_link in bridgepatcher/constants.py to your repository, or the
+#   app keeps looking for updates upstream; the run warns about this.
+
+on:
+  schedule:
+    - cron: "17 5 * * *"   # daily, 05:17 UTC
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Update every branch that is behind, even if it fell behind less than 19 days ago
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: sync-fork
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # String comparisons in expressions ignore case.
+    if: github.repository != 'bridgepatcher/BridgePatcher'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      UPSTREAM: bridgepatcher/BridgePatcher
+      UPSTREAM_BRANCH: main
+      MAX_AGE_DAYS: 19
+      BRANCH: ${{ github.event.repository.default_branch }}
+      FORCE: ${{ inputs.force || false }}
+      PUSH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN || github.token }}
+      HAS_SYNC_TOKEN: ${{ secrets.FORK_SYNC_TOKEN != '' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0   # all branches, PR branches included
+          persist-credentials: false
+
+      - name: Update the default branch and PR branches that are behind for more than 19 days
+        run: |
+          # Run a copy: merging upstream can change the script while bash is reading it.
+          cp .github/scripts/sync_fork.sh "$RUNNER_TEMP/"
+          bash "$RUNNER_TEMP/sync_fork.sh"
+
+  # Optional automatic releases, see "Automatic releases" at the top.
+  release:
+    needs: sync
+    # Runs after the sync, also when a PR branch failed to update.
+    if: ${{ !cancelled() && github.repository != 'bridgepatcher/BridgePatcher' && vars.FORK_AUTO_RELEASE == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      UPSTREAM: bridgepatcher/BridgePatcher
+      MAX_AGE_DAYS: 19
+      BRANCH: ${{ github.event.repository.default_branch }}
+      FORCE: ${{ inputs.force || false }}
+      GH_TOKEN: ${{ github.token }}
+      PUSH_TOKEN: ${{ github.token }}
+      RELEASE_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+      HAS_SIGNING: ${{ secrets.BRIDGEPATCHER_SIGNING_P12 != '' && secrets.BRIDGEPATCHER_SIGNING_P12_PASSWORD != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}   # as the sync left it
+          fetch-depth: 0   # all tags
+          persist-credentials: false
+
+      - name: Release if the last release is more than 19 days old and there are new commits
+        run: bash .github/scripts/fork_release.sh

@@ -116,7 +116,7 @@ class MetalLibraryObject:
                 results = network_handler.NetworkUtilities().get(
                     link,
                     headers={
-                        "User-Agent": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36 Edg/156.0.0.0/BridgePatcher/{self.constants.patcher_version}"
+                        "User-Agent": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36 Edg/157.0.0.0/BridgePatcher/{self.constants.patcher_version}"
                     },
                     timeout=5
                 )
