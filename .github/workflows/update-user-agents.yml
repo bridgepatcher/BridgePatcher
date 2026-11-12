@@ -2,7 +2,7 @@ name: Update browser user agents
 
 # BridgePatcher sends browser user agents (Safari, Edge) to some download servers.
 # A browser version that is months old looks like a bot and can get requests
-# blocked, so once a week this checks the latest stable Chrome, Edge and Safari
+# blocked, so once a day this checks the latest stable Chrome, Edge and Safari
 # versions and, when a user agent in the source is behind, commits the bump
 # straight to main. The script never downgrades a version.
 #
@@ -10,7 +10,7 @@ name: Update browser user agents
 
 on:
   schedule:
-    - cron: "41 6 * * 1"   # weekly, Monday 06:41 UTC
+    - cron: "41 6 * * *"   # daily, 06:41 UTC
   workflow_dispatch:
 
 permissions: {}
