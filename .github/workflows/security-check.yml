@@ -108,6 +108,11 @@ jobs:
           rc=$?
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           [ -f "$out/summary.md" ] && cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$EVENT" != "pull_request" ] && [ "$rc" = "1" ]; then
+            n=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))['new']))" "$out/result.json")
+            echo "::warning::$n security finding(s) - see the summary. The auto-fix job proposes fixes as a PR."
+          fi
+          [ "$rc" = "2" ] && echo "::error::The security check could not run - see the log above"
           exit 0
 
       - name: Upload result
@@ -139,6 +144,8 @@ jobs:
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/check-auto-fix.yml
+    secrets:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     with:
       name: Security check
       script: .github/scripts/check_security.py

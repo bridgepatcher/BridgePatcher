@@ -366,7 +366,7 @@ def cmd_agent(args):
     for p in problems:
         groups.setdefault(p.get("case", "?"), []).append(p)
 
-    notes = []
+    notes, answered, failures = [], 0, []
     for case, items in sorted(groups.items()):
         problem_text = "\n".join(f"- {p.get('subject')}: {p.get('message')}"[:500] for p in items[:MAX_EXAMPLES])
         if len(items) > MAX_EXAMPLES:
@@ -397,7 +397,9 @@ def cmd_agent(args):
             pick = ask(token, header + "\nThese functions exist (most relevant first, list may be cut):\n" +
                        "\n".join(listing) + f"\n\nWhich functions (at most {MAX_FUNCS}) do you need to see to fix this? "
                        'Answer {"functions": ["path::Qualified.name", ...]}', max_tokens=400)
+            answered += 1
         except Exception as e:
+            failures.append(str(e))
             notes.append(f"**{case}**: not attempted - {e}")
             print(f"::warning::{case}: {e}")
             if "rate limit" in str(e):
@@ -428,7 +430,9 @@ def cmd_agent(args):
             reply = ask(token, header + "\nCurrent code:\n\n" + "\n".join(code) +
                         "\nAnswer {\"edits\": [{\"path\": \"<file>\", \"old\": \"<exact unique text from the code above, "
                         "with indentation>\", \"new\": \"<replacement>\"}], \"explanation\": \"<what you changed and why>\"}")
+            answered += 1
         except Exception as e:
+            failures.append(str(e))
             notes.append(f"**{case}**: not attempted - {e}")
             print(f"::warning::{case}: {e}")
             if "rate limit" in str(e):
@@ -447,6 +451,14 @@ def cmd_agent(args):
                      (f"{applied} edit(s). {expl}" if applied else f"no edit. {expl}") +
                      (f" Rejected edits: {'; '.join(errors)}" if errors else ""))
         print(notes[-1])
+
+    # For the workflow's summary: did any model answer at all?
+    temp = Path(os.environ.get("RUNNER_TEMP", "/tmp"))
+    if answered:
+        (temp / "model_answered").write_text(str(answered))
+    elif failures:
+        (temp / "model_unavailable").write_text(failures[-1][:1500])
+        print(f"::error::No model answered: {failures[-1][:500]}")
 
     with open(state_file, "w") as fh:
         json.dump(tools.original, fh)
