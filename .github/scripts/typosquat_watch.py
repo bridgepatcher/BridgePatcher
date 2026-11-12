@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Find copies of this repo that live outside its fork network under a
-typosquatted name, and open issues about them in both repositories."""
+typosquatted name, and open issues about them in both repositories.
+
+Also flagged, even without copied code: any repository outside the fork
+network whose name contains this project's name or one of its former names
+(ALIASES) - including forks of other projects (e.g. of Dortania's OpenCore
+Legacy Patcher) renamed to "BridgePatcher" or "OpenCore-Legacy-Patcher-T2".
+Real forks of this repository are never flagged."""
 
 import json
 import os
@@ -240,7 +246,7 @@ def assess(cand, owner_squat, our_owner):
 def rename_request(full, sha):
     return f"""Hi! 👋
 
-This repository contains the history of [{ORIGINAL}](https://github.com/{ORIGINAL}) (for example commit `{sha[:12]}`), but it is not a GitHub fork, and its name is very close to the original. Users can easily confuse the two, and to them it can look like typosquatting.
+This repository contains the history of [{ORIGINAL}](https://github.com/{ORIGINAL}) (for example commit `{sha[:12]}`), but it is not a GitHub fork of it, and its name is very close to the original. Users can easily confuse the two, and to them it can look like typosquatting.
 
 We're assuming this wasn't intentional. Could you help avoid the confusion by doing one of the following?
 
@@ -248,6 +254,24 @@ We're assuming this wasn't intentional. Could you help avoid the confusion by do
 - **re-create it as a regular fork**, so GitHub shows "forked from {ORIGINAL}".
 
 A short note in the README saying where the code comes from would also help, and keeps the license attribution intact.
+
+Thanks for understanding!
+
+{THEIR_MARKER}
+"""
+
+
+def name_request(full, fork_of=None):
+    origin = (f"It is a fork of [{fork_of}](https://github.com/{fork_of}), not of {ORIGINAL}"
+              if fork_of else f"It is not a GitHub fork of {ORIGINAL}")
+    return f"""Hi! 👋
+
+This repository's name uses the name of [{ORIGINAL}](https://github.com/{ORIGINAL}), but it isn't part of that project's fork network. {origin}, so nothing on GitHub tells users that it isn't the real thing - to them it can look like the official project, or like typosquatting.
+
+We're assuming this wasn't intentional. Could you help avoid the confusion by doing one of the following?
+
+- **Rename the repository** (Settings → General → Repository name) to something that doesn't use the project's name, or
+- if it's meant to be a copy of BridgePatcher, **re-create it as a regular fork** of {ORIGINAL}, so GitHub shows "forked from {ORIGINAL}".
 
 Thanks for understanding!
 
@@ -338,20 +362,38 @@ def main():
     names = [name] + ALIASES
     aliases = {a.lower() for a in ALIASES}
     candidates = {}
+
+    def consider(item):
+        full = item["full_name"]
+        c_owner, c_name = item["owner"]["login"], item["name"]
+        if c_owner.lower() == owner.lower() or full.lower() in ALLOWLIST:
+            return
+        name_sq = (c_name.lower() in aliases or any(looks_like(c_name, n) for n in names)
+                   or contains_name(c_name, names))
+        owner_sq = looks_like(c_owner, owner)
+        if name_sq or (owner_sq and c_name.lower() in {n.lower() for n in names}):
+            candidates[full] = owner_sq
+
     for v in sorted({v for n in names for v in variants(n)}):
         q = urllib.parse.quote(f"{v} in:name")
         _, data, _ = request("GET", f"/search/repositories?q={q}&per_page=100")
         time.sleep(2.2)  # search API allows 30 requests per minute
         for item in (data or {}).get("items", []):
-            full = item["full_name"]
-            c_owner, c_name = item["owner"]["login"], item["name"]
-            if c_owner.lower() == owner.lower() or full.lower() in ALLOWLIST:
-                continue
-            name_sq = (c_name.lower() in aliases or any(looks_like(c_name, n) for n in names)
-                       or contains_name(c_name, ALIASES))
-            owner_sq = looks_like(c_owner, owner)
-            if name_sq or (owner_sq and c_name.lower() in {n.lower() for n in names}):
-                candidates[full] = owner_sq
+            consider(item)
+
+    # Repository search leaves forks out unless asked. Forks of other projects
+    # (e.g. Dortania's) named after this one sit outside our fork network too;
+    # our own forks are filtered out below.
+    for n in names:
+        for page in range(1, 11):  # search returns at most 1000 results
+            q = urllib.parse.quote(f"{n} in:name fork:only")
+            _, data, _ = request("GET", f"/search/repositories?q={q}&per_page=100&page={page}")
+            time.sleep(2.2)
+            items = (data or {}).get("items", [])
+            for item in items:
+                consider(item)
+            if len(items) < 100:
+                break
     print(f"{len(candidates)} name candidates")
 
     # 2. Skip what's already tracked
@@ -376,16 +418,23 @@ def main():
         sha, own = shared_history(full)
         if not sha:
             sha, own = copied_commit(full, shas), None
-        # A repo that isn't a GitHub fork but still carries one of this project's former
-        # names (e.g. "OpenCore-Legacy-Patcher-T2-Fork") counts even without copied code
-        former = not cand.get("fork") and contains_name(cand["name"], ALIASES)
-        if not sha and not former:
+        # Outside the fork network (forks of other projects included), a name that
+        # contains this project's name ("BridgePatcher-Pro") or a former one
+        # ("OpenCore-Legacy-Patcher-T2-Fork") counts even without copied code
+        fork_of = (cand.get("source") or {}).get("full_name") if cand.get("fork") else None
+        named = ("current" if contains_name(cand["name"], [name]) else
+                 "former" if contains_name(cand["name"], ALIASES) else None)
+        if not sha and not named:
             continue  # similar name, but not a copy of this project
 
         found += 1
         suspicious, reasons = assess(cand, owner_sq, owner)
-        if former:
-            reasons.insert(0, f"uses this project's former name ({', '.join(ALIASES)})")
+        if named == "current":
+            reasons.insert(0, f"uses this project's name ({name}) outside its fork network"
+                              + (f" - it's a fork of {fork_of}" if fork_of else ""))
+        elif named == "former":
+            reasons.insert(0, f"uses this project's former name ({', '.join(ALIASES)}) outside its fork network"
+                              + (f" - it's a fork of {fork_of}" if fork_of else ""))
         verdict = "suspicious" if suspicious else "likely unintentional"
         summary(f"- **{full}** — {verdict}; {describe_copy(sha, own)}; "
                 + ("; ".join(reasons) or "no extra signals"))
@@ -410,7 +459,9 @@ def main():
                 title = (f"Notice: this repository is an unofficial copy of {ORIGINAL}" if suspicious
                          else f"Please consider renaming: name is very close to {ORIGINAL}")
                 body = (suspicious_notice(full, sha, reasons) if suspicious and sha
-                        else rename_request(full, sha) if sha else former_name_request(full))
+                        else rename_request(full, sha) if sha
+                        else name_request(full, fork_of) if named == "current"
+                        else former_name_request(full))
                 status, data = post(f"/repos/{full}/issues", {"title": title, "body": body})
                 if status < 300:
                     their_url = data["html_url"]
