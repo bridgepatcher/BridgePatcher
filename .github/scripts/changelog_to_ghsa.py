@@ -114,11 +114,11 @@ SECURITY_INTRO_RE = re.compile(
     r"^(?:this (?:release|version|build)\s+)?(?:also\s+)?(?:fix(?:es|ed)?|patch(?:es|ed)?|address(?:es|ed)?)\s+"
     r"(?:(?:a|an|the|the following|following|several|some|these|multiple|two|three|\d+)\s+)?"
     r"(?:(?:security|critical)\s+)?(?:vulnerabilit(?:y|ies)|security (?:issues?|fixes?|bugs?|holes?|flaws?))"
-    r"(?:,?\s*(?:too|as well))?\s*:\s*$"
+    r"(?:,?\s*(?:too|as well))?(?:\s*\([^)]*\))?\s*:\s*$"
     # German: "Behebt außerdem die folgende Sicherheitslücke:"
     r"|^(?:diese (?:version|release)\s+)?(?:behebt|schließt)\s+(?:(?:außerdem|auch|zudem)\s+)?"
     r"(?:(?:die|eine|mehrere|folgende|die folgenden?|\d+)\s+)?(?:kritische\s+)?sicherheitsl(?:ü|ue)cken?"
-    r"(?:,?\s*(?:auch|ebenfalls))?\s*:\s*$",
+    r"(?:,?\s*(?:auch|ebenfalls))?(?:\s*\([^)]*\))?\s*:\s*$",
     re.I,
 )
 
@@ -164,7 +164,22 @@ def parse_changelog(path):
             else:  # indented sub-bullets, code, Impact:/Severity:/PoC paragraphs
                 current["text"] += "\n" + line.strip()
 
+    # A bullet like "- fixes the following vulnerabilities:" is only an intro: the fix
+    # itself is in the lines below it. Drop intros with nothing below them, and match
+    # the others on their first real line ("key") instead of the intro, which is
+    # quoted in many advisories and would make every new fix look already filed.
+    kept = []
     for e in entries:
+        lines = [l for l in e["text"].splitlines() if l.strip()]
+        if SECURITY_INTRO_RE.match(e["first"].strip()):
+            if len(lines) < 2:
+                continue
+            e["key"] = re.sub(r"^[-*+]\s+", "", lines[1].strip())
+        else:
+            e["key"] = e["first"]
+        kept.append(e)
+    entries = kept
+    for e in entries:  # id stays based on "first", so existing advisories keep matching
         e["id"] = hashlib.sha1(f"{e['version']}|{norm(e['first'])}".encode()).hexdigest()[:16]
     return entries
 
@@ -198,7 +213,7 @@ def existing_advisories():
 
 def already_filed(entry, advisories):
     ids = {i.upper() for i in ID_RE.findall(entry["text"])}
-    first = norm(entry["first"])
+    first = norm(entry.get("key") or entry["first"])
     for adv in advisories:
         blob = f"{adv.get('summary') or ''}\n{adv.get('description') or ''}"
         if f"{MARKER} {entry['id']}" in blob:
