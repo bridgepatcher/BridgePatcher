@@ -1,0 +1,13 @@
+# Security check: reviewed Bandit findings that are accepted (see .github/scripts/check_security.py).
+# One per line: <rule> <file>::<function>   # why it's fine
+# Matches every finding of that rule in that function. Read from main only, so a PR
+# or the auto-fix bot can't accept its own findings. Remove a line to re-check it.
+
+# The copy lives in a private tempfile.mkdtemp() dir (mode 0700) and is a tool that
+# has to be executable - 0o755 is the correct mode, nobody else can write it.
+B103 bridgepatcher/support/gatekeeper.py::_copy_to_temp
+
+# Apple's distribution file, fetched over HTTPS from Apple's catalog. Python 3.13's
+# expat doesn't resolve external entities and limits entity expansion; clearing the
+# finding would need defusedxml as a new dependency.
+B314 bridgepatcher/sucatalog/products.py::CatalogProducts._parse_english_distributions

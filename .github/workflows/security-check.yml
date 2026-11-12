@@ -1,0 +1,157 @@
+name: Security check
+
+# Looks for security weaknesses in the patcher with Bandit (static analysis -
+# the code is only read, never imported or run): shell=True, programs started
+# by name instead of absolute path (with root rights that's a $PATH hijack),
+# tar extraction without a filter, fixed /tmp paths, TLS verification turned
+# off, requests without a timeout, ... See .github/scripts/check_security.py
+# for every rule and how it's fixed.
+#
+# Pull requests:
+#   Fails only on findings the PR adds - ones already on the base branch are
+#   listed separately. The check script and the accepted list
+#   (.github/security-accepted.txt) always come from the base branch, so a PR
+#   can't change what is checked or accept its own findings.
+#
+# Outside pull requests (push to main, weekly, manual):
+#   The whole tree is scanned, and a free GitHub Models model proposes fixes
+#   for what's found, verified by this check, the Python check and the root
+#   patching check, as ONE PR for review (branch auto-fix/security-check).
+#   See check-auto-fix.yml. The PR is closed automatically once main is clean.
+#
+# A false positive is accepted by adding it to .github/security-accepted.txt.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+    paths:
+      - "bridgepatcher/**"
+      - ".github/scripts/check_security.py"
+      - ".github/security-accepted.txt"
+      - ".github/workflows/security-check.yml"
+      - ".github/workflows/check-auto-fix.yml"
+      - ".github/scripts/ai_check_fix.py"
+  schedule:
+    - cron: "17 5 * * 3"   # Wednesdays 05:17 UTC
+  workflow_dispatch:
+
+# Only the auto-fix job inherits this: it calls a reusable workflow, and GitHub
+# rejects `models` in a caller job's own permissions. Every other job sets its own.
+permissions:
+  contents: write
+  pull-requests: write
+  models: read
+
+concurrency:
+  group: security-check-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.ref) || 'other-branches' }}
+  cancel-in-progress: true
+
+env:
+  BANDIT: "bandit==1.9.4"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      # Trusted copy: the base branch for PRs, otherwise the pushed commit.
+      # The check script and the accepted list are always taken from here.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: trusted
+          persist-credentials: false
+
+      # The PR (merged with its base, as GitHub tests it). Only read by Bandit.
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          path: pr
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Bandit
+        run: python3 -m pip install --quiet --disable-pip-version-check "$BANDIT"
+
+      - name: Scan
+        id: check
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set +e
+          out="$RUNNER_TEMP/security"
+          mkdir -p "$out"
+          script="trusted/.github/scripts/check_security.py"
+
+          if [ ! -f "$script" ]; then
+            # The base branch doesn't have the check yet (e.g. the PR that adds it)
+            echo "::notice::$script doesn't exist on the base branch yet - nothing to check"
+            echo "skipped" > "$out/skipped"
+            echo "rc=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$EVENT" = "pull_request" ]; then
+            python3 "$script" --root pr --baseline trusted --accepted trusted/.github/security-accepted.txt \
+              --json "$out/result.json" --summary "$out/summary.md"
+          else
+            python3 "$script" --root trusted \
+              --json "$out/result.json" --summary "$out/summary.md"
+          fi
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          [ -f "$out/summary.md" ] && cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$EVENT" != "pull_request" ] && [ "$rc" = "1" ]; then
+            n=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))['new']))" "$out/result.json")
+            echo "::warning::$n security finding(s) - see the summary. The auto-fix job proposes fixes as a PR."
+          fi
+          [ "$rc" = "2" ] && echo "::error::The security check could not run - see the log above"
+          exit 0
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-result
+          path: ${{ runner.temp }}/security/
+          retention-days: 1
+          if-no-files-found: ignore
+
+      # Only PRs fail: on main, existing findings go to the auto-fix PR instead.
+      - name: Fail on new findings
+        if: github.event_name == 'pull_request' && steps.check.outputs.rc != '0'
+        run: |
+          if [ "${{ steps.check.outputs.rc }}" = "2" ]; then
+            echo "::error::The security check could not run - see the log above"
+          else
+            echo "::error::This PR adds security findings - see the summary. A false positive can be accepted in .github/security-accepted.txt on main."
+          fi
+          exit 1
+
+  # On main: a free GitHub Models model proposes fixes, verified by this check,
+  # the Python check and the root patching check, as one PR for review.
+  auto-fix:
+    needs: check
+    if: >-
+      always() && needs.check.result != 'skipped' && needs.check.result != 'cancelled' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    uses: ./.github/workflows/check-auto-fix.yml
+    secrets:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    with:
+      name: Security check
+      script: .github/scripts/check_security.py
+      artifact: security-result
+      cross-name: root patching check
+      cross-script: .github/scripts/check_root_patching.py
+      allow: "bridgepatcher/"
+      branch: auto-fix/security-check
+      deps: "bandit==1.9.4 requests packaging py_sip_xnu markdown markdown2"
