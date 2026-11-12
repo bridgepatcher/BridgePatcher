@@ -80,6 +80,7 @@ app = BUNDLE(coll,
              bundle_identifier=constants.Constants().bundle_identifier,
              info_plist={
                 "CFBundleName": constants.APP_NAME,
+                "LSApplicationCategoryType": "public.app-category.utilities",
                 "CFBundleDisplayName": constants.APP_NAME,
                 "CFBundleVersion": constants.Constants().patcher_version,
                 "CFBundleShortVersionString": constants.Constants().patcher_version,
