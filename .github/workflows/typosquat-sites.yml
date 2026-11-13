@@ -2,7 +2,8 @@ name: Typosquat site watch
 
 on:
   schedule:
-    - cron: "41 5 * * *"   # daily, 05:41 UTC
+    - cron: "41 5 * * *"   # daily, 05:41 UTC: full scan
+    - cron: "17 */3 * * *" # every 3 hours: only FORMER_HOSTS and KNOWN_SITES (see KNOWN_ONLY)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -60,6 +61,13 @@ jobs:
           FORMER_NAMES: "OpenCore-Legacy-Patcher-T2 OCLP-T2"
           # Former official addresses: always reported as typosquats, online or not
           FORMER_HOSTS: "oclp-t2.github.io"
+          # Known impersonation sites, full address with path (space separated). Checked on every
+          # run, online or not; an issue is opened as soon as one serves a page.
+          # tea-ching.github.io/OpenCore-Legacy-Patcher-T2: Pages site of the copycat repo
+          # TEA-ching/OpenCore-Legacy-Patcher-T2 (its homepage link), down as of 2026-11-13
+          KNOWN_SITES: "https://tea-ching.github.io/OpenCore-Legacy-Patcher-T2/"
+          # The 3-hourly runs check only FORMER_HOSTS and KNOWN_SITES (no crt.sh, WHOIS lists or search)
+          KNOWN_ONLY: ${{ github.event.schedule == '17 */3 * * *' && 'true' || 'false' }}
           # --- Content farms (any domain), found through the Brave Search API ---
           # Free key from https://api-dashboard.search.brave.com, stored as repo secret
           # BRAVE_SEARCH_API_KEY. Without it this part is skipped.

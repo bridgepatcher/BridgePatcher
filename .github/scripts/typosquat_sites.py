@@ -47,6 +47,14 @@ PLATFORMS = [p.lower().lstrip(".") for p in os.environ.get("PLATFORMS", "").spli
 # closed issue from an earlier check doesn't hide a site that goes live later.
 FORMER_HOSTS = [h.lower() for h in os.environ.get("FORMER_HOSTS", "").split()]
 FORMER_HOST_MARK = "former official address of this project, no longer ours"
+# Known impersonation sites (full addresses, path included, e.g. a copycat fork's GitHub Pages
+# project site). Like former addresses they're checked on every run, online or not: while they're
+# down they're only listed in the run summary, and an issue is opened as soon as they serve a page.
+KNOWN_SITES = os.environ.get("KNOWN_SITES", "").split()
+KNOWN_SITE_MARK = "known impersonation site, on the watch list"
+# Only check FORMER_HOSTS and KNOWN_SITES (no lookalike, certificate, registration or web search),
+# for frequent cheap runs that notice a known site going live within hours
+KNOWN_ONLY = os.environ.get("KNOWN_ONLY", "false").lower() == "true"
 # Newly registered domains: how many past days of registrations to check, and the
 # names to look for in them (compared without dots, dashes or underscores)
 NRD_DAYS = int(os.environ.get("NRD_DAYS", "3"))
@@ -316,6 +324,38 @@ def nrd_match(domain):
 
 # ------------------------------------------------------------ inspection --
 
+def split_address(address):
+    """("host", "/path/") for a watched address given as a URL or as host[/path]."""
+    parts = urllib.parse.urlsplit(address if "://" in address else f"https://{address}")
+    return (parts.hostname or "").lower(), parts.path or "/"
+
+
+def watch_key(host, path):
+    """Issue key for a watched address; "<host>#live" for a site root, as for former hosts."""
+    return f"{host}{path.rstrip('/')}#live".lower()
+
+
+def inspect_watched(host, path, mark):
+    """A FORMER_HOSTS or KNOWN_SITES address: reported whenever it serves a page, whatever
+    the page says. Returns None while it's down (an error status or no response)."""
+    status, final, page = fetch(f"https://{host}{path}")
+    if not status or status >= 400:
+        print(f"Watched address {host}{path} is down ({status or 'no response'}); not reported")
+        summary(f"- `{host}{path}` (watched): down ({status or 'no response'})")
+        return None
+    low = fold(page)
+    title = re.search(r"<title[^>]*>(.*?)</title>", page, re.I | re.S)
+    return {
+        "host": host, "url": final, "status": status, "ips": resolve(host),
+        "title": re.sub(r"\s+", " ", html.unescape(title.group(1))).strip()[:150] if title else "",
+        "markers": [mark] + [m for m in MARKERS if m in low],
+        "download_hosts": sorted({describe_host(u) for u in download_links(page, final)}),
+        "links_official": f"github.com/{ORIGINAL}".lower() in low,
+        "new_registration": False, "key": watch_key(host, path),
+        "label": f"{host}{path.rstrip('/')}",
+    }
+
+
 def link_target(url, base):
     """Absolute URL of a link, or None for in-page, mail and script-only links."""
     url = html.unescape(url).strip()
@@ -559,6 +599,10 @@ def issue_body(r, reg):
         intro = (f"Marked {name} as a typosquat: it was this project's official address before the rename "
                  "to BridgePatcher and no longer belongs to it. Anything published there now is not from "
                  "this project, even if it looks official.")
+    elif r["markers"] and r["markers"][0] == KNOWN_SITE_MARK:
+        intro = (f"A known impersonation site is online: **{r.get('label', r['host'])}**\n\n"
+                 "It's listed in `KNOWN_SITES` in `typosquat-sites.yml` and was down until now. "
+                 "It is not run by this project; check what it offers for download.")
     elif r["markers"] and r["markers"][0].startswith("former project name"):
         intro = f"Found a website that uses this project's former name in its address: {name}"
     elif r["markers"]:
@@ -612,25 +656,29 @@ def main():
 
     summary(f"## Lookalike site scan for `{site_url}`" + (" (dry run)" if DRY_RUN else ""))
 
-    targets = {h: "/" for h in domain_candidates(keywords)}
-    for kw in CT_KEYWORDS:
-        for h in ct_hosts(kw):
+    targets, new_regs = {}, set()
+    if KNOWN_ONLY:
+        print("KNOWN_ONLY: checking only FORMER_HOSTS and KNOWN_SITES")
+    else:
+        targets = {h: "/" for h in domain_candidates(keywords)}
+        for kw in CT_KEYWORDS:
+            for h in ct_hosts(kw):
+                targets.setdefault(h, "/")
+        targets.update(github_pages_candidates(site_host, site_path))
+        for h in former_name_pages():
             targets.setdefault(h, "/")
-    targets.update(github_pages_candidates(site_host, site_path))
-    for h in former_name_pages():
-        targets.setdefault(h, "/")
-    new_regs = {d for d in nrd_domains(NRD_DAYS) if nrd_match(d)} if NRD_KEYWORDS else set()
-    for h in new_regs:
-        targets.setdefault(h, "/")
-    targets = {h: p for h, p in targets.items() if not allowed(h, site_host)}
+        new_regs = {d for d in nrd_domains(NRD_DAYS) if nrd_match(d)} if NRD_KEYWORDS else set()
+        for h in new_regs:
+            targets.setdefault(h, "/")
+        targets = {h: p for h, p in targets.items() if not allowed(h, site_host)}
     print(f"{len(targets)} hostnames to check")
 
     with cf.ThreadPoolExecutor(max_workers=48) as ex:
         results = [r for r in ex.map(lambda hp: inspect(*hp), targets.items()) if r]
 
     # Content farms under unrelated domain names, found through web search
-    farm_urls = {h: u for h, u in farm_candidates(site_host).items()
-                 if h not in {r["host"] for r in results}}
+    farm_urls = {} if KNOWN_ONLY else {h: u for h, u in farm_candidates(site_host).items()
+                                       if h not in {r["host"] for r in results}}
     with cf.ThreadPoolExecutor(max_workers=16) as ex:
         results += [r for r in ex.map(lambda hu: inspect_farm(*hu), farm_urls.items()) if r]
 
@@ -648,23 +696,24 @@ def main():
             "new_registration": True,
         })
 
-    # Former official addresses are reported only once something is published there again
-    found_hosts = {r["host"] for r in results}
-    for host in FORMER_HOSTS:
-        if host in found_hosts:
-            r = next(r for r in results if r["host"] == host)
-            r["markers"].insert(0, FORMER_HOST_MARK)
-            r["key"] = f"{host}#live"
+    # Former official addresses and known impersonation sites are checked every run and
+    # reported once something is published there (again). Their issues use their own key
+    # (<address>#live), so a closed issue from an earlier finding doesn't hide them.
+    watched = [(h, FORMER_HOST_MARK) for h in FORMER_HOSTS] + [(u, KNOWN_SITE_MARK) for u in KNOWN_SITES]
+    by_host = {r["host"]: r for r in results if not r.get("farm")}
+    for address, mark in watched:
+        host, path = split_address(address)
+        if not host:
+            print(f"::warning::Can't read watched address '{address}'; skipped")
             continue
-        status, final, _ = fetch(f"https://{host}/")
-        if not status or status >= 400:
-            print(f"Former address {host} is down ({status or 'no response'}); not reported")
+        if path == "/" and host in by_host:  # already found by the lookalike scan
+            r = by_host[host]
+            r["markers"].insert(0, mark)
+            r["key"] = watch_key(host, path)
             continue
-        results.append({
-            "host": host, "url": final, "status": status, "ips": resolve(host),
-            "title": "", "markers": [FORMER_HOST_MARK], "download_hosts": [], "links_official": False,
-            "new_registration": False, "key": f"{host}#live",
-        })
+        r = inspect_watched(host, path, mark)
+        if r:
+            results.append(r)
 
     tracked = set()
     for issue in paginate(f"/repos/{ORIGINAL}/issues?labels={LABEL}&state=all&per_page=100"):
@@ -678,14 +727,14 @@ def main():
              {"name": LABEL, "color": "b60205", "description": "Website imitating this project"})
 
     for r in new:
-        summary(f"- **{r['host']}** — {r['title'] or 'no title'}; matched "
+        summary(f"- **{r.get('label', r['host'])}** — {r['title'] or 'no title'}; matched "
                 + (", ".join(f"`{m}`" for m in r["markers"]) or "nothing yet (newly registered)"))
         if DRY_RUN:
             continue
         reg = {} if r["host"].endswith(".github.io") else rdap(r["host"])
         farm = r.get("farm")
         status, _ = post(f"/repos/{ORIGINAL}/issues", {
-            "title": f"{'Content farm' if farm else 'Lookalike site'}: {r['host']}",
+            "title": f"{'Content farm' if farm else 'Lookalike site'}: {r.get('label', r['host'])}",
             "body": farm_issue_body(r, reg) if farm else issue_body(r, reg),
             "labels": [LABEL],
         })
