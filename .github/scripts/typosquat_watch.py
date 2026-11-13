@@ -33,10 +33,7 @@ ALLOWLIST = {s.lower() for s in os.environ.get("ALLOWLIST", "").split()}
 # OCLP-T2). Copies named exactly like these, or like a lookalike of them, are flagged too.
 ALIASES = os.environ.get("ALIASES", "").split()
 LABEL = "typosquat"
-# Repos this watch has filed before, one per line, kept between runs (the workflow restores and
-# saves it with the Actions cache). Its issues remain the main record, but a deleted issue leaves
-# no trace there: without this list, the repo would be filed again on the next run.
-STATE_FILE = os.environ.get("STATE_FILE", "")
+
 OUR_MARKER = "<!-- typosquat:{} -->"
 THEIR_MARKER = f"<!-- typosquat-notice-from:{ORIGINAL} -->"
 
@@ -370,32 +367,6 @@ To the owner: if this was not intentional, please rename the repository or re-cr
 """
 
 
-def tracking_issue(full, sha, suspicious, reasons, their_issue, note, own=None):
-    bullet = "\n".join(f"- {r}" for r in reasons) or "- none"
-    action = ("Report it using **Report repository** in the copy's sidebar, so GitHub can review the impersonation."
-              if suspicious else
-              "Wait for the owner to respond to the rename request." if their_issue else
-              "Ask the owner to rename the repository (the workflow couldn't contact them).")
-    link = their_issue or note
-    return f"""Detected **[{full}](https://github.com/{full})**, which sits outside the fork network and has a typosquatted name.
-
-**Copy of this project:** {describe_copy(sha, own)}
-
-**Assessment:** {"⚠️ suspicious" if suspicious else "likely unintentional"}
-
-**Signals:**
-{bullet}
-
-**Issue on their repo:** {link}
-
-**Next step:** {action}
-
-Closing this issue marks the case as handled, and the workflow won't file it again (deleting it does too).
-
-{OUR_MARKER.format(full)}
-"""
-
-
 # ------------------------------------------------------------------ main --
 
 def summary(line):
@@ -431,43 +402,6 @@ def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons):
     if status < 300:
         return data["html_url"], ""
     return None, f"failed with HTTP {status} (issues may be restricted, or you may be blocked)"
-
-
-def recheck_uncontacted(me, owner, name, shas):
-    """Open tracking issues whose copy couldn't be asked to rename (issues were disabled): if its
-    owner has turned issues on since, and it still looks unintentional, ask now and update the
-    tracking issue."""
-    if not me:
-        return
-    for issue in paginate(f"/repos/{ORIGINAL}/issues?labels={LABEL}&state=open&per_page=100"):
-        body = issue.get("body") or ""
-        m = re.search(r"<!-- typosquat:(\S+) -->", body)
-        if not m or "**Issue on their repo:** not possible, because issues are disabled" not in body:
-            continue
-        full = m.group(1)
-        cand = get(f"/repos/{full}")
-        if not cand or not cand.get("has_issues"):
-            continue
-        suspicious, reasons = assess(cand, looks_like(cand["owner"]["login"], owner), owner)
-        if suspicious:
-            continue
-        sha, own = shared_history(full)
-        if not sha:
-            sha, own = copied_commit(full, shas), None
-        fork_of = (cand.get("source") or {}).get("full_name") if cand.get("fork") else None
-        named = ("current" if contains_name(cand["name"], [name]) else
-                 "former" if contains_name(cand["name"], ALIASES) else None)
-        url, note = contact_owner(me, full, cand, sha, named, fork_of, False, reasons)
-        if not url:
-            continue
-        new_body = (body.replace("**Issue on their repo:** not possible, because issues are disabled",
-                                 f"**Issue on their repo:** {url}")
-                    .replace("**Next step:** Ask the owner to rename the repository (the workflow couldn't contact them).",
-                             "**Next step:** Wait for the owner to respond to the rename request."))
-        request("PATCH", f"/repos/{ORIGINAL}/issues/{issue['number']}", {"body": new_body})
-        post(f"/repos/{ORIGINAL}/issues/{issue['number']}/comments",
-             {"body": f"The owner has enabled issues, so the workflow asked them to rename the repository: {url}"})
-        summary(f"- asked **{full}** to rename (issues enabled since): {url}")
 
 
 def main():
@@ -521,45 +455,24 @@ def main():
                 break
     print(f"{len(candidates)} name candidates")
 
-    # 2. Skip what's already tracked
-    tracked = set()
-    if not DRY_RUN:
-        post(f"/repos/{ORIGINAL}/labels",
-             {"name": LABEL, "color": "d93f0b", "description": "Typosquatting copy of this repo"})
-    # Every issue, not just labelled ones: a report whose label was removed still counts
-    for issue in paginate(f"/repos/{ORIGINAL}/issues?state=all&per_page=100"):
-        m = re.search(r"<!-- typosquat:(\S+) -->", issue.get("body") or "")
-        if m:
-            tracked.add(m.group(1).lower())
-    remembered = set()
-    if STATE_FILE and os.path.exists(STATE_FILE):
-        with open(STATE_FILE) as f:
-            remembered = {line.strip().lower() for line in f if line.strip()}
-    for full in sorted(remembered - tracked):
-        print(f"  {full}: filed before, but its issue is gone (deleted?); not filed again")
-    tracked |= remembered
-
-    def save_state():
-        if STATE_FILE and not DRY_RUN and tracked:
-            os.makedirs(os.path.dirname(os.path.abspath(STATE_FILE)), exist_ok=True)
-            with open(STATE_FILE, "w") as f:
-                f.write("\n".join(sorted(tracked)) + "\n")
-
-    def remember(full):
-        tracked.add(full.lower())
-        save_state()
-
-    save_state()  # what the issues record so far, so it outlives a later deletion
+    # 2. Record them in the tracker issue (one issue for all findings, see bridgepatcher_tracker.py)
+    from bridgepatcher_tracker import Tracker  # noqa: E402 (imports this module's helpers)
+    tracker = Tracker("typosquat watch", DRY_RUN)
+    if tracker.paused:
+        summary("The tracker issue is closed, so the watch is paused. Reopen it to resume.")
+        return
 
     found = 0
+    seen = set()
     for full, owner_sq in sorted(candidates.items()):
-        if full.lower() in tracked:
+        if tracker.dismissed(full):
             continue
         cand = get(f"/repos/{full}")
         if not cand or cand["full_name"].lower() == root:
             continue
         if cand.get("fork") and (cand.get("source") or {}).get("full_name", "").lower() == root:
             continue  # inside our fork network, so it's a legitimate fork
+        prior = tracker.entry("repos", full)
         sha, own = shared_history(full)
         if not sha:
             sha, own = copied_commit(full, shas), None
@@ -572,7 +485,7 @@ def main():
         if not sha and not named:
             continue  # similar name, but not a copy of this project
 
-        found += 1
+        seen.add(full.lower())
         suspicious, reasons = assess(cand, owner_sq, owner)
         if named == "current":
             reasons.insert(0, f"uses this project's name ({name}) outside its fork network"
@@ -581,28 +494,43 @@ def main():
             reasons.insert(0, f"uses this project's former name ({', '.join(ALIASES)}) outside its fork network"
                               + (f" - it's a fork of {fork_of}" if fork_of else ""))
         verdict = "suspicious" if suspicious else "likely unintentional"
-        summary(f"- **{full}** — {verdict}; {describe_copy(sha, own)}; "
-                + ("; ".join(reasons) or "no extra signals"))
+        if not prior:
+            found += 1
+            summary(f"- **{full}** — {verdict}; {describe_copy(sha, own)}; "
+                    + ("; ".join(reasons) or "no extra signals"))
         if DRY_RUN:
             continue
 
-        # 3. Issue on their repo
-        their_url, note = contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons)
+        # 3. Rename request on their repo, once: retried on later runs while it couldn't be posted
+        # (e.g. issues disabled), never posted twice (an earlier one is found by its marker)
+        link = (prior or {}).get("request", "")
+        if not link.startswith("http"):
+            their_url, note = contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons)
+            link = their_url or note
 
-        # 4. Tracking issue in our repo
-        status, data = post(f"/repos/{ORIGINAL}/issues", {
-            "title": f"Typosquatting copy: {full} ({verdict})",
-            "body": tracking_issue(full, sha, suspicious, reasons, their_url, note, own),
-            "labels": [LABEL],
+        # 4. Entry in the tracker issue
+        tracker.upsert("repos", full, {
+            "name": cand["full_name"], "source": "typosquat",
+            "status": "⚠️ suspicious" if suspicious else "🟢 active",
+            "what": f"{verdict}: " + "; ".join(reasons + [describe_copy(sha, own)]),
+            "request": link,
         })
-        if status >= 300:
-            print(f"::error::Could not open tracking issue for {full} (HTTP {status})")
-        else:
-            remember(full)
-        time.sleep(3)
 
+    # Copies listed before that this run's searches didn't return: still there, renamed, or gone?
     if not DRY_RUN:
-        recheck_uncontacted(me, owner, name, shas)
+        for key in sorted(tracker.keys("repos") - seen):
+            e = tracker.entry("repos", key)
+            if e.get("source") not in ("typosquat",):
+                continue
+            cand = get(f"/repos/{key}")
+            if not cand:
+                tracker.upsert("repos", key, {"status": "🔴 deleted or made private"})
+            elif cand["full_name"].lower() != key and not (contains_name(cand["name"], [name] + ALIASES)
+                                                          or any(looks_like(cand["name"], n) for n in [name] + ALIASES)):
+                tracker.upsert("repos", key, {"status": f"✅ renamed to {cand['full_name']}"})
+            else:
+                tracker.upsert("repos", key, {})  # still there: keep it listed
+        tracker.save()
 
     summary(f"\n{found} new typosquatting copies found.")
 
