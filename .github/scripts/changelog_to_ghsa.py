@@ -352,7 +352,7 @@ def classify(entry):
         return None
     info = {
         "is_vulnerability": True,
-        "summary": re.sub(r"\s+", " ", entry["first"])[:100],
+        "summary": re.sub(r"\s+", " ", entry["key"])[:100],
         "severity": "medium",
         "cwe_ids": [],
         "details": "Security fix disclosed in the project's changelog.",
@@ -439,12 +439,12 @@ def main():
         try:
             info = classify(entry)
         except AIUnavailable as exc:
-            print(f"  ! AI review failed for [{entry['version']}] {entry['first'][:60]}: {exc}")
+            print(f"  ! AI review failed for [{entry['version']}] {entry['key'][:60]}: {exc}")
             ai_failures += 1
             if ai_failures >= 5 and not created_or_checked:
                 print("::error::AI review failed 5 times in a row - stopping; see warnings above.")
                 break
-            report.append(f"| {entry['version']} | {entry['first'][:80].replace('|', '/')} | - | skipped (AI unavailable, retried next run) |")
+            report.append(f"| {entry['version']} | {entry['key'][:80].replace('|', '/')} | - | skipped (AI unavailable, retried next run) |")
             continue
         ai_failures, created_or_checked = 0, created_or_checked + 1
         if not info:
