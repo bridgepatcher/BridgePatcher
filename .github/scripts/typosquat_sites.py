@@ -121,7 +121,9 @@ EXCLUDED = re.compile(
     r"\bsauf\b|\bsans\b|\bexclu|\bpas\b|\bne\b|"
     r"\bnon\b|\btranne\b|\beccetto\b|\bsenza\b|\besclu|"
     r"\bn[ãa]o\b|\bsem\b|\bexceto\b|\bexclui")
-SENTENCE_END = re.compile(r"(?<=[.!?;])\s+|\s+[|•·–—]\s+")
+SENTENCE_END = re.compile(r"(?<=[.!?;])\s+|(?<=[。！？；])|\s+[|•·–—]\s+")
+# Longer "sentences" are run-on text (lists, scripts, writing without punctuation); not judged
+MAX_SENTENCE = 400
 # A negation shortly before a claim word ("doesn't support", "no es compatible", "nicht unterstützt")
 NEGATED = re.compile(r"(?:\bnot\b|n't\b|\bno\b|\bwithout\b|\bnicht\b|\bkein\w*|\bsin\b|\bpas\b|"
                      r"\bnon\b|\bn[ãa]o\b|\bsem\b|\bnunca\b|\bnever\b)[^.!?]{0,25}$")
@@ -701,6 +703,12 @@ def slugify(title):
     return re.sub(r"[^a-z0-9]+", "-", t).strip("-")
 
 
+def site_family(host):
+    """A news site without its language or www subdomain: en.soydemac.com -> soydemac.com."""
+    labels = host.split(".")
+    return ".".join(labels[1:]) if len(labels) > 2 and labels[0] in EDITION_PREFIXES + ["www"] else host
+
+
 def edition_hosts(host):
     """Other language editions of a news site: es.example.com -> example.com, www.example.com,
     en.example.com, ... Translated editions usually keep the original's address path."""
@@ -734,7 +742,7 @@ def t2_claim(text, context=2):
     with the project's name in it or in the `context` sentences around it."""
     sentences = [x for x in SENTENCE_END.split(text) if x.strip()]
     for i, sent in enumerate(sentences):
-        if not T2_CHIP.search(sent) or EXCLUDED.search(sent):
+        if len(sent) > MAX_SENTENCE or not T2_CHIP.search(sent) or EXCLUDED.search(sent):
             continue
         if not any(not NEGATED.search(sent[max(0, c.start() - 40):c.start()])
                    for c in SUPPORT_CLAIM.finditer(sent)):
@@ -880,7 +888,8 @@ def article_issue_body(r):
         "",
         f"- **URL:** {r['url']}" + (f" (HTTP {r['status']})" if r["status"] else ""),
         f"- **Headline:** {r['title'] or '—'}",
-    ] + ([f"- **Edition of:** {r['edition_of']} (same article in another language)"] if r.get("edition_of") else []) + [
+    ] + ([f"- **Also published in {len(r['editions'])} other language edition(s) of the site:**"]
+         + [f"  - {h}: {u} — {t or '—'}" for h, u, t in r["editions"]] if r.get("editions") else []) + [
         f"- **Judged on:** the {r['judged_on']}"
         + (" (the feed only gives a Google News link; open it to reach the article)" if r["judged_on"] == "headline" else ""),
         f"- **Passage:** > {r['claim']}",
@@ -1141,7 +1150,17 @@ def main():
                 if r["host"] not in known:
                     known.add(r["host"])
                     hits.append(r)
-        results += hits
+        # One issue per site, listing all its language editions
+        families = {}
+        for r in sorted(hits, key=lambda r: (bool(r.get("edition_of")), r["host"])):
+            families.setdefault(site_family(r["host"]), []).append(r)
+        for family, group in families.items():
+            main_hit = group[0]
+            main_hit["key"] = f"article:{family}"
+            main_hit["family"] = family
+            main_hit["editions"] = [(r["host"], r["url"], r["title"]) for r in group[1:]]
+            main_hit.pop("edition_of", None)
+            results.append(main_hit)
     all_sites = copycat_sites(repos, site_host)
     for r in results:  # a KNOWN_SITES entry that is also a copycat repo's site: name the repo
         if r.get("key") and not r.get("repo"):
@@ -1185,7 +1204,7 @@ def main():
         elif r.get("fake404"):
             summary(f"- **{r.get('label', r['host'])}** — fake 404 (HTTP {r['status']}): {r['title'] or 'no title'}")
         elif r.get("article"):
-            summary(f"- **{r['host']}** (article) — {r['title'] or 'no title'}; says: {r['claim'][:160]}")
+            summary(f"- **{r.get('family', r['host'])}** (article, {1 + len(r.get('editions', []))} edition(s)) — {r['title'] or 'no title'}; says: {r['claim'][:160]}")
         else:
             summary(f"- **{r.get('label', r['host'])}** — {r['title'] or 'no title'}; matched "
                     + (", ".join(f"`{m}`" for m in r["markers"]) or "nothing yet (newly registered)"))
@@ -1195,7 +1214,8 @@ def main():
             issue = {"title": f"Copycat site (offline for now): {r['label']}", "body": down_issue_body(r),
                      "labels": [LABEL]}
         elif r.get("article"):
-            issue = {"title": f"Misattributing article: {r['host']}", "body": article_issue_body(r),
+            more = f" (+{len(r['editions'])} language editions)" if r.get("editions") else ""
+            issue = {"title": f"Misattributing article: {r.get('family', r['host'])}{more}", "body": article_issue_body(r),
                      "labels": [ARTICLE_LABEL]}
         else:
             reg = {} if r["host"].endswith(".github.io") else rdap(r["host"])
