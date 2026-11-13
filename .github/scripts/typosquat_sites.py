@@ -166,8 +166,9 @@ def resolve(host):
         return []
 
 
-def fetch(url, limit=2_000_000):
-    """GET a page without running anything. Returns (status, final_url, html)."""
+def fetch(url, limit=2_000_000, error_body=False):
+    """GET a page without running anything. Returns (status, final_url, html).
+    With error_body, the page sent along with an error status (e.g. a 404 page) is returned too."""
     for ctx in (ssl.create_default_context(), ssl._create_unverified_context()):
         req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "text/html"})
         try:
@@ -176,7 +177,15 @@ def fetch(url, limit=2_000_000):
                 body = r.read(limit) if ("html" in ctype or "text" in ctype) else b""
                 return r.status, r.geturl(), body.decode("utf-8", "replace")
         except urllib.error.HTTPError as e:
-            return e.code, url, ""
+            body = ""
+            if error_body:
+                try:
+                    ctype = e.headers.get("Content-Type", "")
+                    raw = e.read(limit) if ("html" in ctype or "text" in ctype) else b""
+                    body = raw.decode("utf-8", "replace")
+                except Exception:
+                    pass
+            return e.code, e.geturl() or url, body
         except urllib.error.URLError as e:
             if isinstance(e.reason, ssl.SSLError):
                 continue  # retry once without certificate verification
@@ -388,13 +397,45 @@ def watch_key(host, path):
     return f"{host}{path.rstrip('/')}#live".lower()
 
 
+# GitHub Pages' own error pages: the only answers that mean nothing is published at an address.
+# Any other page, even one sent with HTTP 404 or saying "not found", is the owner's own page.
+STOCK_PAGES_ERROR = re.compile(r"(?:site|page) not found\s*(?:&middot;|·)\s*github pages|"
+                               r"there isn't a github pages site here|"
+                               r"the site configured at this address does not contain the requested file", re.I)
+SAYS_NOT_FOUND = re.compile(r"\b404\b|not found|page (?:doesn't|does not) exist|\blost\b", re.I)
+
+
+def watched_state(host, status, page):
+    """"down", "live" or "fake404" for a watched address.
+
+    down: no response, or an error status with GitHub Pages' stock error page (or, off GitHub,
+    an error page that shows nothing of the project). fake404: a page of the owner's own that
+    claims "not found", by status or by content, e.g. a custom 404.html deployed to the account:
+    the site is set up and can switch content at any moment. live: anything else."""
+    if not status:
+        return "down"
+    if status >= 400:
+        if not page.strip() or STOCK_PAGES_ERROR.search(page):
+            return "down"
+        if not host.endswith(".github.io"):
+            low = fold(page)
+            if not (any(m in low for m in MARKERS) or OCLP_NAMES.search(low) or DOWNLOAD_EXT.search(page)):
+                return "down"  # an ordinary error page of some web host
+        return "fake404"
+    title = re.search(r"<title[^>]*>(.*?)</title>", page, re.I | re.S)
+    heading = re.search(r"<h1[^>]*>(.*?)</h1>", page, re.I | re.S)
+    shown = " ".join(TAG.sub(" ", x.group(1)) for x in (title, heading) if x)
+    return "fake404" if SAYS_NOT_FOUND.search(shown) else "live"
+
+
 def inspect_watched(host, path, mark, repo=None, need_marker=False, report_down=False):
     """A FORMER_HOSTS, KNOWN_SITES or copycat repository address: reported whenever it serves
     a page (with need_marker, only if the page names the project). While it's down (an error
     status or no response) it's only reported with report_down, once, as an offline site
     (key <address>#down); it gets its own issue (<address>#live) when it goes live."""
-    status, final, page = fetch(f"https://{host}{path}")
-    if not status or status >= 400:
+    status, final, page = fetch(f"https://{host}{path}", error_body=True)
+    state = watched_state(host, status, page)
+    if state == "down":
         print(f"Watched address {host}{path} is down ({status or 'no response'})")
         summary(f"- `{host}{path}` (watched" + (f", site of {repo}" if repo else "")
                 + f"): down ({status or 'no response'})")
@@ -407,11 +448,15 @@ def inspect_watched(host, path, mark, repo=None, need_marker=False, report_down=
             "key": watch_key(host, path).replace("#live", "#down"), "label": f"{host}{path.rstrip('/')}",
         }
     low = fold(page)
-    if need_marker and not any(m in low for m in MARKERS):
+    if need_marker and state == "live" and not any(m in low for m in MARKERS):
         print(f"  {host}{path} ({repo}) is up but doesn't name the project; not reported")
         return None
+    if state == "fake404":
+        print(f"Watched address {host}{path} serves its own 'not found' page (HTTP {status}): fake 404")
+        summary(f"- `{host}{path}` (watched): fake 404 (HTTP {status}, the owner's own page)")
     title = re.search(r"<title[^>]*>(.*?)</title>", page, re.I | re.S)
     return {
+        "fake404": state == "fake404",
         "host": host, "url": final, "status": status, "ips": resolve(host),
         "title": re.sub(r"\s+", " ", html.unescape(title.group(1))).strip()[:150] if title else "",
         "markers": [mark] + [m for m in MARKERS if m in low],
@@ -949,18 +994,24 @@ def issue_body(r, reg):
                   "[Google Safe Browsing](https://safebrowsing.google.com/safebrowsing/report_phish/).")
     shown = unpuny(r["host"])
     name = f"**{r['host']}**" + (f" (shown in browsers as **{shown}**)" if shown != r["host"] else "")
+    fake = ("\n\n**Fake 404:** the address answers with the owner's own \"not found\" page "
+            f"(HTTP {r['status']}) instead of GitHub's standard one. A deployed site is hiding there: it "
+            "passes for offline in link checkers and can switch to real content at any moment."
+            if r.get("fake404") else "")
     if r["markers"] and r["markers"][0] == FORMER_HOST_MARK:
         intro = (f"Marked {name} as a typosquat: it was this project's official address before the rename "
                  "to BridgePatcher and no longer belongs to it. Anything published there now is not from "
                  "this project, even if it looks official.")
     elif r["markers"] and r["markers"][0] == COPYCAT_MARK:
-        intro = (f"The website of a copycat repository is online: **{r.get('label', r['host'])}**\n\n"
+        intro = (f"The website of a copycat repository is {'deployed behind a fake 404' if r.get('fake404') else 'online'}: "
+                 f"**{r.get('label', r['host'])}**\n\n"
                  f"It's the homepage or GitHub Pages site of [`{r['repo']}`](https://github.com/{r['repo']}), "
                  "a repository that presents itself as this project or is a fork of it. "
                  "It is not run by this project; check what it offers for download.")
     elif r["markers"] and r["markers"][0] == KNOWN_SITE_MARK:
-        intro = (f"A known impersonation site is online: **{r.get('label', r['host'])}**\n\n"
-                 "It's listed in `KNOWN_SITES` in `typosquat-sites.yml` and was down until now. "
+        intro = (f"A known impersonation site is {'deployed behind a fake 404' if r.get('fake404') else 'online'}: "
+                 f"**{r.get('label', r['host'])}**\n\n"
+                 "It's listed in `KNOWN_SITES` in `typosquat-sites.yml`. "
                  "It is not run by this project; check what it offers for download.")
     elif r["markers"] and r["markers"][0].startswith("former project name"):
         intro = f"Found a website that uses this project's former name in its address: {name}"
@@ -972,7 +1023,7 @@ def issue_body(r, reg):
                  "impersonation sites are often set up a few days later, so it's worth keeping an eye on.")
     status = f"HTTP {r['status']}" if r["status"] else "no response yet"
     lines = [
-        intro,
+        intro + fake,
         "",
         f"- **URL:** {r['url']} ({status})",
         f"- **Newly registered:** {'yes, in the last ' + str(NRD_DAYS) + ' days' if r.get('new_registration') else 'not in the recent registration lists'}",
@@ -1131,6 +1182,8 @@ def main():
     for r in new:
         if r.get("down"):
             summary(f"- **{r['label']}** — offline copycat site, watched until it goes live")
+        elif r.get("fake404"):
+            summary(f"- **{r.get('label', r['host'])}** — fake 404 (HTTP {r['status']}): {r['title'] or 'no title'}")
         elif r.get("article"):
             summary(f"- **{r['host']}** (article) — {r['title'] or 'no title'}; says: {r['claim'][:160]}")
         else:
