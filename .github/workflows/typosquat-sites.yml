@@ -79,6 +79,17 @@ jobs:
           CHECK_FORKS: "true"
           # Repos (owner/name) whose websites are never checked, e.g. a trusted contributor's fork
           ALLOWLIST_REPOS: ""
+          # Misattributing articles: news and blog posts (e.g. en.soydemac.com) that present this
+          # fork's T2 support as news about Dortania's OpenCore Legacy Patcher, without naming
+          # BridgePatcher or saying it's an unofficial fork. Searched in Bing News and Google News
+          # (no key needed) and, with BRAVE_SEARCH_API_KEY, the web. Daily runs only.
+          NEWS_QUERIES: >-
+            "OpenCore Legacy Patcher" T2|
+            OCLP T2 Mac|
+            "OpenCore Legacy Patcher" Tahoe T2|
+            "OpenCore Legacy Patcher" Sequoia T2
+          # News editions searched (language-COUNTRY); machine-translated sites show up in several
+          NEWS_MARKETS: "en-US es-ES de-DE fr-FR it-IT pt-BR"
           # The 3-hourly runs check only FORMER_HOSTS, KNOWN_SITES and copycat repositories'
           # websites (no lookalike domains, crt.sh, WHOIS lists or web search)
           QUICK_RUN: ${{ github.event.schedule == '17 */3 * * *' && 'true' || 'false' }}

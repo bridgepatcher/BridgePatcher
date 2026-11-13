@@ -18,6 +18,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -86,6 +87,30 @@ AD_NETWORKS = ("googlesyndication.com", "adsbygoogle", "doubleclick.net", "adser
 DISCLAIMERS = ("not affiliated", "unofficial", "independent community fork", "nicht mit dortania",
                "nicht offiziell", "inoffiziell")
 LABEL = "typosquat-site"
+# Misattributing articles: news and blog posts (often machine-translated editions such as
+# en.soydemac.com) that present this fork's T2 support as news about Dortania's OpenCore Legacy
+# Patcher, without naming BridgePatcher or saying it's an unofficial fork. Found through news
+# feeds (Bing News, Google News; no key needed) and, with BRAVE_SEARCH_API_KEY, web search.
+NEWS_QUERIES = [q.strip() for q in os.environ.get("NEWS_QUERIES", "").split("|") if q.strip()]
+# Bing/Google News editions to search, as language-COUNTRY (each costs two requests per query)
+NEWS_MARKETS = os.environ.get("NEWS_MARKETS", "en-US").split()
+ARTICLE_LABEL = "misattributed-article"
+# The upstream project's names, as articles write them
+OCLP_NAMES = re.compile(r"opencore[\s-]*legacy[\s-]*patcher|\boclp\b(?![\s-]*t2\b)")
+T2_CHIP = re.compile(r"\bt2(?![0-9])")  # T2, T2s, T2-equipped
+# Words that claim support or a new capability (English, Spanish, German, French, Italian, Portuguese)
+SUPPORT_CLAIM = re.compile(
+    r"(?<!un)support|(?<!in)compatib|now (?:works|runs)|\badds?\b|\bbrings?\b|expands?|extends?|unlocks?|"
+    r"soport|admite|ampl[ií]a|llega|unterst[uü]tz|erweitert|bringt|prend en charge|prise en charge|"
+    r"[ée]tend|ajoute|supporto|estende|aggiunge|suporte|adiciona|amplia")
+# A negation shortly before a claim word ("doesn't support", "no es compatible", "nicht unterstützt")
+NEGATED = re.compile(r"(?:\bnot\b|n't\b|\bno\b|\bwithout\b|\bnicht\b|\bkein\w*|\bsin\b|\bpas\b|"
+                     r"\bnon\b|\bn[ãa]o\b|\bsem\b|\bnunca\b|\bnever\b)[^.!?]{0,25}$")
+# Text that credits the fork correctly; an article containing any of these isn't flagged
+CREDITS = ("bridgepatcher", "bridge patcher", "unofficial", "not official", "fork", "bifurcaci",
+           "no oficial", "inoffiziell", "nicht offiziell", "non officiel", "non ufficiale", "não oficial",
+           "nao oficial", "albert m", "opencore-legacy-patcher-t2", "opencore legacy patcher t2", "oclp-t2",
+           "oclp t2")
 # Earlier real-world case against the upstream project, linked in every issue as a reference
 PRIOR_CASE = ("For a real example of how such a site operated and was taken down, see Dortania's "
               "write-up on opencorelegacypatcher.com: "
@@ -585,6 +610,157 @@ def inspect_farm(host, url):
     }
 
 
+# ------------------------------------------------ misattributing articles --
+
+def page_text(page):
+    """Visible text of an HTML page, folded (scripts, styles and tags removed)."""
+    page = re.sub(r"<(script|style|noscript)\b.*?</\1\s*>", " ", page, flags=re.I | re.S)
+    return re.sub(r"\s+", " ", fold(html.unescape(TAG.sub(" ", page))))
+
+
+def t2_claim(text, window=400, near=150):
+    """The passage where `text` says OpenCore Legacy Patcher (gained) support for T2 Macs, or "":
+    a T2 mention within `window` characters of the project's name, with a claim word that isn't
+    negated within `near` characters of the T2 mention."""
+    for m in OCLP_NAMES.finditer(text):
+        lo, hi = max(0, m.start() - window), m.end() + window
+        for t in T2_CHIP.finditer(text, lo, hi):
+            for c in SUPPORT_CLAIM.finditer(text, max(0, t.start() - near), t.end() + near):
+                if not NEGATED.search(text[max(0, c.start() - 40):c.start()]):
+                    a = max(0, min(m.start(), t.start(), c.start()) - 80)
+                    b = max(m.end(), t.end(), c.end()) + 80
+                    return text[a:b].strip()
+    return ""
+
+
+def bing_news(query, market):
+    """(url, title) pairs from Bing News' RSS feed; links carry the article URL in `url=`."""
+    q = urllib.parse.urlencode({"q": query, "format": "rss", "mkt": market, "setlang": market.split("-")[0]})
+    out = []
+    try:
+        req = urllib.request.Request(f"https://www.bing.com/news/search?{q}", headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            root = ET.fromstring(r.read())
+    except Exception as e:
+        print(f"::warning::Bing News search for '{query}' ({market}) failed: {e}")
+        return out
+    for item in root.iter("item"):
+        link = (item.findtext("link") or "").strip()
+        real = urllib.parse.parse_qs(urllib.parse.urlsplit(link).query).get("url", [link])[0]
+        out.append((real, (item.findtext("title") or "").strip()))
+    return out
+
+
+def google_news(query, market):
+    """(url, title, source host) triples from Google News' RSS feed. Its links are Google
+    redirects that need JavaScript, so these items are judged by title and source only."""
+    lang, country = (market.split("-") + ["US"])[:2]
+    q = urllib.parse.urlencode({"q": query, "hl": market, "gl": country, "ceid": f"{country}:{lang}"})
+    out = []
+    try:
+        req = urllib.request.Request(f"https://news.google.com/rss/search?{q}", headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            root = ET.fromstring(r.read())
+    except Exception as e:
+        print(f"::warning::Google News search for '{query}' ({market}) failed: {e}")
+        return out
+    for item in root.iter("item"):
+        src = item.find("source")
+        host = (urllib.parse.urlsplit(src.get("url", "")).hostname or "").lower() if src is not None else ""
+        title = (item.findtext("title") or "").strip()
+        if src is not None and src.text and title.endswith(" - " + src.text.strip()):
+            title = title[: -len(src.text.strip()) - 3]  # Google appends " - <site name>"
+        out.append(((item.findtext("link") or "").strip(), title, host))
+    return out
+
+
+def article_candidates(site_host):
+    """{host: (url, title, fetchable)} for news and search hits outside allowlisted sites."""
+    found = {}
+
+    def add(url, title, host=None, fetchable=True):
+        host = (host or urllib.parse.urlsplit(url).hostname or "").lower()
+        if not host or allowed(host, site_host) or any(host == a or host.endswith("." + a) for a in FARM_ALLOWLIST):
+            return
+        if host not in found or (fetchable and not found[host][2]):
+            found[host] = (url, title, fetchable)
+
+    for query in NEWS_QUERIES:
+        for market in NEWS_MARKETS:
+            for url, title in bing_news(query, market):
+                add(url, title)
+            for url, title, host in google_news(query, market):
+                add(url, title, host, fetchable=False)
+            time.sleep(1)
+        if BRAVE_KEY:
+            for url in brave_search(query):
+                add(url, "")
+            time.sleep(1.2)
+    print(f"{len(found)} sites with news or search hits to check for misattribution")
+    return found
+
+
+def inspect_article(host, url, title, fetchable, copycats):
+    """An article that presents T2 support as OpenCore Legacy Patcher news without crediting
+    this fork. Judged on the page when it can be fetched, otherwise on the headline."""
+    status, final, page = fetch(url) if fetchable else (None, url, "")
+    if page:
+        m = re.search(r"<title[^>]*>(.*?)</title>", page, re.I | re.S)
+        title = re.sub(r"\s+", " ", html.unescape(m.group(1))).strip() if m else title
+    text = page_text(page) if page else ""
+    head = fold(title)
+    claim = t2_claim(head) or t2_claim(text)
+    if not claim:
+        return None
+    if any(c in head or c in text for c in CREDITS):
+        return None  # names the fork or says it's unofficial
+    low = fold(page)
+    linked = sorted({f"{o}/{n}" for o, n in re.findall(r"github\.com/([\w.-]+)/([\w.-]+)", low)})
+    return {
+        "host": host, "url": final, "status": status, "ips": resolve(host), "title": title[:200],
+        "markers": [], "download_hosts": sorted({describe_host(u) for u in download_links(page, final)}) if page else [],
+        "links_official": f"github.com/{ORIGINAL}".lower() in low,
+        "article": True, "claim": claim[:400], "judged_on": "page" if page else "headline",
+        "dortania": "dortania" in low or "dortania" in head,
+        "copycat_links": [r for r in linked if r.lower() in copycats],
+        "ads": sorted({a for a in AD_NETWORKS if a in low}),
+        "key": f"article:{host}",
+    }
+
+
+def article_issue_body(r):
+    shown = unpuny(r["host"])
+    lines = [
+        f"Found an article that presents T2 Mac support as news about OpenCore Legacy Patcher, without "
+        f"saying it comes from this independent fork: **{shown}**",
+        "",
+        f"- **URL:** {r['url']}" + (f" (HTTP {r['status']})" if r["status"] else ""),
+        f"- **Headline:** {r['title'] or '—'}",
+        f"- **Judged on:** the {r['judged_on']}"
+        + (" (the feed only gives a Google News link; open it to reach the article)" if r["judged_on"] == "headline" else ""),
+        f"- **Passage:** > {r['claim']}",
+        f"- **Mentions Dortania:** {'yes' if r['dortania'] else 'no'}",
+        f"- **Links to the official repo:** {'yes' if r['links_official'] else 'no'}",
+        f"- **Links to copycat repos:** {', '.join(r['copycat_links']) or 'none'}",
+        f"- **Download links point to:** {', '.join(r['download_hosts']) or 'no download links'}",
+        f"- **Ad networks:** {', '.join(r['ads']) or 'none found'}",
+        "",
+        "Articles like this make readers think Dortania's OpenCore Legacy Patcher supports T2 Macs, which "
+        "sends them to the wrong project for downloads and support. It may simply be a news report that "
+        "missed the distinction; please read it before acting.",
+        "",
+        "**If it misattributes the project:** ask the site's editors for a correction (it's BridgePatcher, an "
+        f"independent fork at https://github.com/{ORIGINAL}, not Dortania's OpenCore Legacy Patcher). Translated "
+        "editions such as `en.` subdomains are usually generated from the original-language article, so correcting "
+        "that one fixes both. If it links to a copycat repo or foreign downloads, report those as well.",
+        "",
+        "Closing this issue marks the site as handled, and the workflow won't file it again.",
+        "",
+        MARKER.format(r["key"]),
+    ]
+    return "\n".join(lines)
+
+
 # ----------------------------------------------------------------- texts --
 
 def farm_issue_body(r, reg):
@@ -775,6 +951,12 @@ def main():
     # Websites of copycat repositories (their homepage link or GitHub Pages site)
     watched_keys = {watch_key(*split_address(a)) for a, _ in watched}
     repos = copycat_repos(ORIGINAL)
+
+    # Articles presenting this fork's T2 support as OpenCore Legacy Patcher news (daily runs only)
+    if not QUICK_RUN and NEWS_QUERIES:
+        arts = article_candidates(site_host)
+        with cf.ThreadPoolExecutor(max_workers=16) as ex:
+            results += [r for r in ex.map(lambda kv: inspect_article(kv[0], *kv[1], set(repos)), arts.items()) if r]
     sites = {hp: v for hp, v in copycat_sites(repos, site_host).items() if watch_key(*hp) not in watched_keys}
     print(f"{len(repos)} copycat repositories, {len(sites)} websites of theirs to check")
     by_key = {r.get("key", r["host"]): r for r in results}
@@ -791,33 +973,45 @@ def main():
             by_key[key] = r
 
     tracked = set()
-    for issue in paginate(f"/repos/{ORIGINAL}/issues?labels={LABEL}&state=all&per_page=100"):
-        m = re.search(r"<!-- typosquat-site:(\S+) -->", issue.get("body") or "")
-        if m:
-            tracked.add(m.group(1).lower())
+    for label in (LABEL, ARTICLE_LABEL):
+        for issue in paginate(f"/repos/{ORIGINAL}/issues?labels={label}&state=all&per_page=100"):
+            m = re.search(r"<!-- typosquat-site:(\S+) -->", issue.get("body") or "")
+            if m:
+                tracked.add(m.group(1).lower())
 
     new = [r for r in sorted(results, key=lambda r: r["host"]) if r.get("key", r["host"]) not in tracked]
-    if new and not DRY_RUN:
+    if any(not r.get("article") for r in new) and not DRY_RUN:
         post(f"/repos/{ORIGINAL}/labels",
              {"name": LABEL, "color": "b60205", "description": "Website imitating this project"})
+    if any(r.get("article") for r in new) and not DRY_RUN:
+        post(f"/repos/{ORIGINAL}/labels", {"name": ARTICLE_LABEL, "color": "d93f0b",
+                                           "description": "Article presenting this fork as Dortania's OCLP"})
 
     for r in new:
-        summary(f"- **{r.get('label', r['host'])}** — {r['title'] or 'no title'}; matched "
-                + (", ".join(f"`{m}`" for m in r["markers"]) or "nothing yet (newly registered)"))
+        if r.get("article"):
+            summary(f"- **{r['host']}** (article) — {r['title'] or 'no title'}; says: {r['claim'][:160]}")
+        else:
+            summary(f"- **{r.get('label', r['host'])}** — {r['title'] or 'no title'}; matched "
+                    + (", ".join(f"`{m}`" for m in r["markers"]) or "nothing yet (newly registered)"))
         if DRY_RUN:
             continue
-        reg = {} if r["host"].endswith(".github.io") else rdap(r["host"])
-        farm = r.get("farm")
-        status, _ = post(f"/repos/{ORIGINAL}/issues", {
-            "title": f"{'Content farm' if farm else 'Lookalike site'}: {r.get('label', r['host'])}",
-            "body": farm_issue_body(r, reg) if farm else issue_body(r, reg),
-            "labels": [LABEL],
-        })
+        if r.get("article"):
+            issue = {"title": f"Misattributing article: {r['host']}", "body": article_issue_body(r),
+                     "labels": [ARTICLE_LABEL]}
+        else:
+            reg = {} if r["host"].endswith(".github.io") else rdap(r["host"])
+            farm = r.get("farm")
+            issue = {
+                "title": f"{'Content farm' if farm else 'Lookalike site'}: {r.get('label', r['host'])}",
+                "body": farm_issue_body(r, reg) if farm else issue_body(r, reg),
+                "labels": [LABEL],
+            }
+        status, _ = post(f"/repos/{ORIGINAL}/issues", issue)
         if status >= 300:
             print(f"::error::Could not open an issue for {r['host']} (HTTP {status})")
         time.sleep(3)
 
-    summary(f"\n{len(new)} new lookalike sites found ({len(results)} matching in total).")
+    summary(f"\n{len(new)} new lookalike sites or articles found ({len(results)} matching in total).")
 
 
 if __name__ == "__main__":
