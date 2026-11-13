@@ -14,7 +14,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from typosquat_watch import (copied_commit, describe_copy, fingerprints, fold, get, paginate, post,
+from typosquat_watch import (copied_commit, describe_copy, fingerprints, fold, get,
                              request, shared_history, summary)  # noqa: E402
 from typosquat_sites import DOWNLOAD_EXT, UA, fetch, rdap  # noqa: E402
 

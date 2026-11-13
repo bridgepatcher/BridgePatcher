@@ -24,7 +24,7 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bridgepatcher_tracker import Tracker  # noqa: E402
-from typosquat_watch import (MAX_DIST, fold, get, lev, paginate, post, request, skeleton,  # noqa: E402
+from typosquat_watch import (MAX_DIST, fold, get, lev, paginate, request, skeleton,  # noqa: E402
                              summary, variants)
 
 ORIGINAL = os.environ["ORIGINAL_REPO"]
