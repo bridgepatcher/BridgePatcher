@@ -21,7 +21,8 @@ import urllib.request
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from typosquat_watch import MAX_DIST, fold, get, lev, paginate, post, skeleton, summary, variants  # noqa: E402
+from typosquat_watch import (MAX_DIST, fold, get, lev, paginate, post, request, skeleton,  # noqa: E402
+                             summary, variants)
 
 ORIGINAL = os.environ["ORIGINAL_REPO"]
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() == "true"
@@ -47,6 +48,22 @@ PLATFORMS = [p.lower().lstrip(".") for p in os.environ.get("PLATFORMS", "").spli
 # closed issue from an earlier check doesn't hide a site that goes live later.
 FORMER_HOSTS = [h.lower() for h in os.environ.get("FORMER_HOSTS", "").split()]
 FORMER_HOST_MARK = "former official address of this project, no longer ours"
+# Known impersonation sites (full addresses, path included, e.g. a copycat fork's GitHub Pages
+# project site). Like former addresses they're checked on every run, online or not: while they're
+# down they're only listed in the run summary, and an issue is opened as soon as they serve a page.
+KNOWN_SITES = os.environ.get("KNOWN_SITES", "").split()
+KNOWN_SITE_MARK = "known impersonation site, on the watch list"
+# Copycat repositories' websites: GitHub repos that present themselves as this project (found
+# with REPO_QUERIES, plus direct forks of this repo) are checked for a website of their own,
+# their homepage link and their GitHub Pages project site. Those sites are watched like
+# KNOWN_SITES: listed while down, an issue as soon as one serves a page.
+REPO_QUERIES = [q.strip() for q in os.environ.get("REPO_QUERIES", "").split("|") if q.strip()]
+CHECK_FORKS = os.environ.get("CHECK_FORKS", "true").lower() == "true"
+ALLOWLIST_REPOS = {r.lower() for r in os.environ.get("ALLOWLIST_REPOS", "").split()}
+COPYCAT_MARK = "website of a copycat repository"
+# Quick runs only check FORMER_HOSTS, KNOWN_SITES and copycat repositories' websites (no
+# lookalike, certificate, registration or web search), so a site going live is noticed within hours
+QUICK_RUN = os.environ.get("QUICK_RUN", "false").lower() == "true"
 # Newly registered domains: how many past days of registrations to check, and the
 # names to look for in them (compared without dots, dashes or underscores)
 NRD_DAYS = int(os.environ.get("NRD_DAYS", "3"))
@@ -316,6 +333,81 @@ def nrd_match(domain):
 
 # ------------------------------------------------------------ inspection --
 
+def split_address(address):
+    """("host", "/path/") for a watched address given as a URL or as host[/path]."""
+    parts = urllib.parse.urlsplit(address if "://" in address else f"https://{address}")
+    return (parts.hostname or "").lower(), parts.path or "/"
+
+
+def watch_key(host, path):
+    """Issue key for a watched address; "<host>#live" for a site root, as for former hosts."""
+    return f"{host}{path.rstrip('/')}#live".lower()
+
+
+def inspect_watched(host, path, mark, repo=None, need_marker=False):
+    """A FORMER_HOSTS, KNOWN_SITES or copycat repository address: reported whenever it serves
+    a page (with need_marker, only if the page names the project). Returns None while it's
+    down (an error status or no response)."""
+    status, final, page = fetch(f"https://{host}{path}")
+    if not status or status >= 400:
+        print(f"Watched address {host}{path} is down ({status or 'no response'}); not reported")
+        summary(f"- `{host}{path}` (watched" + (f", site of {repo}" if repo else "")
+                + f"): down ({status or 'no response'})")
+        return None
+    low = fold(page)
+    if need_marker and not any(m in low for m in MARKERS):
+        print(f"  {host}{path} ({repo}) is up but doesn't name the project; not reported")
+        return None
+    title = re.search(r"<title[^>]*>(.*?)</title>", page, re.I | re.S)
+    return {
+        "host": host, "url": final, "status": status, "ips": resolve(host),
+        "title": re.sub(r"\s+", " ", html.unescape(title.group(1))).strip()[:150] if title else "",
+        "markers": [mark] + [m for m in MARKERS if m in low],
+        "download_hosts": sorted({describe_host(u) for u in download_links(page, final)}),
+        "links_official": f"github.com/{ORIGINAL}".lower() in low,
+        "new_registration": False, "key": watch_key(host, path),
+        "label": f"{host}{path.rstrip('/')}", "repo": repo,
+    }
+
+
+def copycat_repos(original):
+    """Repositories (other than ours and allowlisted ones) that may present themselves as
+    this project: REPO_QUERIES search results, and direct forks of this repository."""
+    our_owner = original.split("/")[0].lower()
+    repos = {}
+    for q in REPO_QUERIES:
+        _, data, _ = request("GET", f"/search/repositories?q={urllib.parse.quote(q)}&per_page=100")
+        time.sleep(2.2)  # search API allows 30 requests per minute
+        for item in (data or {}).get("items", []):
+            repos.setdefault(item["full_name"].lower(), item)
+    if CHECK_FORKS:
+        for item in paginate(f"/repos/{original}/forks?per_page=100&sort=newest"):
+            repos.setdefault(item["full_name"].lower(), item)
+    return {k: r for k, r in repos.items()
+            if r["owner"]["login"].lower() != our_owner and k not in ALLOWLIST_REPOS}
+
+
+def copycat_sites(repos, site_host):
+    """{(host, path): (repo, own_pages)} for the websites copycat repositories point to: the
+    homepage link and, if Pages is on, <owner>.github.io/<repo>/. own_pages is True for the
+    repo's own Pages address, which counts whatever it shows; other homepages only count if
+    they name the project (a fork's owner may link a personal site)."""
+    sites = {}
+    for full, r in sorted(repos.items()):
+        owner, name = r["owner"]["login"].lower(), r["name"].lower()
+        pages = f"{owner}.github.io"
+        own = (pages, "/") if name == pages else (pages, f"/{name}/")
+        home = (r.get("homepage") or "").strip()
+        if home:
+            host, path = split_address(home)
+            if host and not allowed(host, site_host) and host not in ("github.com", "www.github.com"):
+                is_own = host == pages and path.rstrip("/").lower() == own[1].rstrip("/")
+                sites.setdefault((host, path), (r["full_name"], is_own))
+        if r.get("has_pages"):
+            sites.setdefault(own, (r["full_name"], True))
+    return sites
+
+
 def link_target(url, base):
     """Absolute URL of a link, or None for in-page, mail and script-only links."""
     url = html.unescape(url).strip()
@@ -559,6 +651,15 @@ def issue_body(r, reg):
         intro = (f"Marked {name} as a typosquat: it was this project's official address before the rename "
                  "to BridgePatcher and no longer belongs to it. Anything published there now is not from "
                  "this project, even if it looks official.")
+    elif r["markers"] and r["markers"][0] == COPYCAT_MARK:
+        intro = (f"The website of a copycat repository is online: **{r.get('label', r['host'])}**\n\n"
+                 f"It's the homepage or GitHub Pages site of [`{r['repo']}`](https://github.com/{r['repo']}), "
+                 "a repository that presents itself as this project or is a fork of it. "
+                 "It is not run by this project; check what it offers for download.")
+    elif r["markers"] and r["markers"][0] == KNOWN_SITE_MARK:
+        intro = (f"A known impersonation site is online: **{r.get('label', r['host'])}**\n\n"
+                 "It's listed in `KNOWN_SITES` in `typosquat-sites.yml` and was down until now. "
+                 "It is not run by this project; check what it offers for download.")
     elif r["markers"] and r["markers"][0].startswith("former project name"):
         intro = f"Found a website that uses this project's former name in its address: {name}"
     elif r["markers"]:
@@ -612,25 +713,29 @@ def main():
 
     summary(f"## Lookalike site scan for `{site_url}`" + (" (dry run)" if DRY_RUN else ""))
 
-    targets = {h: "/" for h in domain_candidates(keywords)}
-    for kw in CT_KEYWORDS:
-        for h in ct_hosts(kw):
+    targets, new_regs = {}, set()
+    if QUICK_RUN:
+        print("QUICK_RUN: checking only FORMER_HOSTS, KNOWN_SITES and copycat repositories' websites")
+    else:
+        targets = {h: "/" for h in domain_candidates(keywords)}
+        for kw in CT_KEYWORDS:
+            for h in ct_hosts(kw):
+                targets.setdefault(h, "/")
+        targets.update(github_pages_candidates(site_host, site_path))
+        for h in former_name_pages():
             targets.setdefault(h, "/")
-    targets.update(github_pages_candidates(site_host, site_path))
-    for h in former_name_pages():
-        targets.setdefault(h, "/")
-    new_regs = {d for d in nrd_domains(NRD_DAYS) if nrd_match(d)} if NRD_KEYWORDS else set()
-    for h in new_regs:
-        targets.setdefault(h, "/")
-    targets = {h: p for h, p in targets.items() if not allowed(h, site_host)}
+        new_regs = {d for d in nrd_domains(NRD_DAYS) if nrd_match(d)} if NRD_KEYWORDS else set()
+        for h in new_regs:
+            targets.setdefault(h, "/")
+        targets = {h: p for h, p in targets.items() if not allowed(h, site_host)}
     print(f"{len(targets)} hostnames to check")
 
     with cf.ThreadPoolExecutor(max_workers=48) as ex:
         results = [r for r in ex.map(lambda hp: inspect(*hp), targets.items()) if r]
 
     # Content farms under unrelated domain names, found through web search
-    farm_urls = {h: u for h, u in farm_candidates(site_host).items()
-                 if h not in {r["host"] for r in results}}
+    farm_urls = {} if QUICK_RUN else {h: u for h, u in farm_candidates(site_host).items()
+                                       if h not in {r["host"] for r in results}}
     with cf.ThreadPoolExecutor(max_workers=16) as ex:
         results += [r for r in ex.map(lambda hu: inspect_farm(*hu), farm_urls.items()) if r]
 
@@ -648,23 +753,42 @@ def main():
             "new_registration": True,
         })
 
-    # Former official addresses are reported only once something is published there again
-    found_hosts = {r["host"] for r in results}
-    for host in FORMER_HOSTS:
-        if host in found_hosts:
-            r = next(r for r in results if r["host"] == host)
-            r["markers"].insert(0, FORMER_HOST_MARK)
-            r["key"] = f"{host}#live"
+    # Former official addresses and known impersonation sites are checked every run and
+    # reported once something is published there (again). Their issues use their own key
+    # (<address>#live), so a closed issue from an earlier finding doesn't hide them.
+    watched = [(h, FORMER_HOST_MARK) for h in FORMER_HOSTS] + [(u, KNOWN_SITE_MARK) for u in KNOWN_SITES]
+    by_host = {r["host"]: r for r in results if not r.get("farm")}
+    for address, mark in watched:
+        host, path = split_address(address)
+        if not host:
+            print(f"::warning::Can't read watched address '{address}'; skipped")
             continue
-        status, final, _ = fetch(f"https://{host}/")
-        if not status or status >= 400:
-            print(f"Former address {host} is down ({status or 'no response'}); not reported")
+        if path == "/" and host in by_host:  # already found by the lookalike scan
+            r = by_host[host]
+            r["markers"].insert(0, mark)
+            r["key"] = watch_key(host, path)
             continue
-        results.append({
-            "host": host, "url": final, "status": status, "ips": resolve(host),
-            "title": "", "markers": [FORMER_HOST_MARK], "download_hosts": [], "links_official": False,
-            "new_registration": False, "key": f"{host}#live",
-        })
+        r = inspect_watched(host, path, mark)
+        if r:
+            results.append(r)
+
+    # Websites of copycat repositories (their homepage link or GitHub Pages site)
+    watched_keys = {watch_key(*split_address(a)) for a, _ in watched}
+    repos = copycat_repos(ORIGINAL)
+    sites = {hp: v for hp, v in copycat_sites(repos, site_host).items() if watch_key(*hp) not in watched_keys}
+    print(f"{len(repos)} copycat repositories, {len(sites)} websites of theirs to check")
+    by_key = {r.get("key", r["host"]): r for r in results}
+    for (host, path), (repo, own_pages) in sites.items():
+        key = watch_key(host, path)
+        if key in by_key or (path == "/" and host in by_key):  # already found by the lookalike scan
+            hit = by_key.get(key) or by_key[host]
+            hit["markers"].insert(0, COPYCAT_MARK)
+            hit.update(key=key, repo=repo)
+            continue
+        r = inspect_watched(host, path, COPYCAT_MARK, repo=repo, need_marker=not own_pages)
+        if r:
+            results.append(r)
+            by_key[key] = r
 
     tracked = set()
     for issue in paginate(f"/repos/{ORIGINAL}/issues?labels={LABEL}&state=all&per_page=100"):
@@ -678,14 +802,14 @@ def main():
              {"name": LABEL, "color": "b60205", "description": "Website imitating this project"})
 
     for r in new:
-        summary(f"- **{r['host']}** — {r['title'] or 'no title'}; matched "
+        summary(f"- **{r.get('label', r['host'])}** — {r['title'] or 'no title'}; matched "
                 + (", ".join(f"`{m}`" for m in r["markers"]) or "nothing yet (newly registered)"))
         if DRY_RUN:
             continue
         reg = {} if r["host"].endswith(".github.io") else rdap(r["host"])
         farm = r.get("farm")
         status, _ = post(f"/repos/{ORIGINAL}/issues", {
-            "title": f"{'Content farm' if farm else 'Lookalike site'}: {r['host']}",
+            "title": f"{'Content farm' if farm else 'Lookalike site'}: {r.get('label', r['host'])}",
             "body": farm_issue_body(r, reg) if farm else issue_body(r, reg),
             "labels": [LABEL],
         })

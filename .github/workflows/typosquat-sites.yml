@@ -2,7 +2,8 @@ name: Typosquat site watch
 
 on:
   schedule:
-    - cron: "41 5 * * *"   # daily, 05:41 UTC
+    - cron: "41 5 * * *"   # daily, 05:41 UTC: full scan
+    - cron: "17 */3 * * *" # every 3 hours: only watched and copycat-repo sites (see QUICK_RUN)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -60,6 +61,27 @@ jobs:
           FORMER_NAMES: "OpenCore-Legacy-Patcher-T2 OCLP-T2"
           # Former official addresses: always reported as typosquats, online or not
           FORMER_HOSTS: "oclp-t2.github.io"
+          # Known impersonation sites, full address with path (space separated). Checked on every
+          # run, online or not; an issue is opened as soon as one serves a page.
+          # tea-ching.github.io/OpenCore-Legacy-Patcher-T2: Pages site of the copycat repo
+          # TEA-ching/OpenCore-Legacy-Patcher-T2 (its homepage link), down as of 2026-11-13
+          KNOWN_SITES: "https://tea-ching.github.io/OpenCore-Legacy-Patcher-T2/"
+          # Copycat repositories: repos found with these GitHub searches (| separated), plus direct
+          # forks of this repo, have their homepage link and GitHub Pages site watched like
+          # KNOWN_SITES. A repo's own Pages site counts as soon as it serves a page; any other
+          # homepage only if it names the project (CONTENT_MARKERS).
+          REPO_QUERIES: >-
+            BridgePatcher in:name,description,readme fork:true|
+            "OpenCore Legacy Patcher T2" in:name,description,readme fork:true|
+            "OpenCore-Legacy-Patcher-T2" in:name,description,readme fork:true|
+            "OCLP-T2" in:name,description,readme fork:true|
+            "OCLP T2" in:name,description,readme fork:true
+          CHECK_FORKS: "true"
+          # Repos (owner/name) whose websites are never checked, e.g. a trusted contributor's fork
+          ALLOWLIST_REPOS: ""
+          # The 3-hourly runs check only FORMER_HOSTS, KNOWN_SITES and copycat repositories'
+          # websites (no lookalike domains, crt.sh, WHOIS lists or web search)
+          QUICK_RUN: ${{ github.event.schedule == '17 */3 * * *' && 'true' || 'false' }}
           # --- Content farms (any domain), found through the Brave Search API ---
           # Free key from https://api-dashboard.search.brave.com, stored as repo secret
           # BRAVE_SEARCH_API_KEY. Without it this part is skipped.
