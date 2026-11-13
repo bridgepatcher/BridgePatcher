@@ -325,7 +325,14 @@ jobs:
             // Reports opened by workflows (License Guard, lookalike-site watch, status bots, ...)
             // repeat on purpose and handle their own de-duplication, so they are never
             // checked and never used as the "original" for another issue.
-            const isBotIssue = i => i.user?.type === 'Bot' || /\[bot\]$/i.test(i.user?.login || '');
+            // Some watches post with a personal token (to also reach other repos), so their reports
+            // show a person as author: they're recognised by their hidden marker or label instead.
+            const AUTOMATED_MARKER = /<!--\s*(typosquat|typosquat-site|impersonation|license-guard|t2-status-bot|upstream-typosquat-tracker|bridgepatcher-tracker|changelog-ghsa-id)[\s:-]/i;
+            const AUTOMATED_LABELS = new Set(['typosquat', 'typosquat-site', 'misattributed-article',
+                                              'impersonation', 'upstream-typosquat', 'lookalike-tracker']);
+            const isBotIssue = i => i.user?.type === 'Bot' || /\[bot\]$/i.test(i.user?.login || '')
+              || AUTOMATED_MARKER.test(i.body || '')
+              || i.labels.some(l => AUTOMATED_LABELS.has((l.name || l || '').toLowerCase()));
             // Issues that must never be used as the "original" (grows during a backfill)
             const knownDuplicates = new Set(allIssues.filter(isLabelledDuplicate).map(i => i.number));
 

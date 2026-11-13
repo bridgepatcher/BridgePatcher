@@ -25,6 +25,8 @@ MAX_DIST = int(os.environ.get("MAX_DISTANCE", "2"))
 FP_COUNT = int(os.environ.get("FINGERPRINT_COMMITS", "20"))
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() == "true"
 CONTACT_SUSPICIOUS = os.environ.get("CONTACT_SUSPICIOUS", "true").lower() == "true"
+# When a copy has issues disabled, post the rename request as a comment on its newest commit instead
+CONTACT_VIA_COMMIT = os.environ.get("CONTACT_VIA_COMMIT", "true").lower() == "true"
 # Without a PAT the built-in GITHUB_TOKEN is used: it can scan and open issues
 # here, but it can't open issues in other people's repositories.
 HAS_PAT = os.environ.get("HAS_PAT", "false").lower() == "true"
@@ -33,6 +35,7 @@ ALLOWLIST = {s.lower() for s in os.environ.get("ALLOWLIST", "").split()}
 # OCLP-T2). Copies named exactly like these, or like a lookalike of them, are flagged too.
 ALIASES = os.environ.get("ALIASES", "").split()
 LABEL = "typosquat"
+
 OUR_MARKER = "<!-- typosquat:{} -->"
 THEIR_MARKER = f"<!-- typosquat-notice-from:{ORIGINAL} -->"
 
@@ -222,8 +225,55 @@ def describe_copy(sha, own):
 
 # ------------------------------------------------------------ assessment --
 
-def assess(cand, owner_squat, our_owner):
+def hidden_work(full, cand, our_authors):
+    """Signs of a copy hiding what it really ships: (points, reason) pairs.
+
+    - its default branch has nothing of its own, but other branches carry commits by people who
+      never committed to this project, or have a history of their own (the untouched default
+      branch makes the repo look like a plain copy, while the changes live elsewhere): 2 points
+    - it publishes its own installers in releases: 1 point"""
+    signals = []
+    default = cand.get("default_branch") or "main"
+    hidden = []
+    for b in paginate(f"/repos/{full}/branches?per_page=100")[:30]:
+        if b["name"] == default:
+            continue
+        status, cmp, _ = request("GET", f"/repos/{full}/compare/{urllib.parse.quote(default, safe='')}..."
+                                        f"{urllib.parse.quote(b['name'], safe='')}")
+        if status == 404:
+            hidden.append(f"`{b['name']}` (a separate history)")
+            continue
+        if status >= 300 or not cmp or not cmp.get("ahead_by"):
+            continue
+        authors = {((c.get("commit") or {}).get("author") or {}).get("name") or "?" for c in cmp.get("commits", [])}
+        others = sorted(a for a in authors - our_authors if a)
+        if others:
+            hidden.append(f"`{b['name']}` ({cmp['ahead_by']} commits, by {', '.join(others[:3])})")
+    if hidden:
+        signals.append((2, "its default branch looks like an untouched copy, but other branches carry their own "
+                           "work: " + "; ".join(hidden[:4])))
+    assets = []
+    for rel in (get(f"/repos/{full}/releases?per_page=20") or []):
+        assets += [a["name"] for a in rel.get("assets", []) if re.search(r"\.(dmg|pkg|zip|app|exe|iso)$", a["name"], re.I)]
+    if assets:
+        signals.append((1, f"publishes its own installers in releases ({', '.join(sorted(set(assets))[:4])}"
+                           + (", …" if len(set(assets)) > 4 else "") + ")"))
+    return signals
+
+
+def our_authors():
+    """Names of people who committed to this project (recent history)."""
+    names = set()
+    for c in get(f"/repos/{ORIGINAL}/commits?per_page=100") or []:
+        names.add(((c.get("commit") or {}).get("author") or {}).get("name") or "")
+    return {n for n in names if n}
+
+
+def assess(cand, owner_squat, our_owner, extra=()):
     score, reasons = 0, []
+    for points, reason in extra:
+        score += points
+        reasons.append(reason)
     login = cand["owner"]["login"]
     if owner_squat:
         score += 2
@@ -243,6 +293,57 @@ def assess(cand, owner_squat, our_owner):
 
 # ----------------------------------------------------------------- texts --
 
+# Names a suggested new name must stay clear of: this project's names and Dortania's
+AVOID_NAMES = [n for n in os.environ.get("AVOID_NAMES", "OpenCore-Legacy-Patcher OCLP").split()]
+
+
+def suggest_names(full):
+    """A few concrete new names for a copy: its own extra words (e.g. "Fork", "vibin",
+    "Instructions-for-T2-Macs") kept, the project's current, former and Dortania's names dropped,
+    and every suggestion checked so it doesn't contain or imitate any of them."""
+    owner, name = full.split("/")
+    ours = [ORIGINAL.split("/")[1]] + ALIASES + AVOID_NAMES
+    extra = name
+    for n in sorted(ours, key=len, reverse=True):
+        extra = re.sub(re.escape(n).replace(r"\-", "[-_ .]?"), " ", extra, flags=re.I)
+    words = [w for w in re.split(r"[-_ .]+", extra) if w]
+    if words and words[0].lower() == "t2":
+        words = words[1:]  # "OCLP" + "T2" written apart; the suggestions say T2 already
+    tail = "-".join(words)
+    t2 = re.search(r"t2", name, re.I) is not None
+    base = "T2-Mac-Patcher" if t2 else "Mac-Patcher"
+    options = [f"{owner}-{base}" + (f"-{tail}" if tail else "-Fork"),
+               f"{base}-{tail}" if tail else f"{base}-Experiments",
+               f"{owner}-{tail}" if tail and len(words) > 1 else f"{base}-{owner}"]
+    out = []
+    for o in options:
+        o = re.sub(r"[^A-Za-z0-9._-]", "-", o).strip("-.")[:100]
+        if (o and o.lower() not in {x.lower() for x in out} and o.lower() != name.lower()
+                and not contains_name(o, ours) and not any(looks_like(o, n) for n in ours)):
+            out.append(o)
+    return out
+
+
+def how_to_rename(full):
+    owner = full.split("/")[0]
+    names = suggest_names(full)
+    lines = []
+    if names:
+        avoid = ", ".join(f'"{n}"' for n in [ORIGINAL.split("/")[1]] + ALIASES + AVOID_NAMES)
+        lines += [f"**Some name ideas** (anything works, as long as it doesn't contain {avoid}):", ""]
+        lines += [f"- `{n}`" for n in names]
+        lines.append("")
+    lines += [
+        "**How to rename:** open this repository's **Settings → General**, change **Repository name**, "
+        "and click **Rename**. That's all: GitHub redirects the old address to the new one, so links, "
+        "stars, forks and existing clones keep working. To point a local clone at the new name:",
+        "",
+        "```bash",
+        f"git remote set-url origin https://github.com/{owner}/<new-name>.git",
+        "```",
+    ]
+    return "\n".join(lines)
+
 def rename_request(full, sha):
     return f"""Hi! 👋
 
@@ -254,6 +355,8 @@ We're assuming this wasn't intentional. Could you help avoid the confusion by do
 - **re-create it as a regular fork**, so GitHub shows "forked from {ORIGINAL}".
 
 A short note in the README saying where the code comes from would also help, and keeps the license attribution intact.
+
+{how_to_rename(full)}
 
 Thanks for understanding!
 
@@ -273,6 +376,8 @@ We're assuming this wasn't intentional. Could you help avoid the confusion by do
 - **Rename the repository** (Settings → General → Repository name) to something that doesn't use the project's name, or
 - if it's meant to be a copy of BridgePatcher, **re-create it as a regular fork** of {ORIGINAL}, so GitHub shows "forked from {ORIGINAL}".
 
+{how_to_rename(full)}
+
 Thanks for understanding!
 
 {THEIR_MARKER}
@@ -284,7 +389,9 @@ def former_name_request(full):
 
 This repository's name still uses a former name of [{ORIGINAL}](https://github.com/{ORIGINAL}) ({", ".join(ALIASES)}). The project has been renamed, and repositories still using the old name look like typosquats of it (and of Dortania's OpenCore Legacy Patcher) to users.
 
-We're assuming this wasn't intentional. Could you **rename the repository** (Settings → General → Repository name) to something that doesn't use the old project name?
+We're assuming this wasn't intentional. Could you **rename the repository** to something that doesn't use the old project name?
+
+{how_to_rename(full)}
 
 Thanks for understanding!
 
@@ -309,32 +416,6 @@ To the owner: if this was not intentional, please rename the repository or re-cr
 """
 
 
-def tracking_issue(full, sha, suspicious, reasons, their_issue, note, own=None):
-    bullet = "\n".join(f"- {r}" for r in reasons) or "- none"
-    action = ("Report it using **Report repository** in the copy's sidebar, so GitHub can review the impersonation."
-              if suspicious else
-              "Wait for the owner to respond to the rename request." if their_issue else
-              "Ask the owner to rename the repository (the workflow couldn't contact them).")
-    link = their_issue or note
-    return f"""Detected **[{full}](https://github.com/{full})**, which sits outside the fork network and has a typosquatted name.
-
-**Copy of this project:** {describe_copy(sha, own)}
-
-**Assessment:** {"⚠️ suspicious" if suspicious else "likely unintentional"}
-
-**Signals:**
-{bullet}
-
-**Issue on their repo:** {link}
-
-**Next step:** {action}
-
-Closing this issue marks the case as handled, and the workflow won't file it again.
-
-{OUR_MARKER.format(full)}
-"""
-
-
 # ------------------------------------------------------------------ main --
 
 def summary(line):
@@ -343,6 +424,58 @@ def summary(line):
     if path:
         with open(path, "a") as f:
             f.write(line + "\n")
+
+
+def request_text(full, sha, named, fork_of):
+    """The rename request that fits: the name is the problem when it uses this project's current
+    or former name (forks of other copies included); otherwise the unmarked copy of its history."""
+    if named == "former":
+        return former_name_request(full)
+    if named == "current":
+        return name_request(full, fork_of)
+    return rename_request(full, sha) if sha else name_request(full, fork_of)
+
+
+def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons):
+    """Open one issue on the copy: a rename request with name ideas when it looks unintentional
+    (a notice for its users when it looks suspicious, only with CONTACT_SUSPICIOUS). Never twice:
+    an earlier one (found by its marker) is reused. Returns (their issue URL, note)."""
+    if suspicious and not CONTACT_SUSPICIOUS:
+        return None, "not contacted, because it looks suspicious (CONTACT_SUSPICIOUS=false)"
+    if not me:
+        return None, "not contacted, because no TYPOSQUAT_PAT secret is configured"
+    existing = paginate(f"/repos/{full}/issues?creator={me}&state=all&per_page=100") if cand.get("has_issues") else []
+    prior = next((i for i in existing if THEIR_MARKER in (i.get("body") or "")), None)
+    if prior:
+        return prior["html_url"], ""
+    # An earlier request posted as a commit comment (see below) counts too
+    for c in paginate(f"/repos/{full}/comments?per_page=100"):
+        if THEIR_MARKER in (c.get("body") or "") and (c.get("user") or {}).get("login") == me:
+            return c["html_url"], ""
+    if not cand.get("has_issues"):
+        if not CONTACT_VIA_COMMIT or suspicious:
+            return None, "not possible, because issues are disabled"
+        # Issues are off: a comment on the newest commit of their default branch reaches the owner
+        # (GitHub notifies a repository's owner of comments on its commits; they can't be turned off)
+        head = get(f"/repos/{full}/commits/{urllib.parse.quote(cand.get('default_branch') or 'main', safe='')}")
+        if not head:
+            return None, "not possible, because issues are disabled (and the newest commit couldn't be read)"
+        body = request_text(full, sha, named, fork_of)
+        status, data = post(f"/repos/{full}/commits/{head['sha']}/comments",
+                            {"body": f"**Please consider renaming this repository** (issues are disabled here, so "
+                                     f"this is a commit comment)\n\n{body}"})
+        time.sleep(3)
+        if status < 300:
+            return data.get("html_url") or f"https://github.com/{full}/commit/{head['sha']}", ""
+        return None, f"issues are disabled and the commit comment failed with HTTP {status}"
+    title = (f"Notice: this repository is an unofficial copy of {ORIGINAL}" if suspicious
+             else f"Please consider renaming: the name is very close to {ORIGINAL}")
+    body = suspicious_notice(full, sha, reasons) if suspicious and sha else request_text(full, sha, named, fork_of)
+    status, data = post(f"/repos/{full}/issues", {"title": title, "body": body})
+    time.sleep(3)
+    if status < 300:
+        return data["html_url"], ""
+    return None, f"failed with HTTP {status} (issues may be restricted, or you may be blocked)"
 
 
 def main():
@@ -396,25 +529,25 @@ def main():
                 break
     print(f"{len(candidates)} name candidates")
 
-    # 2. Skip what's already tracked
-    tracked = set()
-    if not DRY_RUN:
-        post(f"/repos/{ORIGINAL}/labels",
-             {"name": LABEL, "color": "d93f0b", "description": "Typosquatting copy of this repo"})
-    for issue in paginate(f"/repos/{ORIGINAL}/issues?labels={LABEL}&state=all&per_page=100"):
-        m = re.search(r"<!-- typosquat:(\S+) -->", issue.get("body") or "")
-        if m:
-            tracked.add(m.group(1).lower())
+    # 2. Record them in the tracker issue (one issue for all findings, see bridgepatcher_tracker.py)
+    from bridgepatcher_tracker import Tracker  # noqa: E402 (imports this module's helpers)
+    tracker = Tracker("typosquat watch", DRY_RUN)
+    if tracker.paused:
+        summary("The tracker issue is closed, so the watch is paused. Reopen it to resume.")
+        return
 
     found = 0
+    seen = set()
+    authors = our_authors()
     for full, owner_sq in sorted(candidates.items()):
-        if full.lower() in tracked:
+        if tracker.dismissed(full):
             continue
         cand = get(f"/repos/{full}")
         if not cand or cand["full_name"].lower() == root:
             continue
         if cand.get("fork") and (cand.get("source") or {}).get("full_name", "").lower() == root:
             continue  # inside our fork network, so it's a legitimate fork
+        prior = tracker.entry("repos", full)
         sha, own = shared_history(full)
         if not sha:
             sha, own = copied_commit(full, shas), None
@@ -427,8 +560,9 @@ def main():
         if not sha and not named:
             continue  # similar name, but not a copy of this project
 
-        found += 1
-        suspicious, reasons = assess(cand, owner_sq, owner)
+        seen.add(full.lower())
+        extra = hidden_work(full, cand, authors) if own == 0 or own is None else []
+        suspicious, reasons = assess(cand, owner_sq, owner, extra)
         if named == "current":
             reasons.insert(0, f"uses this project's name ({name}) outside its fork network"
                               + (f" - it's a fork of {fork_of}" if fork_of else ""))
@@ -436,48 +570,43 @@ def main():
             reasons.insert(0, f"uses this project's former name ({', '.join(ALIASES)}) outside its fork network"
                               + (f" - it's a fork of {fork_of}" if fork_of else ""))
         verdict = "suspicious" if suspicious else "likely unintentional"
-        summary(f"- **{full}** — {verdict}; {describe_copy(sha, own)}; "
-                + ("; ".join(reasons) or "no extra signals"))
+        if not prior:
+            found += 1
+            summary(f"- **{full}** — {verdict}; {describe_copy(sha, own)}; "
+                    + ("; ".join(reasons) or "no extra signals"))
         if DRY_RUN:
             continue
 
-        # 3. Issue on their repo
-        their_url, note = None, ""
-        contact = CONTACT_SUSPICIOUS or not suspicious
-        if not contact:
-            note = "not contacted (CONTACT_SUSPICIOUS=false)"
-        elif not me:
-            note = "not contacted, because no TYPOSQUAT_PAT secret is configured"
-        elif not cand.get("has_issues"):
-            note = "not possible, because issues are disabled"
-        else:
-            existing = paginate(f"/repos/{full}/issues?creator={me}&state=all&per_page=100")
-            prior = next((i for i in existing if THEIR_MARKER in (i.get("body") or "")), None)
-            if prior:
-                their_url = prior["html_url"]
-            else:
-                title = (f"Notice: this repository is an unofficial copy of {ORIGINAL}" if suspicious
-                         else f"Please consider renaming: name is very close to {ORIGINAL}")
-                body = (suspicious_notice(full, sha, reasons) if suspicious and sha
-                        else rename_request(full, sha) if sha
-                        else name_request(full, fork_of) if named == "current"
-                        else former_name_request(full))
-                status, data = post(f"/repos/{full}/issues", {"title": title, "body": body})
-                if status < 300:
-                    their_url = data["html_url"]
-                else:
-                    note = f"failed with HTTP {status} (issues may be restricted, or you may be blocked)"
-                time.sleep(3)
+        # 3. Rename request on their repo, once: retried on later runs while it couldn't be posted
+        # (e.g. issues disabled), never posted twice (an earlier one is found by its marker)
+        link = (prior or {}).get("request", "")
+        if not link.startswith("http"):
+            their_url, note = contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons)
+            link = their_url or note
 
-        # 4. Tracking issue in our repo
-        status, data = post(f"/repos/{ORIGINAL}/issues", {
-            "title": f"Typosquatting copy: {full} ({verdict})",
-            "body": tracking_issue(full, sha, suspicious, reasons, their_url, note, own),
-            "labels": [LABEL],
+        # 4. Entry in the tracker issue
+        tracker.upsert("repos", full, {
+            "name": cand["full_name"], "source": "typosquat",
+            "status": "⚠️ suspicious" if suspicious else "🟢 active",
+            "what": f"{verdict}: " + "; ".join(reasons + [describe_copy(sha, own)]),
+            "request": link,
         })
-        if status >= 300:
-            print(f"::error::Could not open tracking issue for {full} (HTTP {status})")
-        time.sleep(3)
+
+    # Copies listed before that this run's searches didn't return: still there, renamed, or gone?
+    if not DRY_RUN:
+        for key in sorted(tracker.keys("repos") - seen):
+            e = tracker.entry("repos", key)
+            if e.get("source") not in ("typosquat",):
+                continue
+            cand = get(f"/repos/{key}")
+            if not cand:
+                tracker.upsert("repos", key, {"status": "🔴 deleted or made private"})
+            elif cand["full_name"].lower() != key and not (contains_name(cand["name"], [name] + ALIASES)
+                                                          or any(looks_like(cand["name"], n) for n in [name] + ALIASES)):
+                tracker.upsert("repos", key, {"status": f"✅ renamed to {cand['full_name']}"})
+            else:
+                tracker.upsert("repos", key, {})  # still there: keep it listed
+        tracker.save()
 
     summary(f"\n{found} new typosquatting copies found.")
 

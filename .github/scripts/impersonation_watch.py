@@ -14,7 +14,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from typosquat_watch import (copied_commit, describe_copy, fingerprints, fold, get, paginate, post,
+from typosquat_watch import (copied_commit, describe_copy, fingerprints, fold, get,
                              request, shared_history, summary)  # noqa: E402
 from typosquat_sites import DOWNLOAD_EXT, UA, fetch, rdap  # noqa: E402
 
@@ -186,61 +186,6 @@ def scan_web(site_host, tracked):
     return found
 
 
-# ----------------------------------------------------------------- texts --
-
-def repo_body(f):
-    age = f"{f['owner_age']} days" if f["owner_age"] is not None else "—"
-    lines = [
-        f"Found a GitHub repository that presents itself as this project but isn't part of its fork network: "
-        f"**[{f['name']}]({f['url']})**",
-        "",
-        f"- **Description:** {f['description'] or '—'}",
-        f"- **Mentions the project in:** {f['where']}",
-        f"- **Copy of this project:** {f['copy']}",
-        f"- **Fork of:** {f['fork_of'] or 'not a GitHub fork (imported, mirrored or detached)'}",
-        f"- **Download links outside GitHub:** {', '.join(f['downloads']) or 'none'}",
-        f"- **Owner account age:** {age}",
-        f"- **Last pushed:** {f['pushed'] or '—'}",
-        "",
-        "This may be a legitimate related project, such as an EFI config, a guide or a fan build. "
-        "Please check it before acting.",
-        "",
-        "**If it's an impersonation:** report it using **Report repository** in its sidebar.",
-        "**If it's legitimate:** close this issue (it won't be filed again), or add it to "
-        "`ALLOWLIST_REPOS` in `impersonation-watch.yml`.",
-    ]
-    return lines
-
-
-def site_body(f):
-    reg = rdap(f["name"]) if not f["name"].endswith(".github.io") else {}
-    lines = [
-        f"Found a website that presents itself as this project: **{f['name']}**",
-        "",
-        f"- **URL:** {f['url']} (HTTP {f['status']})",
-        f"- **Page title:** {f['title'] or '—'}",
-        f"- **Mentions the project in:** {f['where']}",
-        f"- **Links to the official repo:** {'yes' if f['links_official'] else 'no'}",
-        f"- **Download links outside GitHub:** {', '.join(f['downloads']) or 'none'}",
-    ]
-    if reg:
-        lines += [
-            f"- **Registrar:** {reg.get('registrar') or '—'}",
-            f"- **Registrar abuse contact:** {reg.get('abuse') or '—'}",
-            f"- **Registered:** {reg.get('registered') or '—'}",
-        ]
-    lines += [
-        "",
-        "This may be a legitimate article, review or mirror. Please check it before acting.",
-        "",
-        "**If it's an impersonation:** report it to the registrar's abuse contact and the hosting provider, "
-        "and submit it to [Google Safe Browsing](https://safebrowsing.google.com/safebrowsing/report_phish/).",
-        "**If it's legitimate:** close this issue (it won't be filed again), or add the host to "
-        "`ALLOWLIST_HOSTS` in `impersonation-watch.yml`.",
-    ]
-    return lines
-
-
 # ------------------------------------------------------------------ main --
 
 def main():
@@ -251,39 +196,49 @@ def main():
     site_host = (urllib.parse.urlsplit(pages_url).hostname or "").lower()
     shas = fingerprints(repo)
 
-    # Anything the other two watchers already filed counts as tracked, too.
-    tracked = set()
-    for label, pattern in (("impersonation", r"<!-- impersonation:(\S+) -->"),
-                           ("typosquat", r"<!-- typosquat:(\S+) -->"),
-                           ("typosquat-site", r"<!-- typosquat-site:(\S+) -->")):
-        for issue in paginate(f"/repos/{ORIGINAL}/issues?labels={label}&state=all&per_page=100"):
-            m = re.search(pattern, issue.get("body") or "")
-            if m:
-                tracked.add(m.group(1).lower())
+    # Findings go into the tracker issue (bridgepatcher_tracker.py). Entries another watch lists
+    # (e.g. a copy the typosquat watch tracks) and dismissed ones are left alone.
+    from bridgepatcher_tracker import Tracker  # noqa: E402
+    tracker = Tracker("impersonation watch", DRY_RUN)
+    if tracker.paused:
+        summary("The tracker issue is closed, so the watch is paused. Reopen it to resume.")
+        return
+    tracked = set(tracker.state["dismissed"])
+    for section in ("repos", "sites", "articles"):
+        tracked |= {k for k, e in tracker.state[section].items() if e.get("source") != "impersonation"}
 
     summary(f"## Impersonation scan for `{ORIGINAL}`" + (" (dry run)" if DRY_RUN else ""))
     findings = scan_repos(owner, root, shas, tracked) + scan_web(site_host, tracked)
-
-    if findings and not DRY_RUN:
-        post(f"/repos/{ORIGINAL}/labels",
-             {"name": LABEL, "color": "5319e7", "description": "Repo or site presenting itself as this project"})
-
+    new = 0
     for f in findings:
-        summary(f"- **{f['name']}** ({f['kind']}) — mentions the project in {f['where']}"
-                + (f"; downloads from {', '.join(f['downloads'])}" if f["downloads"] else ""))
+        section = "repos" if f["kind"] == "repo" else "sites"
+        if not tracker.entry(section, f["key"]):
+            new += 1
+            summary(f"- **{f['name']}** ({f['kind']}) — mentions the project in {f['where']}"
+                    + (f"; downloads from {', '.join(f['downloads'])}" if f["downloads"] else ""))
         if DRY_RUN:
             continue
-        lines = repo_body(f) if f["kind"] == "repo" else site_body(f)
-        status, _ = post(f"/repos/{ORIGINAL}/issues", {
-            "title": f"Possible impersonation: {f['name']}",
-            "body": "\n".join(lines + ["", MARKER.format(f["key"])]),
-            "labels": [LABEL],
-        })
-        if status >= 300:
-            print(f"::error::Could not open an issue for {f['name']} (HTTP {status})")
-        time.sleep(3)
+        if f["kind"] == "repo":
+            age = f"{f['owner_age']} days" if f["owner_age"] is not None else "unknown"
+            what = (f"presents itself as the project in its {f['where']}; {f['copy']}; "
+                    + (f"fork of {f['fork_of']}; " if f["fork_of"] else "not a GitHub fork; ")
+                    + (f"downloads outside GitHub: {', '.join(f['downloads'])}; " if f["downloads"] else "")
+                    + f"owner account {age} old, last push {f['pushed'] or '—'}")
+            tracker.upsert("repos", f["key"], {"name": f["name"], "source": "impersonation",
+                                                "status": "⚠️ possible impersonation", "what": what,
+                                                "request": "— (report it: **Report repository** in its sidebar)"})
+        else:
+            reg = rdap(f["name"]) if not f["name"].endswith(".github.io") else {}
+            what = (f"“{f['title'] or '—'}”, names the project in its {f['where']}; "
+                    + ("links to the official repo; " if f["links_official"] else "doesn't link to the official repo; ")
+                    + (f"downloads outside GitHub: {', '.join(f['downloads'])}" if f["downloads"] else "no outside downloads"))
+            report = (f"{reg.get('registrar') or 'registrar'} ({reg.get('abuse') or 'abuse contact unknown'}), "
+                      "Google Safe Browsing" if reg else "GitHub (Report repository / Block or report)")
+            tracker.upsert("sites", f["key"], {"name": f["name"], "source": "impersonation",
+                                                "status": f"🟢 online (HTTP {f['status']})", "what": what, "report": report})
+    tracker.save()
 
-    summary(f"\n{len(findings)} new possible impersonations found.")
+    summary(f"\n{new} new possible impersonations found.")
 
 
 if __name__ == "__main__":

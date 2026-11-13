@@ -383,11 +383,25 @@ def site_owner(host, ips=None):
     return cell(", ".join(parts), 160)
 
 
-def site_status(host):
+FAKE_404 = "🟠 deployed behind a fake 404 (its own \"not found\" page)"
+
+
+def split_key(key):
+    """("host", "/path/") for a site entry; entries for a page on a shared host (a copycat
+    repo's GitHub Pages site) are keyed host/path."""
+    host, _, path = key.partition("/")
+    return host, f"/{path}/" if path else "/"
+
+
+def site_status(key):
     """Status of a site that isn't showing an imitating page right now."""
+    host, path = split_key(key)
     if host.endswith(".github.io"):
-        st, _, page = ts.fetch(f"https://{host}/")
-        return "🟢 online, page changed" if page else "🔴 down (nothing published)"
+        st, _, page = ts.fetch(f"https://{host}{path}", error_body=True)
+        state = ts.watched_state(host, st, page)
+        if state == "down":
+            return "🔴 down (nothing published)"
+        return FAKE_404 if state == "fake404" else "🟢 online, page changed"
     if ts.resolve(host):
         return "🟡 registered, but no imitating page right now (parked, empty or blocked)"
     reg = domain_registered(host)
@@ -477,9 +491,44 @@ def scan_spam(skip):
     return found
 
 
-def scan_other_sites():
-    """OTHER_SITES with their current status and report details."""
+def scan_other_sites(previous, copycats):
+    """OTHER_SITES with their current status and report details, plus misleading articles found
+    automatically (see typosquat_sites.find_articles): news sites, often machine-translated ones,
+    presenting T2 support as news about the project. One entry per site with all its language
+    editions; an edition of a hand-checked OTHER_SITES entry is added to that entry instead.
+    Articles found before are re-checked even when today's news feeds don't list them."""
     out = {}
+    extra = [(e["url"], e.get("headline", "")) for e in previous.values() if e.get("auto") and e.get("url")]
+    articles = (ts.find_articles("", copycats, extra, malvertising=True, false_claims=True)
+                if ts.NEWS_QUERIES or ts.NEWS_SITES else [])
+    manual_families = {ts.site_family((row + [""])[0].lower()): (row + [""])[0].lower() for row in OTHER_SITES}
+    also = {}
+    for a in articles:
+        hosts = [a["host"]] + [h for h, _u, _t in a["editions"]]
+        if a["family"] in manual_families:
+            also[manual_families[a["family"]]] = [h for h in hosts if h != manual_families[a["family"]]]
+            continue
+        editions = f" Also in {len(hosts) - 1} other language edition(s): " + ", ".join(hosts[1:]) + "." \
+            if len(hosts) > 1 else ""
+        dl = [h for h in a["download_hosts"] if h.lower() != a["host"]]
+        mal = (f" Its pages load ad networks that malicious ads (fake payment pages, phishing, browser "
+               f"hijackers) often come through: {', '.join(a['malvertising'])}." if a.get("malvertising") else "")
+        if a.get("kind") == "malvertising":
+            lead = f"Article about {PROJECT}, “{a['title']}”, on a site with risky ads.{mal}"
+        elif a.get("kind") == "false-claim":
+            lead = f"Article that {a['false_claim']}: “{a['title'] or a['claim'][:140]}”.{mal}"
+        else:
+            lead = (f"Article that presents T2 Mac support as news about {PROJECT} (it comes from an "
+                    f"unofficial fork): “{a['title']}”.{mal}")
+        out[a["family"]] = {
+            "what": cell(f"{lead}{editions}"
+                         + (f" Links to copycat repos: {', '.join(a['copycat_links'])}." if a["copycat_links"] else "")
+                         + (f" Download links point to: {', '.join(dl)}." if dl else ""), 400),
+            "doc": "found automatically",
+            "status": "🟢 online", "owner": site_owner(a["host"]), "report": report_info(a["host"]),
+            "auto": True, "url": a["url"], "headline": a["title"],
+            "first_seen": (previous.get(a["family"]) or {}).get("first_seen", TODAY.isoformat()),
+        }
     for row in OTHER_SITES:
         host, what, doc = (row + ["", "", ""])[:3]
         host = host.lower()
@@ -487,7 +536,10 @@ def scan_other_sites():
             continue
         st, _, page = ts.fetch(f"https://{host}/")
         online = bool(st and st < 400) or bool(page)
-        out[host] = {"what": cell(what, 300), "doc": cell(doc, 120),
+        if also.get(host):
+            what = what.rstrip() + ("" if what.rstrip().endswith((".", "!", "?")) else ".")
+            what += " The same article is also on: " + ", ".join(also[host]) + "."
+        out[host] = {"what": cell(what, 400), "doc": cell(doc, 120),
                      "status": "🟢 online" if online else f"🔴 down ({st or 'no response'})",
                      "owner": site_owner(host), "report": report_info(host)}
     return out
@@ -535,12 +587,14 @@ def scan_sites(watch):
     # out instead of being shown as a 🔴 entry.
     for h in ts.FORMER_HOSTS:
         if h not in found:
-            st, _, page = ts.fetch(f"https://{h}/")
-            if not st or st >= 400 or not page.strip():
+            st, _, page = ts.fetch(f"https://{h}/", error_body=True)
+            state = ts.watched_state(h, st, page)
+            if state == "down":
                 print(f"Former address {h} is down ({st or 'no response'}); not listed")
                 continue
             found[h] = {"title": "—", "downloads": "—",
-                        "status": "🟢 online" + (f" (HTTP {st})" if st != 200 else ""),
+                        "status": FAKE_404 if state == "fake404" else
+                        "🟢 online" + (f" (HTTP {st})" if st != 200 else ""),
                         "ips": ts.resolve(h) or []}
         found[h]["title"] = cell("former BridgePatcher address, no longer official · " + found[h]["title"])
     with cf.ThreadPoolExecutor(max_workers=4) as ex:  # RDAP servers rate-limit bursts
@@ -551,6 +605,135 @@ def scan_sites(watch):
         info.pop("ips", None)
         info["owner"], info["status"], info["report"] = owners[h], status[h], reports[h]
     return found
+
+
+def scan_copycat_sites(found_repos):
+    """Websites of the listed repositories (their homepage link or GitHub Pages site) and
+    KNOWN_SITES, keyed host/path. Listed while they serve a page, including one hidden behind a
+    fake 404 (the owner's own "not found" page); left out while nothing is published there."""
+    repos = {}
+    for full in found_repos:
+        data = get(f"/repos/{full}")
+        if data:
+            repos[full.lower()] = data
+    sites = {hp: v for hp, v in ts.copycat_sites(repos, "").items()}
+    for address in ts.KNOWN_SITES:
+        hp = ts.split_address(address)
+        if hp[0] and (hp[0], hp[1].lower()) not in {(h, p.lower()) for h, p in sites}:
+            sites[hp] = (None, True)
+    print(f"{len(sites)} websites of listed repositories and known sites to check")
+    found = {}
+    for (host, path), (repo, own_pages) in sorted(sites.items()):
+        if ts.allowed(host, ""):
+            continue
+        r = ts.inspect_watched(host, path, ts.COPYCAT_MARK, repo=repo, need_marker=not own_pages)
+        if not r:
+            continue
+        key = f"{host}{path.rstrip('/')}"
+        title = html.unescape(r["title"]) or "—"
+        if r.get("fake404"):
+            title = f"fake 404 page, HTTP {r['status']} ({title})"
+        if repo:
+            title = f"{title} · site of `{repo}`"
+        found[key] = {
+            "title": cell(title, 140),
+            "downloads": cell(", ".join(r["download_hosts"]) or "no download links", 60),
+            "status": FAKE_404 if r.get("fake404") else
+            "🟢 online" + (f" (HTTP {r['status']})" if r.get("status") not in (None, 200) else ""),
+            "owner": site_owner(host, r.get("ips") or None),
+            "report": report_info(host, r.get("ips") or None),
+        }
+    return found
+
+
+def registrable(host):
+    """example.co.uk / example.com for a host (rough: the last two labels, three for ccTLD-style
+    second levels like co.uk); github.com/owner stays as it is."""
+    if "/" in host:
+        return host.lower()
+    labels = host.lower().split(".")
+    n = 3 if len(labels) > 2 and labels[-2] in ("co", "com", "net", "org", "ac", "gov", "edu") else 2
+    return ".".join(labels[-n:])
+
+
+# Download links that are fine on a copy of the official docs
+OFFICIAL_DOWNLOADS = ("github.com", "github.com/dortania", "github.com/bridgepatcher",
+                      "dortania.github.io", "bridgepatcher.github.io")
+COPY_STATUS = "🟡 unofficial copy"
+
+
+def scan_fork_sites(found_repos, skip):
+    """Websites published from forks: of upstream, of this project and of every listed repo.
+    A fork with GitHub Pages on, or with a homepage of its own (not its parent's), is checked.
+    A copy of the docs is only an "unofficial copy" (often a contributor's fork, but outdated and a
+    ready-made base for a fake), also when it's on the owner's own domain or offers the owner's own
+    builds (their GitHub releases, a domain of theirs): derivatives with their own downloads aren't
+    fakes. It counts as a lookalike website when its download links lead to someone else: file
+    hosts, unrelated domains, other GitHub accounts.
+    Returns (lookalike sites, copies), keyed host/path."""
+    roots = [UPSTREAM, ISSUE_REPO] + sorted(found_repos)
+    ignore = ALLOW_OWNERS | {m.lstrip("@").lower() for m in MENTIONS} | {UPSTREAM.split("/")[0].lower()}
+    candidates = {}
+    for root in roots:
+        parent = get(f"/repos/{root}") or {}
+        parent_home = (parent.get("homepage") or "").strip().rstrip("/").lower()
+        for f in paginate(f"/repos/{root}/forks?per_page=100&sort=newest"):
+            owner, name = f["owner"]["login"], f["name"]
+            if owner.lower() in ignore or f["full_name"].lower() in ALLOW_REPOS:
+                continue
+            home = (f.get("homepage") or "").strip()
+            own_home = home and home.rstrip("/").lower() != parent_home
+            if own_home:
+                host, path = ts.split_address(home)
+                if not host or ts.allowed(host, "") or host in ("github.com", "www.github.com"):
+                    own_home = False
+            if own_home:
+                candidates.setdefault((host, path), (f["full_name"], root))
+            if f.get("has_pages"):
+                pages = f"{owner.lower()}.github.io"
+                candidates.setdefault((pages, "/" if name.lower() == pages else f"/{name}/"), (f["full_name"], root))
+    print(f"{len(candidates)} fork websites to check")
+    sites, copies = {}, {}
+    for (host, path), (repo, root) in sorted(candidates.items()):
+        key = f"{host}{path.rstrip('/')}"
+        if key.lower() in skip:
+            continue
+        r = ts.inspect_watched(host, path, ts.COPYCAT_MARK, repo=repo, need_marker=True)
+        own_domain = not host.endswith(".github.io")
+        if not r or (r.get("fake404") and not own_domain):
+            continue  # nothing published, or a broken Pages build on the fork's own address
+        owner = repo.split("/")[0].lower()
+        final = (urllib.parse.urlsplit(r["url"]).hostname or host).lower()
+        own_domains = {registrable(host), registrable(final)}
+
+        def owners(h):
+            h = h.lower()
+            if h in (f"github.com/{owner}", host, final):
+                return True
+            base = registrable(h)
+            return base in own_domains or re.sub(r"[^a-z0-9]", "", owner) in re.sub(r"[^a-z0-9]", "", base.split(".")[0])
+
+        others = [h for h in r["download_hosts"] if h.lower() not in OFFICIAL_DOWNLOADS and not owners(h)]
+        own_dl = [h for h in r["download_hosts"] if h.lower() not in OFFICIAL_DOWNLOADS and owners(h)
+                  and h.lower() not in (host, final)]
+        title = html.unescape(r["title"]) or "—"
+        entry = {
+            "downloads": cell(", ".join(r["download_hosts"]) or "no download links", 60),
+            "owner": site_owner(host, r.get("ips") or None),
+            "report": report_info(host, r.get("ips") or None),
+        }
+        if others:
+            entry.update(title=cell(f"{title} · site of `{repo}`, a fork of `{root}`; downloads point to "
+                                    f"{', '.join(others)}", 160),
+                         status=FAKE_404 if r.get("fake404") else "🟢 online")
+            sites[key] = entry
+        else:
+            notes = (["on its own domain"] if own_domain or final != host else []) + \
+                    ([f"offers its owner's own builds ({', '.join(own_dl)})"] if own_dl else [])
+            entry.update(title=cell(f"{title} · site of `{repo}`, a fork of `{root}`"
+                                    + (f"; {', '.join(notes)}" if notes else ""), 160), status=COPY_STATUS)
+            copies[key] = entry
+    return sites, copies
 
 
 def search_candidates():
@@ -643,7 +826,7 @@ def prune_taken_down(state, seen):
 def load_state(body):
     m = STATE_RE.search(body or "")
     if not m:
-        return {"sites": {}, "repos": {}, "spam": {}, "watch": {}, "parked": {}}
+        return {"sites": {}, "repos": {}, "spam": {}, "watch": {}, "parked": {}, "copies": {}}
     state = json.loads(base64.b64decode(m.group(1)))
     for k in ("sites", "repos", "spam", "watch", "parked"):
         state.setdefault(k, {})
@@ -689,8 +872,23 @@ def render(state, seen):
                 "|---|---|---|---|---|---|---|"]
         out += [f"| `{h}` | {e.get('status', '—')} | {e.get('owner', '—')} | {e['title']} | {e['downloads']} "
                 f"| {e['first_seen']} | {e['last_seen']} |" for h, e in sorted(sites.items())]
+        if any(e.get("status") == FAKE_404 for e in sites.values()):
+            out += ["", "🟠 *Fake 404*: the address shows the owner's own \"not found\" page instead of the host's "
+                    "standard one. A site is deployed there, passes for offline, and can switch to real content "
+                    "at any moment."]
     else:
         out.append("None found right now.")
+    copies = state.get("copies") or {}
+    if copies:
+        out += ["", f"### Unofficial copies of the official site ({len(copies)})",
+                f"Forks that publish their own copy of the {PROJECT} documentation. They aren't fakes as far as "
+                "the checks can tell (their download links lead to the official releases), but they may be "
+                "outdated and aren't maintained by the developers: use the official site instead. A copy "
+                "that changes its download links or moves to its own domain is listed as a website above.", "",
+                "| Site | Status | Belongs to | Page title | Download links point to | First seen | Last seen |",
+                "|---|---|---|---|---|---|---|"]
+        out += [f"| `{h}` | {e['status']} | {e.get('owner', '—')} | {e['title']} | {e['downloads']} "
+                f"| {e['first_seen']} | {e['last_seen']} |" for h, e in sorted(copies.items())]
     parked = state.get("parked") or {}
     if parked:
         out += ["", f"### Registered lookalike domains without a website yet ({len(parked)})",
@@ -700,8 +898,10 @@ def render(state, seen):
         out += [f"| `{h}` | {e['status']} | {e['owner']} | {e['since']} |" for h, e in sorted(parked.items())]
     if other:
         out += ["", f"### Other sites to avoid ({len(other)})",
-                "These don't imitate the name, but the maintainers found that they mislead visitors about "
-                f"{PROJECT} or expose them to malicious ads.", "",
+                "These don't imitate the name, but they mislead visitors about "
+                f"{PROJECT} or expose them to malicious ads (checked by the maintainers, or found automatically: "
+                "articles presenting an unofficial fork's T2 support as the project's, claiming support it doesn't "
+                "have such as macOS 27 or Apple silicon Macs, or loading ad networks malicious ads come through).", "",
                 "| Site | Status | Belongs to | What we found | Details |", "|---|---|---|---|---|"]
         out += [f"| `{h}` | {e['status']} | {e['owner']} | {e['what']} | {e['doc']} |" for h, e in sorted(other.items())]
     to_report = {h: e["report"] for h, e in {**sites, **parked, **other}.items() if e.get("report")}
@@ -790,7 +990,18 @@ def main():
     found_spam = scan_spam(set(found_repos))
     seen = {"sites": set(found_sites), "repos": set(found_repos), "spam": set(found_spam)}
     new_spam = merge(state["spam"], found_spam)
-    state["other"] = scan_other_sites()
+    found_sites.update(scan_copycat_sites(found_repos))
+    fork_sites, copies = scan_fork_sites(found_repos, {k.lower() for k in found_sites})
+    found_sites.update(fork_sites)
+    seen["sites"] = set(found_sites)
+    old_copies = state.get("copies") or {}
+    for k in copies:  # an entry that turned out to be a mere copy leaves the website list
+        state["sites"].pop(k, None)
+    state["copies"] = {k: dict(v, first_seen=(old_copies.get(k) or {}).get("first_seen", TODAY.isoformat()),
+                               last_seen=TODAY.isoformat()) for k, v in copies.items()}
+    old_other = state.get("other") or {}
+    state["other"] = scan_other_sites(old_other, {r.lower() for r in found_repos})
+    new_other = [h for h, e in state["other"].items() if e.get("auto") and h not in old_other]
     new_sites = merge(state["sites"], found_sites)
     new_repos = merge(state["repos"], found_repos)
     state["parked"] = describe_parked(state["watch"])
@@ -806,6 +1017,8 @@ def main():
         summary(f"- new repository: `{r}` — {state['repos'][r]['reasons']}")
     for r in new_spam:
         summary(f"- new spam repository: `{r}` — {state['spam'][r]['reasons']}")
+    for h in new_other:
+        summary(f"- new misleading article site: `{h}` — {state['other'][h]['headline']}")
     for k in removed:
         summary(f"- removed (taken down): `{k}`")
     summary(f"\n{len(new_sites)} new sites, {len(new_repos)} new repositories, {len(removed)} removed.")
@@ -830,9 +1043,10 @@ def main():
         status, _, _ = request("PATCH", f"/repos/{ISSUE_REPO}/issues/{tracker['number']}", {"body": body})
         if status >= 300:
             raise SystemExit(f"Could not update the warning issue (HTTP {status})")
-    if new_sites or new_repos:
+    if new_sites or new_repos or new_other:
         lines = ["**New entries found today:**", ""]
         lines += [f"- website `{h}`" for h in new_sites]
+        lines += [f"- misleading article on `{h}`" for h in new_other]
         lines += [f"- repository `{r}`" for r in new_repos]
         lines += ["", "The list above has been updated."]
         post(f"/repos/{ISSUE_REPO}/issues/{tracker['number']}/comments", {"body": "\n".join(lines)})

@@ -23,7 +23,8 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from typosquat_watch import (MAX_DIST, fold, get, lev, paginate, post, request, skeleton,  # noqa: E402
+from bridgepatcher_tracker import Tracker  # noqa: E402
+from typosquat_watch import (MAX_DIST, fold, get, lev, paginate, request, skeleton,  # noqa: E402
                              summary, variants)
 
 ORIGINAL = os.environ["ORIGINAL_REPO"]
@@ -84,6 +85,14 @@ AD_NETWORKS = ("googlesyndication.com", "adsbygoogle", "doubleclick.net", "adser
                "propellerads", "popads.net", "popcash.net", "adsterra", "monetag", "a-ads.com",
                "hilltopads", "clickadu", "exoclick", "juicyads", "ezoic", "mediavine", "taboola",
                "outbrain", "revcontent", "mgid.com", "adcash", "onclickads", "galaksion")
+# Pop-under, redirect and push-notification ad networks that malicious ads (fake payment pages,
+# phishing logins, browser hijackers, notification spam) commonly come through. Mainstream networks
+# (Google, Ezoic, Taboola, ...) are left out: they're in AD_NETWORKS and alone don't mark a site.
+MALVERTISING = ("propellerads", "propeller-tracking", "popads.net", "popcash.net", "adsterra",
+                "highperformanceformat", "profitablecpmrate", "effectivegatecpm", "toprevenuegate",
+                "monetag", "hilltopads", "clickadu", "exoclick", "juicyads", "onclickads", "onclicka.",
+                "galaksion", "adcash", "admaven", "ad-maven", "richads", "evadav", "rollerads",
+                "pushground", "trafficstars", "zeropark", "clickaine", "realsrv.com", "popunder")
 # Text that an honest page about this fork would contain
 DISCLAIMERS = ("not affiliated", "unofficial", "independent community fork", "nicht mit dortania",
                "nicht offiziell", "inoffiziell")
@@ -488,22 +497,30 @@ def copycat_repos(original):
 
 def copycat_sites(repos, site_host):
     """{(host, path): (repo, own_pages)} for the websites copycat repositories point to: the
-    homepage link and, if Pages is on, <owner>.github.io/<repo>/. own_pages is True for the
-    repo's own Pages address, which counts whatever it shows; other homepages only count if
-    they name the project (a fork's owner may link a personal site)."""
-    sites = {}
+    homepage link and, if Pages is on, <owner>.github.io/<repo>/. own_pages is True for a repo's
+    own Pages address, which counts whatever it shows; other homepages only count if they name
+    the project (a fork's owner may link a personal site). Forks copy their parent's homepage
+    link, so an address is credited to the repo whose own Pages address it is."""
+    own_sites, links = {}, {}
     for full, r in sorted(repos.items()):
-        owner, name = r["owner"]["login"].lower(), r["name"].lower()
+        owner, name = r["owner"]["login"].lower(), r["name"]
         pages = f"{owner}.github.io"
-        own = (pages, "/") if name == pages else (pages, f"/{name}/")
+        own = (pages, "/") if name.lower() == pages else (pages, f"/{name}/")
         home = (r.get("homepage") or "").strip()
         if home:
             host, path = split_address(home)
             if host and not allowed(host, site_host) and host not in ("github.com", "www.github.com"):
-                is_own = host == pages and path.rstrip("/").lower() == own[1].rstrip("/")
-                sites.setdefault((host, path), (r["full_name"], is_own))
+                if host == pages and path.rstrip("/").lower() == own[1].rstrip("/").lower():
+                    own_sites[own] = (r["full_name"], True)
+                else:
+                    links.setdefault((host, path), (r["full_name"], False))
         if r.get("has_pages"):
-            sites.setdefault(own, (r["full_name"], True))
+            own_sites[own] = (r["full_name"], True)
+    sites = dict(own_sites)
+    for (host, path), v in links.items():
+        if (host, path.lower()) not in {(h, p.lower()) for h, p in sites}:
+            # Another account's GitHub Pages project address counts as that repo's own site
+            sites[(host, path)] = (v[0], host.endswith(".github.io") and path.strip("/") != "")
     return sites
 
 
@@ -752,6 +769,44 @@ def t2_claim(text, context=2):
     return ""
 
 
+# Claims about Dortania's OpenCore Legacy Patcher that are false no matter who makes them, checked
+# by the upstream tracker (this project's own watch only checks T2): (name, topic, what's wrong)
+FALSE_CLAIMS = [
+    ("macos27", re.compile(r"macos\s*27\b|golden\s*gate"),
+     "says OpenCore Legacy Patcher runs macOS 27, which exists only for Apple silicon Macs"),
+    ("apple-silicon", re.compile(r"apple[\s-]*silicon|\bm[1-5](?:\s*(?:pro|max|ultra))?[\s-]+(?:chip|mac|macbook|imac)|"
+                                 r"\barm64\s+macs?\b|\barm[\s-]*macs?\b"),
+     "says OpenCore Legacy Patcher supports Apple silicon Macs; it's made for Intel Macs only"),
+]
+# Words that let a claim run on: "runs", "lets you install", "boots" (besides SUPPORT_CLAIM)
+RUN_CLAIM = re.compile(r"\bruns?\b|\binstall(?:s|ing)?\b|\bboots?\b|\bworks?\s+on\b|\bauf\b.{0,20}\binstallier|"
+                       r"\bfunciona\b|\bfonctionne\b|\bfunziona\b")
+# Where a sentence turns to something else ("adds Tahoe support, but macOS 27 is Apple-only")
+CLAUSE_BREAK = re.compile(r"[,;:(]|\b(?:but|however|while|whereas|unlike|although|aber|jedoch|pero|aunque|"
+                          r"mais|alors que|ma|mentre|mas|enquanto)\b")
+
+
+def false_claim(text, names=None):
+    """(name, what's wrong, sentence) for the first FALSE_CLAIMS claim in `text`, or None. The
+    sentence must name the project, then a claim word, then the topic, in that order and in one
+    clause, with nothing that negates or excludes it."""
+    for sent in SENTENCE_END.split(text):
+        if not sent.strip() or len(sent) > MAX_SENTENCE or EXCLUDED.search(sent):
+            continue
+        for m in OCLP_NAMES.finditer(sent):
+            tail = sent[m.end():m.end() + 200]
+            for c in list(SUPPORT_CLAIM.finditer(tail)) + list(RUN_CLAIM.finditer(tail)):
+                if NEGATED.search(tail[max(0, c.start() - 40):c.start()]) or CLAUSE_BREAK.search(tail[:c.start()]):
+                    continue
+                rest = tail[c.end():c.end() + 100]
+                cut = CLAUSE_BREAK.search(rest)
+                rest = rest[:cut.start()] if cut else rest
+                for name, topic, what in FALSE_CLAIMS:
+                    if (names is None or name in names) and topic.search(rest):
+                        return name, what, sent.strip()
+    return None
+
+
 def bing_news(query, market):
     """(url, title) pairs from Bing News' RSS feed; links carry the article URL in `url=`."""
     q = urllib.parse.urlencode({"q": query, "format": "rss", "mkt": market, "setlang": market.split("-")[0]})
@@ -823,7 +878,7 @@ def article_candidates(site_host):
     return found
 
 
-def article_editions(hit, copycats, site_host):
+def article_editions(hit, copycats, site_host, malvertising=False, false_claims=False):
     """Other language editions of a flagged article's site: the same address path on each
     edition host, and the edition's own WordPress search."""
     parts = urllib.parse.urlsplit(hit["url"])
@@ -838,7 +893,7 @@ def article_editions(hit, copycats, site_host):
         for query in SITE_SEARCHES:
             tries += wp_search(host, query)
         for url, title in tries:
-            r = inspect_article(host, url, title, True, copycats)
+            r = inspect_article(host, url, title, True, copycats, malvertising, false_claims)
             if r:
                 r["edition_of"] = hit["host"]
                 out.append(r)
@@ -846,9 +901,12 @@ def article_editions(hit, copycats, site_host):
     return out
 
 
-def inspect_article(host, url, title, fetchable, copycats):
+def inspect_article(host, url, title, fetchable, copycats, malvertising=False, false_claims=False):
     """An article that presents T2 support as OpenCore Legacy Patcher news without crediting
-    this fork. Judged on the page when it can be fetched, otherwise on the headline."""
+    this fork. Judged on the page when it can be fetched, otherwise on the headline.
+    With malvertising, also any article about the project on a page that loads ad networks
+    malicious ads come through (MALVERTISING), whatever it says. With false_claims, also articles
+    making one of the FALSE_CLAIMS about Dortania's project (macOS 27, Apple silicon)."""
     status, final, page = fetch(url) if fetchable else (None, url, "")
     if not fetchable and title:
         # Google News only gives a headline: try the address blogs derive from it
@@ -862,11 +920,19 @@ def inspect_article(host, url, title, fetchable, copycats):
     text = page_text(main_content(page)) if page else ""
     head = fold(title)
     claim = t2_claim(head) or t2_claim(text)
-    if not claim:
-        return None
-    if any(c in head or c in text for c in CREDITS):
-        return None  # names the fork or says it's unofficial
+    if claim and any(c in head or c in text for c in CREDITS):
+        claim = ""  # names the fork or says it's unofficial
     low = fold(page)
+    mal = sorted({n.rstrip(".") for n in MALVERTISING if n in low})
+    wrong = (false_claim(head) or false_claim(text)) if false_claims else None
+    if claim:
+        kind = "misattribution"
+    elif wrong:
+        kind, claim = "false-claim", wrong[2]
+    elif malvertising and mal and (OCLP_NAMES.search(head) or OCLP_NAMES.search(text)):
+        kind = "malvertising"
+    else:
+        return None
     linked = sorted({f"{o}/{n}" for o, n in re.findall(r"github\.com/([\w.-]+)/([\w.-]+)", low)})
     return {
         "host": host, "url": final, "status": status, "ips": resolve(host), "title": title[:200],
@@ -876,193 +942,118 @@ def inspect_article(host, url, title, fetchable, copycats):
         "dortania": "dortania" in low or "dortania" in head,
         "copycat_links": [r for r in linked if r.lower() in copycats],
         "ads": sorted({a for a in AD_NETWORKS if a in low}),
+        "malvertising": mal, "kind": kind, "false_claim": wrong[1] if wrong and kind == "false-claim" else "",
         "key": f"article:{host}",
     }
 
 
-def article_issue_body(r):
-    shown = unpuny(r["host"])
-    lines = [
-        f"Found an article that presents T2 Mac support as news about OpenCore Legacy Patcher, without "
-        f"saying it comes from this independent fork: **{shown}**",
-        "",
-        f"- **URL:** {r['url']}" + (f" (HTTP {r['status']})" if r["status"] else ""),
-        f"- **Headline:** {r['title'] or '—'}",
-    ] + ([f"- **Also published in {len(r['editions'])} other language edition(s) of the site:**"]
-         + [f"  - {h}: {u} — {t or '—'}" for h, u, t in r["editions"]] if r.get("editions") else []) + [
-        f"- **Judged on:** the {r['judged_on']}"
-        + (" (the feed only gives a Google News link; open it to reach the article)" if r["judged_on"] == "headline" else ""),
-        f"- **Passage:** > {r['claim']}",
-        f"- **Mentions Dortania:** {'yes' if r['dortania'] else 'no'}",
-        f"- **Links to the official repo:** {'yes' if r['links_official'] else 'no'}",
-        f"- **Links to copycat repos:** {', '.join(r['copycat_links']) or 'none'}",
-        f"- **Download links point to:** {', '.join(r['download_hosts']) or 'no download links'}",
-        f"- **Ad networks:** {', '.join(r['ads']) or 'none found'}",
-        "",
-        "Articles like this make readers think Dortania's OpenCore Legacy Patcher supports T2 Macs, which "
-        "sends them to the wrong project for downloads and support. It may simply be a news report that "
-        "missed the distinction; please read it before acting.",
-        "",
-        "**If it misattributes the project:** ask the site's editors for a correction (it's BridgePatcher, an "
-        f"independent fork at https://github.com/{ORIGINAL}, not Dortania's OpenCore Legacy Patcher). Translated "
-        "editions such as `en.` subdomains are usually generated from the original-language article, so correcting "
-        "that one fixes both. If it links to a copycat repo or foreign downloads, report those as well.",
-        "",
-        "Closing this issue marks the site as handled, and the workflow won't file it again.",
-        "",
-        MARKER.format(r["key"]),
-    ]
-    return "\n".join(lines)
+def find_articles(site_host, copycats, extra=(), malvertising=False, false_claims=False):
+    """Misattributing articles, one result per site with all its language editions in
+    r["editions"] (keyed article:<site>). `extra` adds (url, title) pairs to re-check,
+    e.g. articles found on earlier runs that today's feeds don't list."""
+    arts = article_candidates(site_host)
+    for url, title in extra:
+        host = (urllib.parse.urlsplit(url).hostname or "").lower()
+        if host and host not in arts:
+            arts[host] = (url, title, True)
+    with cf.ThreadPoolExecutor(max_workers=16) as ex:
+        hits = [r for r in ex.map(lambda kv: inspect_article(kv[0], *kv[1], copycats, malvertising,
+                                                             false_claims), arts.items()) if r]
+    # Translated editions (en.soydemac.com for soydemac.com) rarely show up in news feeds
+    known = {r["host"] for r in hits}
+    for hit in list(hits):
+        for r in article_editions(hit, copycats, site_host, malvertising, false_claims):
+            if r["host"] not in known:
+                known.add(r["host"])
+                hits.append(r)
+    families = {}
+    for r in sorted(hits, key=lambda r: (bool(r.get("edition_of")), r["host"])):
+        families.setdefault(site_family(r["host"]), []).append(r)
+    out = []
+    for family, group in families.items():
+        main_hit = group[0]
+        main_hit["key"] = f"article:{family}"
+        main_hit["family"] = family
+        main_hit["editions"] = [(r["host"], r["url"], r["title"]) for r in group[1:]]
+        main_hit.pop("edition_of", None)
+        out.append(main_hit)
+    return out
+
 
 
 # ----------------------------------------------------------------- texts --
 
-def farm_issue_body(r, reg):
-    contact = f" ({reg['abuse']})" if reg.get("abuse") else ""
-    signs = []
-    if r["brand_claim"]:
-        signs.append("mentions **Dortania** without saying this is an independent, unofficial fork "
-                     "(possible fake official branding)")
-    if r["ads"]:
-        signs.append("loads ad networks: " + ", ".join(f"`{a}`" for a in r["ads"]))
-    off = [h for h in r["download_hosts"] if not h.startswith("github.com")]
-    if off:
-        signs.append("download links lead away from GitHub: " + ", ".join(off))
-    lines = [
-        "Found a page that republishes content about this project and shows signs of misleading users: "
-        f"**{r['host']}**",
-        "",
-        f"- **URL:** {r['url']} (HTTP {r['status']})" if r["status"] else f"- **URL:** {r['url']}",
-        f"- **Page title:** {r['title'] or '—'}",
-        f"- **Matched text:** {', '.join(f'`{m}`' for m in r['markers'])}",
-        f"- **Links to the official repo:** {'yes' if r['links_official'] else 'no'}",
-        f"- **Download links point to:** {', '.join(r['download_hosts']) or 'no download links'}",
-        f"- **IP addresses:** {', '.join(r['ips']) or '—'}",
-    ]
-    if reg:
-        lines += [
-            f"- **Registrar:** {reg.get('registrar') or '—'}",
-            f"- **Registrar abuse contact:** {reg.get('abuse') or '—'}",
-            f"- **Registered:** {reg.get('registered') or '—'}",
-        ]
-    lines += ["", "**Signs found:**"] + [f"- {x}" for x in signs] + [
-        "",
-        "These checks are heuristics: a blog post or mirror can trip them too. Please look at the page first.",
-        "",
-        "**If it's a deceptive content farm:** if downloads on it are malicious, report it to "
-        "[Google Safe Browsing](https://safebrowsing.google.com/safebrowsing/report_badware/); "
-        f"report fake branding or scraped content to the hosting provider and the registrar's abuse contact{contact}, "
-        "and policy violations to the ad network it uses.",
-        "",
-        PRIOR_CASE,
-        "",
-        "Closing this issue marks the site as handled, and the workflow won't file it again.",
-        "",
-        MARKER.format(r.get("key", r["host"])),
-    ]
-    return "\n".join(lines)
 
 
-def down_issue_body(r):
-    status = f"HTTP {r['status']}" if r["status"] else "no response"
-    if r["markers"][0] == KNOWN_SITE_MARK:
-        why = "It's listed in `KNOWN_SITES` in `typosquat-sites.yml` as a known impersonation site."
-    else:
-        why = "It's the GitHub Pages address of a repository that presents itself as this project or is a fork of it."
-    lines = [
-        f"A copycat website is set up but offline for now: **{r['label']}**",
-        "",
-        why,
-        "",
-        f"- **URL:** {r['url']} ({status})",
-    ] + ([f"- **Repository:** [`{r['repo']}`](https://github.com/{r['repo']})"] if r.get("repo") else []) + [
-        f"- **Account:** [`{r['host'].split('.')[0]}`](https://github.com/{r['host'].split('.')[0]})"
-        if r["host"].endswith(".github.io") else f"- **IP addresses:** {', '.join(r['ips']) or '—'}",
-        "",
-        "Nothing is published there right now, so there's nothing to report to GitHub or a host yet. "
-        "The workflow checks it every 3 hours and opens a separate issue as soon as it serves a page.",
-        "",
-        "Closing this issue doesn't stop that check.",
-        "",
-        MARKER.format(r["key"]),
-    ]
-    return "\n".join(lines)
 
-
-def issue_body(r, reg):
-    if r["host"].endswith(".github.io"):
-        account = r["host"].split(".")[0]
-        where = f"GitHub Pages site of the account [`{account}`](https://github.com/{account})"
-        action = ("Report the account or its Pages repository to GitHub "
-                  "(**Report repository** / **Block or report** on their profile).")
-    else:
-        where = "independent domain"
-        contact = f" ({reg['abuse']})" if reg.get("abuse") else ""
-        action = ("If it impersonates the project, report it to the registrar's abuse contact"
-                  f"{contact} and the hosting provider, and submit it to "
-                  "[Google Safe Browsing](https://safebrowsing.google.com/safebrowsing/report_phish/).")
+def tracker_entry(r, tracker):
+    """(section, key, info) of a result for the tracker issue."""
     shown = unpuny(r["host"])
-    name = f"**{r['host']}**" + (f" (shown in browsers as **{shown}**)" if shown != r["host"] else "")
-    fake = ("\n\n**Fake 404:** the address answers with the owner's own \"not found\" page "
-            f"(HTTP {r['status']}) instead of GitHub's standard one. A deployed site is hiding there: it "
-            "passes for offline in link checkers and can switch to real content at any moment."
-            if r.get("fake404") else "")
-    if r["markers"] and r["markers"][0] == FORMER_HOST_MARK:
-        intro = (f"Marked {name} as a typosquat: it was this project's official address before the rename "
-                 "to BridgePatcher and no longer belongs to it. Anything published there now is not from "
-                 "this project, even if it looks official.")
-    elif r["markers"] and r["markers"][0] == COPYCAT_MARK:
-        intro = (f"The website of a copycat repository is {'deployed behind a fake 404' if r.get('fake404') else 'online'}: "
-                 f"**{r.get('label', r['host'])}**\n\n"
-                 f"It's the homepage or GitHub Pages site of [`{r['repo']}`](https://github.com/{r['repo']}), "
-                 "a repository that presents itself as this project or is a fork of it. "
-                 "It is not run by this project; check what it offers for download.")
-    elif r["markers"] and r["markers"][0] == KNOWN_SITE_MARK:
-        intro = (f"A known impersonation site is {'deployed behind a fake 404' if r.get('fake404') else 'online'}: "
-                 f"**{r.get('label', r['host'])}**\n\n"
-                 "It's listed in `KNOWN_SITES` in `typosquat-sites.yml`. "
-                 "It is not run by this project; check what it offers for download.")
-    elif r["markers"] and r["markers"][0].startswith("former project name"):
-        intro = f"Found a website that uses this project's former name in its address: {name}"
-    elif r["markers"]:
-        intro = f"Found a website with a lookalike name that presents itself as this project: {name}"
+    if r.get("article"):
+        family = r.get("family", r["host"])
+        if r.get("kind") == "false-claim":
+            what = f"{r['false_claim']}: “{r['title'] or r['claim'][:140]}”"
+        elif r.get("kind") == "malvertising":
+            what = f"article about the project on a page with risky ads: “{r['title']}”"
+        else:
+            what = (f"presents this fork's T2 support as news about Dortania's OpenCore Legacy Patcher, without "
+                    f"naming BridgePatcher: “{r['title']}”")
+        hosts = [h for h, _u, _t in r.get("editions", [])]
+        what += f" ({r['url']})"
+        if hosts:
+            what += f". Also in {len(hosts)} other language edition(s): {', '.join(hosts)}"
+        if r.get("copycat_links"):
+            what += f". Links to copycat repos: {', '.join(r['copycat_links'])}"
+        if r.get("malvertising"):
+            what += f". Risky ad networks: {', '.join(r['malvertising'])}"
+        return "articles", family, {"name": family, "source": "misattributed-article", "what": what}
+    key = norm_watch_key(r)
+    label = r.get("label", r["host"])
+    marks = [m for m in r.get("markers", []) if m not in (FORMER_HOST_MARK, KNOWN_SITE_MARK, COPYCAT_MARK)]
+    if r.get("down"):
+        status = f"⚪ set up, offline for now ({'HTTP ' + str(r['status']) if r['status'] else 'no response'})"
+    elif r.get("fake404"):
+        status = f"🟠 fake 404 (HTTP {r['status']})"
+    elif r.get("farm"):
+        status = "🟢 content farm"
     else:
-        intro = (f"Found a newly registered domain with a lookalike name: {name}\n\n"
-                 "It doesn't show project content yet. That's normal for a domain that was just registered; "
-                 "impersonation sites are often set up a few days later, so it's worth keeping an eye on.")
-    status = f"HTTP {r['status']}" if r["status"] else "no response yet"
-    lines = [
-        intro + fake,
-        "",
-        f"- **URL:** {r['url']} ({status})",
-        f"- **Newly registered:** {'yes, in the last ' + str(NRD_DAYS) + ' days' if r.get('new_registration') else 'not in the recent registration lists'}",
-        f"- **Type:** {where}",
-        f"- **Page title:** {r['title'] or '—'}",
-        f"- **Matched text:** {', '.join(f'`{m}`' for m in r['markers']) or 'none yet'}",
-        f"- **Links to the official repo:** {'yes' if r['links_official'] else 'no'}",
-        f"- **Download links point to:** {', '.join(r['download_hosts']) or 'no download links'}",
-        f"- **IP addresses:** {', '.join(r['ips']) or 'none (not resolving yet)'}",
-    ]
-    if reg:
-        lines += [
-            f"- **Registrar:** {reg.get('registrar') or '—'}",
-            f"- **Registrar abuse contact:** {reg.get('abuse') or '—'}",
-            f"- **Registered:** {reg.get('registered') or '—'}",
-        ]
-    lines += [
-        "",
-        "A matching name and project text don't prove bad intent; it may be a fan page or a mirror. "
-        "Please check the site before acting.",
-        "",
-        f"**If it's an impersonation:** {action}",
-        "",
-        PRIOR_CASE,
-        "",
-        "Closing this issue marks the site as handled, and the workflow won't file it again.",
-        "",
-        MARKER.format(r.get("key", r["host"])),
-    ]
-    return "\n".join(lines)
+        status = f"🟢 online (HTTP {r['status']})" if r.get("status") else "🟢 registered"
+    parts = []
+    if r.get("markers") and r["markers"][0] == FORMER_HOST_MARK:
+        parts.append("former official address of this project, no longer ours")
+    if r.get("markers") and r["markers"][0] == KNOWN_SITE_MARK:
+        parts.append("known impersonation site")
+    if r.get("repo"):
+        parts.append(f"site of the copycat repo {r['repo']}")
+    if r.get("title"):
+        parts.append(f"“{r['title']}”")
+    if marks:
+        parts.append("names the project")
+    if r.get("new_registration"):
+        parts.append(f"domain registered in the last {NRD_DAYS} days")
+    if r.get("download_hosts"):
+        parts.append(f"downloads point to {', '.join(r['download_hosts'])}")
+    if r.get("ads"):
+        parts.append(f"ads: {', '.join(r['ads'])}")
+    if shown != r["host"]:
+        parts.append(f"shown in browsers as {shown}")
+    prior = tracker.entry("sites", key) or {}
+    report = prior.get("report")
+    if not report:
+        if r["host"].endswith(".github.io"):
+            report = "GitHub: Report repository / Block or report on the account"
+        elif platform_of(r["host"]):
+            report = f"{platform_of(r['host'])} (its report form)"
+        else:
+            reg = rdap(r["host"]) if not DRY_RUN else {}
+            report = (f"{reg.get('registrar') or 'registrar'} ({reg.get('abuse') or 'abuse contact unknown'}), "
+                      "hosting provider, Google Safe Browsing")
+    return "sites", key, {"name": label, "source": "typosquat-site", "status": status,
+                          "what": "; ".join(parts) or "lookalike name", "report": report}
+
+
+def norm_watch_key(r):
+    return re.sub(r"#(live|down)$", "", (r.get("key") or r["host"]).lower()).rstrip("/")
 
 
 # ------------------------------------------------------------------ main --
@@ -1140,27 +1131,7 @@ def main():
 
     # Articles presenting this fork's T2 support as OpenCore Legacy Patcher news (daily runs only)
     if not QUICK_RUN and NEWS_QUERIES:
-        arts = article_candidates(site_host)
-        with cf.ThreadPoolExecutor(max_workers=16) as ex:
-            hits = [r for r in ex.map(lambda kv: inspect_article(kv[0], *kv[1], set(repos)), arts.items()) if r]
-        # Translated editions (en.soydemac.com for soydemac.com) rarely show up in news feeds
-        known = {r["host"] for r in hits}
-        for hit in list(hits):
-            for r in article_editions(hit, set(repos), site_host):
-                if r["host"] not in known:
-                    known.add(r["host"])
-                    hits.append(r)
-        # One issue per site, listing all its language editions
-        families = {}
-        for r in sorted(hits, key=lambda r: (bool(r.get("edition_of")), r["host"])):
-            families.setdefault(site_family(r["host"]), []).append(r)
-        for family, group in families.items():
-            main_hit = group[0]
-            main_hit["key"] = f"article:{family}"
-            main_hit["family"] = family
-            main_hit["editions"] = [(r["host"], r["url"], r["title"]) for r in group[1:]]
-            main_hit.pop("edition_of", None)
-            results.append(main_hit)
+        results += find_articles(site_host, set(repos))
     all_sites = copycat_sites(repos, site_host)
     for r in results:  # a KNOWN_SITES entry that is also a copycat repo's site: name the repo
         if r.get("key") and not r.get("repo"):
@@ -1183,54 +1154,28 @@ def main():
             results.append(r)
             by_key[key] = r
 
-    tracked = set()
-    for label in (LABEL, ARTICLE_LABEL):
-        for issue in paginate(f"/repos/{ORIGINAL}/issues?labels={label}&state=all&per_page=100"):
-            m = re.search(r"<!-- typosquat-site:(\S+) -->", issue.get("body") or "")
-            if m:
-                tracked.add(m.group(1).lower())
-
-    new = [r for r in sorted(results, key=lambda r: r["host"]) if r.get("key", r["host"]) not in tracked]
-    if any(not r.get("article") for r in new) and not DRY_RUN:
-        post(f"/repos/{ORIGINAL}/labels",
-             {"name": LABEL, "color": "b60205", "description": "Website imitating this project"})
-    if any(r.get("article") for r in new) and not DRY_RUN:
-        post(f"/repos/{ORIGINAL}/labels", {"name": ARTICLE_LABEL, "color": "d93f0b",
-                                           "description": "Article presenting this fork as Dortania's OCLP"})
-
-    for r in new:
-        if r.get("down"):
-            summary(f"- **{r['label']}** — offline copycat site, watched until it goes live")
-        elif r.get("fake404"):
-            summary(f"- **{r.get('label', r['host'])}** — fake 404 (HTTP {r['status']}): {r['title'] or 'no title'}")
-        elif r.get("article"):
-            summary(f"- **{r.get('family', r['host'])}** (article, {1 + len(r.get('editions', []))} edition(s)) — {r['title'] or 'no title'}; says: {r['claim'][:160]}")
-        else:
-            summary(f"- **{r.get('label', r['host'])}** — {r['title'] or 'no title'}; matched "
-                    + (", ".join(f"`{m}`" for m in r["markers"]) or "nothing yet (newly registered)"))
-        if DRY_RUN:
+    # Findings go into the tracker issue (bridgepatcher_tracker.py), one entry per site or article
+    tracker = Tracker("lookalike-site watch", DRY_RUN)
+    if tracker.paused:
+        summary("The tracker issue is closed, so the watch is paused. Reopen it to resume.")
+        return
+    new = 0
+    for r in sorted(results, key=lambda r: r["host"]):
+        section, key, info = tracker_entry(r, tracker)
+        watched = bool(set(r.get("markers") or []) & {FORMER_HOST_MARK, KNOWN_SITE_MARK, COPYCAT_MARK})
+        if tracker.dismissed(key) and not (watched and info.get("status", "")[:1] in ("🟢", "🟠")):
             continue
-        if r.get("down"):
-            issue = {"title": f"Copycat site (offline for now): {r['label']}", "body": down_issue_body(r),
-                     "labels": [LABEL]}
-        elif r.get("article"):
-            more = f" (+{len(r['editions'])} language editions)" if r.get("editions") else ""
-            issue = {"title": f"Misattributing article: {r.get('family', r['host'])}{more}", "body": article_issue_body(r),
-                     "labels": [ARTICLE_LABEL]}
-        else:
-            reg = {} if r["host"].endswith(".github.io") else rdap(r["host"])
-            farm = r.get("farm")
-            issue = {
-                "title": f"{'Content farm' if farm else 'Lookalike site'}: {r.get('label', r['host'])}",
-                "body": farm_issue_body(r, reg) if farm else issue_body(r, reg),
-                "labels": [LABEL],
-            }
-        status, _ = post(f"/repos/{ORIGINAL}/issues", issue)
-        if status >= 300:
-            print(f"::error::Could not open an issue for {r['host']} (HTTP {status})")
-        time.sleep(3)
-
-    summary(f"\n{len(new)} new lookalike sites or articles found ({len(results)} matching in total).")
+        existing = tracker.entry(section, key)
+        if existing and existing.get("source") not in (None, "typosquat-site", "misattributed-article", "sites"):
+            continue  # listed by another watch
+        if not existing:
+            new += 1
+            summary(f"- **{info['name']}** ({section[:-1]}) — {info.get('status', '')} {info['what'][:200]}")
+        if not DRY_RUN:
+            watched = bool(set(r.get("markers") or []) & {FORMER_HOST_MARK, KNOWN_SITE_MARK, COPYCAT_MARK})
+            tracker.upsert(section, key, info, revive_when_online=watched)
+    tracker.save()
+    summary(f"\n{new} new lookalike sites or articles found ({len(results)} matching in total).")
 
 
 if __name__ == "__main__":
