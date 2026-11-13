@@ -15,6 +15,7 @@ import socket
 import ssl
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -95,6 +96,12 @@ NEWS_QUERIES = [q.strip() for q in os.environ.get("NEWS_QUERIES", "").split("|")
 # Bing/Google News editions to search, as language-COUNTRY (each costs two requests per query)
 NEWS_MARKETS = os.environ.get("NEWS_MARKETS", "en-US").split()
 ARTICLE_LABEL = "misattributed-article"
+# News sites always searched (through their WordPress search) even when no feed lists them
+NEWS_SITES = [h.lower() for h in os.environ.get("NEWS_SITES", "").split()]
+# Language subdomains of translated editions (en.example.com); see edition_hosts()
+EDITION_PREFIXES = os.environ.get("EDITION_PREFIXES", "en es de fr it pt br").split()
+# Searched on WordPress news sites, through their REST API
+SITE_SEARCHES = ["OpenCore Legacy Patcher", "OCLP T2"]
 # The upstream project's names, as articles write them
 OCLP_NAMES = re.compile(r"opencore[\s-]*legacy[\s-]*patcher|\boclp\b(?![\s-]*t2\b)")
 T2_CHIP = re.compile(r"\bt2(?![0-9])")  # T2, T2s, T2-equipped
@@ -102,7 +109,19 @@ T2_CHIP = re.compile(r"\bt2(?![0-9])")  # T2, T2s, T2-equipped
 SUPPORT_CLAIM = re.compile(
     r"(?<!un)support|(?<!in)compatib|now (?:works|runs)|\badds?\b|\bbrings?\b|expands?|extends?|unlocks?|"
     r"soport|admite|ampl[ií]a|llega|unterst[uü]tz|erweitert|bringt|prend en charge|prise en charge|"
-    r"[ée]tend|ajoute|supporto|estende|aggiunge|suporte|adiciona|amplia")
+    r"[ée]tend|ajoute|supporto|estende|aggiunge|suport|adiciona|amplia")
+# Words that negate a claim or leave T2 Macs out; a sentence containing one doesn't count
+# ("doesn't support T2", "schließt T2-Geräte aus", "excepto los Mac T2", "T2 Macs remain unsupported").
+# Bare "unsupported" isn't one: "brings Tahoe to unsupported T2 Macs" is a claim.
+EXCLUDED = re.compile(
+    r"\bnot\b|n't\b|\bno\b(?!\s+mac)|\bwithout\b|\bexcept|\bexclud|\bnever\b|"
+    r"\b(?:remains?|are|is|stays?|still|left)\s+unsupported|"
+    r"\bnicht\b|\bkein|\bohne\b|\bau(?:ß|ss)er\b|ausgenommen|ausgeschlossen|schlie(?:ß|ss)t\b.*\baus\b|"
+    r"\bsin\b|\bexcept[oa]\b|\bsalvo\b|\bexcluy|\bnunca\b|"
+    r"\bsauf\b|\bsans\b|\bexclu|\bpas\b|\bne\b|"
+    r"\bnon\b|\btranne\b|\beccetto\b|\bsenza\b|\besclu|"
+    r"\bn[ãa]o\b|\bsem\b|\bexceto\b|\bexclui")
+SENTENCE_END = re.compile(r"(?<=[.!?;])\s+|\s+[|•·–—]\s+")
 # A negation shortly before a claim word ("doesn't support", "no es compatible", "nicht unterstützt")
 NEGATED = re.compile(r"(?:\bnot\b|n't\b|\bno\b|\bwithout\b|\bnicht\b|\bkein\w*|\bsin\b|\bpas\b|"
                      r"\bnon\b|\bn[ãa]o\b|\bsem\b|\bnunca\b|\bnever\b)[^.!?]{0,25}$")
@@ -369,16 +388,24 @@ def watch_key(host, path):
     return f"{host}{path.rstrip('/')}#live".lower()
 
 
-def inspect_watched(host, path, mark, repo=None, need_marker=False):
+def inspect_watched(host, path, mark, repo=None, need_marker=False, report_down=False):
     """A FORMER_HOSTS, KNOWN_SITES or copycat repository address: reported whenever it serves
-    a page (with need_marker, only if the page names the project). Returns None while it's
-    down (an error status or no response)."""
+    a page (with need_marker, only if the page names the project). While it's down (an error
+    status or no response) it's only reported with report_down, once, as an offline site
+    (key <address>#down); it gets its own issue (<address>#live) when it goes live."""
     status, final, page = fetch(f"https://{host}{path}")
     if not status or status >= 400:
-        print(f"Watched address {host}{path} is down ({status or 'no response'}); not reported")
+        print(f"Watched address {host}{path} is down ({status or 'no response'})")
         summary(f"- `{host}{path}` (watched" + (f", site of {repo}" if repo else "")
                 + f"): down ({status or 'no response'})")
-        return None
+        if not report_down:
+            return None
+        return {
+            "host": host, "url": f"https://{host}{path}", "status": status, "ips": resolve(host),
+            "title": "", "markers": [mark], "download_hosts": [], "links_official": False,
+            "new_registration": False, "down": True, "repo": repo,
+            "key": watch_key(host, path).replace("#live", "#down"), "label": f"{host}{path.rstrip('/')}",
+        }
     low = fold(page)
     if need_marker and not any(m in low for m in MARKERS):
         print(f"  {host}{path} ({repo}) is up but doesn't name the project; not reported")
@@ -612,24 +639,63 @@ def inspect_farm(host, url):
 
 # ------------------------------------------------ misattributing articles --
 
+def main_content(page):
+    """The article itself: the longest <article> block, else <main>, else the whole page.
+    Keeps site menus, sidebars and related-post lists out of the judgement."""
+    blocks = re.findall(r"<article\b[^>]*>(.*?)</article\s*>", page, re.I | re.S)
+    if blocks:
+        return max(blocks, key=len)
+    m = re.search(r"<main\b[^>]*>(.*?)</main\s*>", page, re.I | re.S)
+    return m.group(1) if m else page
+
+
+def slugify(title):
+    """The address slug blogs (WordPress and most others) make from a headline."""
+    t = unicodedata.normalize("NFKD", fold(title))
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", "-", t).strip("-")
+
+
+def edition_hosts(host):
+    """Other language editions of a news site: es.example.com -> example.com, www.example.com,
+    en.example.com, ... Translated editions usually keep the original's address path."""
+    labels = host.split(".")
+    base = ".".join(labels[1:]) if len(labels) > 2 and labels[0] in EDITION_PREFIXES + ["www"] else host
+    return ({base, f"www.{base}"} | {f"{p}.{base}" for p in EDITION_PREFIXES}) - {host}
+
+
+def wp_search(host, query):
+    """(url, title) of a WordPress site's posts matching a query, via its public REST API."""
+    q = urllib.parse.urlencode({"search": query, "per_page": 20, "_fields": "link,title"})
+    try:
+        posts = fetch_json(f"https://{host}/wp-json/wp/v2/posts?{q}", timeout=20)
+    except Exception:
+        return []
+    if not isinstance(posts, list):
+        return []
+    return [(p["link"], html.unescape(((p.get("title") or {}).get("rendered")) or ""))
+            for p in posts if isinstance(p, dict) and p.get("link")]
+
+
 def page_text(page):
     """Visible text of an HTML page, folded (scripts, styles and tags removed)."""
     page = re.sub(r"<(script|style|noscript)\b.*?</\1\s*>", " ", page, flags=re.I | re.S)
     return re.sub(r"\s+", " ", fold(html.unescape(TAG.sub(" ", page))))
 
 
-def t2_claim(text, window=400, near=150):
-    """The passage where `text` says OpenCore Legacy Patcher (gained) support for T2 Macs, or "":
-    a T2 mention within `window` characters of the project's name, with a claim word that isn't
-    negated within `near` characters of the T2 mention."""
-    for m in OCLP_NAMES.finditer(text):
-        lo, hi = max(0, m.start() - window), m.end() + window
-        for t in T2_CHIP.finditer(text, lo, hi):
-            for c in SUPPORT_CLAIM.finditer(text, max(0, t.start() - near), t.end() + near):
-                if not NEGATED.search(text[max(0, c.start() - 40):c.start()]):
-                    a = max(0, min(m.start(), t.start(), c.start()) - 80)
-                    b = max(m.end(), t.end(), c.end()) + 80
-                    return text[a:b].strip()
+def t2_claim(text, context=2):
+    """The sentence in which `text` says OpenCore Legacy Patcher (gained) support for T2 Macs, or "":
+    one that mentions T2 and a claim word and nothing that negates it or leaves T2 Macs out,
+    with the project's name in it or in the `context` sentences around it."""
+    sentences = [x for x in SENTENCE_END.split(text) if x.strip()]
+    for i, sent in enumerate(sentences):
+        if not T2_CHIP.search(sent) or EXCLUDED.search(sent):
+            continue
+        if not any(not NEGATED.search(sent[max(0, c.start() - 40):c.start()])
+                   for c in SUPPORT_CLAIM.finditer(sent)):
+            continue
+        if OCLP_NAMES.search(" ".join(sentences[max(0, i - context):i + context + 1])):
+            return sent.strip()
     return ""
 
 
@@ -696,18 +762,51 @@ def article_candidates(site_host):
             for url in brave_search(query):
                 add(url, "")
             time.sleep(1.2)
+    for host in NEWS_SITES:
+        for query in SITE_SEARCHES:
+            for url, title in wp_search(host, query):
+                add(url, title)
     print(f"{len(found)} sites with news or search hits to check for misattribution")
     return found
+
+
+def article_editions(hit, copycats, site_host):
+    """Other language editions of a flagged article's site: the same address path on each
+    edition host, and the edition's own WordPress search."""
+    parts = urllib.parse.urlsplit(hit["url"])
+    path = parts.path or "/"
+    if (parts.hostname or "").lower() != hit["host"]:  # a Google News link: guess from the headline
+        path = f"/{slugify(hit['title'])}/" if hit["title"] else "/"
+    out = []
+    for host in sorted(edition_hosts(hit["host"])):
+        if allowed(host, site_host) or not resolve(host):
+            continue
+        tries = [(f"https://{host}{path}", "")] if path != "/" else []
+        for query in SITE_SEARCHES:
+            tries += wp_search(host, query)
+        for url, title in tries:
+            r = inspect_article(host, url, title, True, copycats)
+            if r:
+                r["edition_of"] = hit["host"]
+                out.append(r)
+                break
+    return out
 
 
 def inspect_article(host, url, title, fetchable, copycats):
     """An article that presents T2 support as OpenCore Legacy Patcher news without crediting
     this fork. Judged on the page when it can be fetched, otherwise on the headline."""
     status, final, page = fetch(url) if fetchable else (None, url, "")
+    if not fetchable and title:
+        # Google News only gives a headline: try the address blogs derive from it
+        guess = f"https://{host}/{slugify(title)}/"
+        g_status, g_final, g_page = fetch(guess)
+        if g_page and g_status and g_status < 400 and slugify(title)[:40] in slugify(page_text(g_page)):
+            status, final, page = g_status, g_final, g_page
     if page:
         m = re.search(r"<title[^>]*>(.*?)</title>", page, re.I | re.S)
         title = re.sub(r"\s+", " ", html.unescape(m.group(1))).strip() if m else title
-    text = page_text(page) if page else ""
+    text = page_text(main_content(page)) if page else ""
     head = fold(title)
     claim = t2_claim(head) or t2_claim(text)
     if not claim:
@@ -736,6 +835,7 @@ def article_issue_body(r):
         "",
         f"- **URL:** {r['url']}" + (f" (HTTP {r['status']})" if r["status"] else ""),
         f"- **Headline:** {r['title'] or '—'}",
+    ] + ([f"- **Edition of:** {r['edition_of']} (same article in another language)"] if r.get("edition_of") else []) + [
         f"- **Judged on:** the {r['judged_on']}"
         + (" (the feed only gives a Google News link; open it to reach the article)" if r["judged_on"] == "headline" else ""),
         f"- **Passage:** > {r['claim']}",
@@ -805,6 +905,32 @@ def farm_issue_body(r, reg):
         "Closing this issue marks the site as handled, and the workflow won't file it again.",
         "",
         MARKER.format(r.get("key", r["host"])),
+    ]
+    return "\n".join(lines)
+
+
+def down_issue_body(r):
+    status = f"HTTP {r['status']}" if r["status"] else "no response"
+    if r["markers"][0] == KNOWN_SITE_MARK:
+        why = "It's listed in `KNOWN_SITES` in `typosquat-sites.yml` as a known impersonation site."
+    else:
+        why = "It's the GitHub Pages address of a repository that presents itself as this project or is a fork of it."
+    lines = [
+        f"A copycat website is set up but offline for now: **{r['label']}**",
+        "",
+        why,
+        "",
+        f"- **URL:** {r['url']} ({status})",
+    ] + ([f"- **Repository:** [`{r['repo']}`](https://github.com/{r['repo']})"] if r.get("repo") else []) + [
+        f"- **Account:** [`{r['host'].split('.')[0]}`](https://github.com/{r['host'].split('.')[0]})"
+        if r["host"].endswith(".github.io") else f"- **IP addresses:** {', '.join(r['ips']) or '—'}",
+        "",
+        "Nothing is published there right now, so there's nothing to report to GitHub or a host yet. "
+        "The workflow checks it every 3 hours and opens a separate issue as soon as it serves a page.",
+        "",
+        "Closing this issue doesn't stop that check.",
+        "",
+        MARKER.format(r["key"]),
     ]
     return "\n".join(lines)
 
@@ -944,7 +1070,7 @@ def main():
             r["markers"].insert(0, mark)
             r["key"] = watch_key(host, path)
             continue
-        r = inspect_watched(host, path, mark)
+        r = inspect_watched(host, path, mark, report_down=mark == KNOWN_SITE_MARK)
         if r:
             results.append(r)
 
@@ -956,8 +1082,22 @@ def main():
     if not QUICK_RUN and NEWS_QUERIES:
         arts = article_candidates(site_host)
         with cf.ThreadPoolExecutor(max_workers=16) as ex:
-            results += [r for r in ex.map(lambda kv: inspect_article(kv[0], *kv[1], set(repos)), arts.items()) if r]
-    sites = {hp: v for hp, v in copycat_sites(repos, site_host).items() if watch_key(*hp) not in watched_keys}
+            hits = [r for r in ex.map(lambda kv: inspect_article(kv[0], *kv[1], set(repos)), arts.items()) if r]
+        # Translated editions (en.soydemac.com for soydemac.com) rarely show up in news feeds
+        known = {r["host"] for r in hits}
+        for hit in list(hits):
+            for r in article_editions(hit, set(repos), site_host):
+                if r["host"] not in known:
+                    known.add(r["host"])
+                    hits.append(r)
+        results += hits
+    all_sites = copycat_sites(repos, site_host)
+    for r in results:  # a KNOWN_SITES entry that is also a copycat repo's site: name the repo
+        if r.get("key") and not r.get("repo"):
+            for hp, (repo, _own) in all_sites.items():
+                if watch_key(*hp).split("#")[0] == r["key"].split("#")[0]:
+                    r["repo"] = repo
+    sites = {hp: v for hp, v in all_sites.items() if watch_key(*hp) not in watched_keys}
     print(f"{len(repos)} copycat repositories, {len(sites)} websites of theirs to check")
     by_key = {r.get("key", r["host"]): r for r in results}
     for (host, path), (repo, own_pages) in sites.items():
@@ -967,7 +1107,8 @@ def main():
             hit["markers"].insert(0, COPYCAT_MARK)
             hit.update(key=key, repo=repo)
             continue
-        r = inspect_watched(host, path, COPYCAT_MARK, repo=repo, need_marker=not own_pages)
+        r = inspect_watched(host, path, COPYCAT_MARK, repo=repo, need_marker=not own_pages,
+                            report_down=own_pages and host.endswith(".github.io"))
         if r:
             results.append(r)
             by_key[key] = r
@@ -988,14 +1129,19 @@ def main():
                                            "description": "Article presenting this fork as Dortania's OCLP"})
 
     for r in new:
-        if r.get("article"):
+        if r.get("down"):
+            summary(f"- **{r['label']}** — offline copycat site, watched until it goes live")
+        elif r.get("article"):
             summary(f"- **{r['host']}** (article) — {r['title'] or 'no title'}; says: {r['claim'][:160]}")
         else:
             summary(f"- **{r.get('label', r['host'])}** — {r['title'] or 'no title'}; matched "
                     + (", ".join(f"`{m}`" for m in r["markers"]) or "nothing yet (newly registered)"))
         if DRY_RUN:
             continue
-        if r.get("article"):
+        if r.get("down"):
+            issue = {"title": f"Copycat site (offline for now): {r['label']}", "body": down_issue_body(r),
+                     "labels": [LABEL]}
+        elif r.get("article"):
             issue = {"title": f"Misattributing article: {r['host']}", "body": article_issue_body(r),
                      "labels": [ARTICLE_LABEL]}
         else:

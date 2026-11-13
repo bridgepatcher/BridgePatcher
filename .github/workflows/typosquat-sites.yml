@@ -62,7 +62,8 @@ jobs:
           # Former official addresses: always reported as typosquats, online or not
           FORMER_HOSTS: "oclp-t2.github.io"
           # Known impersonation sites, full address with path (space separated). Checked on every
-          # run, online or not; an issue is opened as soon as one serves a page.
+          # run: an issue is opened right away while one is offline, and another as soon as it
+          # serves a page. (Copycat repos' own GitHub Pages addresses are handled the same way.)
           # tea-ching.github.io/OpenCore-Legacy-Patcher-T2: Pages site of the copycat repo
           # TEA-ching/OpenCore-Legacy-Patcher-T2 (its homepage link), down as of 2026-11-13
           KNOWN_SITES: "https://tea-ching.github.io/OpenCore-Legacy-Patcher-T2/"
@@ -90,6 +91,10 @@ jobs:
             "OpenCore Legacy Patcher" Sequoia T2
           # News editions searched (language-COUNTRY); machine-translated sites show up in several
           NEWS_MARKETS: "en-US es-ES de-DE fr-FR it-IT pt-BR"
+          # News sites always searched through their own (WordPress) search, even if no feed lists
+          # them. Other language editions (en.<site>, es.<site>, ...) of every flagged article's
+          # site are checked automatically.
+          NEWS_SITES: "soydemac.com en.soydemac.com"
           # The 3-hourly runs check only FORMER_HOSTS, KNOWN_SITES and copycat repositories'
           # websites (no lookalike domains, crt.sh, WHOIS lists or web search)
           QUICK_RUN: ${{ github.event.schedule == '17 */3 * * *' && 'true' || 'false' }}
