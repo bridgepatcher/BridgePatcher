@@ -111,7 +111,7 @@ def heading_version(title):
 # and must not be glued onto the bullet above it: it marks the following
 # bullets as security fixes instead.
 SECURITY_INTRO_RE = re.compile(
-    r"^(?:this (?:release|version|build)\s+)?(?:also\s+)?(?:fix(?:es|ed)?|patch(?:es|ed)?|address(?:es|ed)?)\s+"
+    r"^(?:(?:this (?:release|version|build)|it)\s+)?(?:also\s+)?(?:fix(?:es|ed)?|patch(?:es|ed)?|address(?:es|ed)?)\s+"
     r"(?:(?:a|an|the|the following|following|several|some|these|multiple|two|three|\d+)\s+)?"
     r"(?:(?:security|critical)\s+)?(?:vulnerabilit(?:y|ies)|security (?:issues?|fixes?|bugs?|holes?|flaws?))"
     r"(?:,?\s*(?:too|as well))?(?:\s*\([^)]*\))?\s*:\s*$"
@@ -122,9 +122,21 @@ SECURITY_INTRO_RE = re.compile(
     re.I,
 )
 
+# A line that only names the file the fixes below it are in, e.g. "security.py:"
+# under "- fixes the following vulnerabilities:". It is not a fix of its own and
+# must not become the advisory: it names the affected component of the bullets below.
+COMPONENT_RE = re.compile(r"^`?([\w.\-/]+\.[A-Za-z0-9]+)`?\s*:\s*$")
+
+# A bullet that continues the fix above it instead of starting a new one, e.g.
+# "- This is fixed by cross-checking ..." or "- Impact: ...".
+CONTINUATION_RE = re.compile(
+    r"^(?:(?:this|it)\s+(?:is|was|has been|got)\s+fixed\b|fixed by\b|impact\s*:|severity\s*:)",
+    re.I,
+)
+
 
 def parse_changelog(path):
-    entries, version, current = [], None, None
+    entries, version, current, component = [], None, None, None
     heading_security = intro_security = False
     with open(path, encoding="utf-8") as f:
         for raw in f:
@@ -132,8 +144,8 @@ def parse_changelog(path):
             heading = re.match(r"^(#{1,6})\s+(.*)", line)
             if heading:
                 level, title = len(heading.group(1)), heading.group(2).strip()
-                current, intro_security = None, False
-                hv = heading_version(title) if level == 2 else None
+                current, intro_security, component = None, False, None
+                hv =heading_version(title) if level == 2 else None
                 if level == 1:
                     version, heading_security = None, False
                 elif hv:
@@ -147,18 +159,35 @@ def parse_changelog(path):
             if not line.strip():
                 continue  # blank lines keep the current entry (Impact:/Severity: follow)
 
-            if line[:1] not in (" ", "\t") and SECURITY_INTRO_RE.match(line.strip()):
-                current, intro_security = None, True
+            top_level = line[:1] not in (" ", "\t")
+            if top_level and SECURITY_INTRO_RE.match(line.strip()):
+                current, intro_security, component = None, True, None
+                continue
+
+            label = COMPONENT_RE.match(line) if top_level else None
+            if label:  # names the file for the entries below; not part of the one above
+                component = label.group(1)
+                if current is not None and current["text"] == current["first"] \
+                        and SECURITY_INTRO_RE.match(current["first"]):
+                    current["component"] = component  # intro whose fix (e.g. code) follows the name
                 continue
 
             bullet = re.match(r"^[-*+]\s+(.*)", line)
-            if bullet or current is None:
+            if bullet and current is not None and CONTINUATION_RE.match(bullet.group(1).strip()):
+                current["text"] += "\n" + line.strip()
+            elif bullet or current is None:
                 text = (bullet.group(1) if bullet else line).strip()
+                if bullet and SECURITY_INTRO_RE.match(text):
+                    # "- fixes the following vulnerabilities:" stays an entry for fixes indented
+                    # below it (dropped further down if there are none); file names before it
+                    # belonged to other fixes.
+                    component = None
                 current = {
                     "version": version,
                     "first": text,
                     "text": text,
                     "security_section": heading_security or intro_security,
+                    "component": component,
                 }
                 entries.append(current)
             else:  # indented sub-bullets, code, Impact:/Severity:/PoC paragraphs
@@ -172,9 +201,10 @@ def parse_changelog(path):
     for e in entries:
         lines = [l for l in e["text"].splitlines() if l.strip()]
         if SECURITY_INTRO_RE.match(e["first"].strip()):
-            if len(lines) < 2:
+            fixes = [l for l in lines[1:] if not COMPONENT_RE.match(re.sub(r"^[-*+]\s+", "", l.strip()))]
+            if not fixes:  # only the intro (and maybe a file name like "security.py:")
                 continue
-            e["key"] = re.sub(r"^[-*+]\s+", "", lines[1].strip())
+            e["key"] = re.sub(r"^[-*+]\s+", "", fixes[0].strip())
         else:
             e["key"] = e["first"]
         kept.append(e)
@@ -308,7 +338,8 @@ def ai_review(entry):
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Project: {REPO}\nVersion: {entry['version']}\n"
-                                    f"Entry:\n{entry['text'][:6000]}"},
+                                    + (f"Affected file: {entry['component']}\n" if entry.get("component") else "")
+                                    + f"Entry:\n{entry['text'][:6000]}"},
     ]
     errors = []
     if MODELS_TOKEN and not MODELS_EXHAUSTED:
@@ -352,7 +383,8 @@ def classify(entry):
         return None
     info = {
         "is_vulnerability": True,
-        "summary": re.sub(r"\s+", " ", entry["key"])[:100],
+        "summary": re.sub(r"\s+", " ", (f"{entry['component']}: " if entry.get("component") else "")
+                          + entry["key"])[:100],
         "severity": "medium",
         "cwe_ids": [],
         "details": "Security fix disclosed in the project's changelog.",
@@ -380,8 +412,10 @@ def classify(entry):
 def build_payload(entry, info):
     version = entry["version"]
     quoted = "\n".join("> " + l for l in entry["text"].splitlines())
+    component = f"### Affected file\n`{entry['component']}`\n\n" if entry.get("component") else ""
     description = (
         f"{info['details']}\n\n"
+        f"{component}"
         f"### Patches\nFixed in version `{version}`. Please update.\n\n"
         f"### Changelog entry\n{quoted}\n\n"
         f"<sub>Created automatically from `{CHANGELOG}`. {MARKER} {entry['id']}</sub>\n"
