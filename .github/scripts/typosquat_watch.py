@@ -25,6 +25,8 @@ MAX_DIST = int(os.environ.get("MAX_DISTANCE", "2"))
 FP_COUNT = int(os.environ.get("FINGERPRINT_COMMITS", "20"))
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() == "true"
 CONTACT_SUSPICIOUS = os.environ.get("CONTACT_SUSPICIOUS", "true").lower() == "true"
+# When a copy has issues disabled, post the rename request as a comment on its newest commit instead
+CONTACT_VIA_COMMIT = os.environ.get("CONTACT_VIA_COMMIT", "true").lower() == "true"
 # Without a PAT the built-in GITHUB_TOKEN is used: it can scan and open issues
 # here, but it can't open issues in other people's repositories.
 HAS_PAT = os.environ.get("HAS_PAT", "false").lower() == "true"
@@ -223,8 +225,55 @@ def describe_copy(sha, own):
 
 # ------------------------------------------------------------ assessment --
 
-def assess(cand, owner_squat, our_owner):
+def hidden_work(full, cand, our_authors):
+    """Signs of a copy hiding what it really ships: (points, reason) pairs.
+
+    - its default branch has nothing of its own, but other branches carry commits by people who
+      never committed to this project, or have a history of their own (the untouched default
+      branch makes the repo look like a plain copy, while the changes live elsewhere): 2 points
+    - it publishes its own installers in releases: 1 point"""
+    signals = []
+    default = cand.get("default_branch") or "main"
+    hidden = []
+    for b in paginate(f"/repos/{full}/branches?per_page=100")[:30]:
+        if b["name"] == default:
+            continue
+        status, cmp, _ = request("GET", f"/repos/{full}/compare/{urllib.parse.quote(default, safe='')}..."
+                                        f"{urllib.parse.quote(b['name'], safe='')}")
+        if status == 404:
+            hidden.append(f"`{b['name']}` (a separate history)")
+            continue
+        if status >= 300 or not cmp or not cmp.get("ahead_by"):
+            continue
+        authors = {((c.get("commit") or {}).get("author") or {}).get("name") or "?" for c in cmp.get("commits", [])}
+        others = sorted(a for a in authors - our_authors if a)
+        if others:
+            hidden.append(f"`{b['name']}` ({cmp['ahead_by']} commits, by {', '.join(others[:3])})")
+    if hidden:
+        signals.append((2, "its default branch looks like an untouched copy, but other branches carry their own "
+                           "work: " + "; ".join(hidden[:4])))
+    assets = []
+    for rel in (get(f"/repos/{full}/releases?per_page=20") or []):
+        assets += [a["name"] for a in rel.get("assets", []) if re.search(r"\.(dmg|pkg|zip|app|exe|iso)$", a["name"], re.I)]
+    if assets:
+        signals.append((1, f"publishes its own installers in releases ({', '.join(sorted(set(assets))[:4])}"
+                           + (", …" if len(set(assets)) > 4 else "") + ")"))
+    return signals
+
+
+def our_authors():
+    """Names of people who committed to this project (recent history)."""
+    names = set()
+    for c in get(f"/repos/{ORIGINAL}/commits?per_page=100") or []:
+        names.add(((c.get("commit") or {}).get("author") or {}).get("name") or "")
+    return {n for n in names if n}
+
+
+def assess(cand, owner_squat, our_owner, extra=()):
     score, reasons = 0, []
+    for points, reason in extra:
+        score += points
+        reasons.append(reason)
     login = cand["owner"]["login"]
     if owner_squat:
         score += 2
@@ -377,6 +426,16 @@ def summary(line):
             f.write(line + "\n")
 
 
+def request_text(full, sha, named, fork_of):
+    """The rename request that fits: the name is the problem when it uses this project's current
+    or former name (forks of other copies included); otherwise the unmarked copy of its history."""
+    if named == "former":
+        return former_name_request(full)
+    if named == "current":
+        return name_request(full, fork_of)
+    return rename_request(full, sha) if sha else name_request(full, fork_of)
+
+
 def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons):
     """Open one issue on the copy: a rename request with name ideas when it looks unintentional
     (a notice for its users when it looks suspicious, only with CONTACT_SUSPICIOUS). Never twice:
@@ -385,18 +444,33 @@ def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons):
         return None, "not contacted, because it looks suspicious (CONTACT_SUSPICIOUS=false)"
     if not me:
         return None, "not contacted, because no TYPOSQUAT_PAT secret is configured"
-    if not cand.get("has_issues"):
-        return None, "not possible, because issues are disabled"
-    existing = paginate(f"/repos/{full}/issues?creator={me}&state=all&per_page=100")
+    existing = paginate(f"/repos/{full}/issues?creator={me}&state=all&per_page=100") if cand.get("has_issues") else []
     prior = next((i for i in existing if THEIR_MARKER in (i.get("body") or "")), None)
     if prior:
         return prior["html_url"], ""
+    # An earlier request posted as a commit comment (see below) counts too
+    for c in paginate(f"/repos/{full}/comments?per_page=100"):
+        if THEIR_MARKER in (c.get("body") or "") and (c.get("user") or {}).get("login") == me:
+            return c["html_url"], ""
+    if not cand.get("has_issues"):
+        if not CONTACT_VIA_COMMIT or suspicious:
+            return None, "not possible, because issues are disabled"
+        # Issues are off: a comment on the newest commit of their default branch reaches the owner
+        # (GitHub notifies a repository's owner of comments on its commits; they can't be turned off)
+        head = get(f"/repos/{full}/commits/{urllib.parse.quote(cand.get('default_branch') or 'main', safe='')}")
+        if not head:
+            return None, "not possible, because issues are disabled (and the newest commit couldn't be read)"
+        body = request_text(full, sha, named, fork_of)
+        status, data = post(f"/repos/{full}/commits/{head['sha']}/comments",
+                            {"body": f"**Please consider renaming this repository** (issues are disabled here, so "
+                                     f"this is a commit comment)\n\n{body}"})
+        time.sleep(3)
+        if status < 300:
+            return data.get("html_url") or f"https://github.com/{full}/commit/{head['sha']}", ""
+        return None, f"issues are disabled and the commit comment failed with HTTP {status}"
     title = (f"Notice: this repository is an unofficial copy of {ORIGINAL}" if suspicious
              else f"Please consider renaming: the name is very close to {ORIGINAL}")
-    body = (suspicious_notice(full, sha, reasons) if suspicious and sha
-            else rename_request(full, sha) if sha
-            else name_request(full, fork_of) if named == "current"
-            else former_name_request(full))
+    body = suspicious_notice(full, sha, reasons) if suspicious and sha else request_text(full, sha, named, fork_of)
     status, data = post(f"/repos/{full}/issues", {"title": title, "body": body})
     time.sleep(3)
     if status < 300:
@@ -464,6 +538,7 @@ def main():
 
     found = 0
     seen = set()
+    authors = our_authors()
     for full, owner_sq in sorted(candidates.items()):
         if tracker.dismissed(full):
             continue
@@ -486,7 +561,8 @@ def main():
             continue  # similar name, but not a copy of this project
 
         seen.add(full.lower())
-        suspicious, reasons = assess(cand, owner_sq, owner)
+        extra = hidden_work(full, cand, authors) if own == 0 or own is None else []
+        suspicious, reasons = assess(cand, owner_sq, owner, extra)
         if named == "current":
             reasons.insert(0, f"uses this project's name ({name}) outside its fork network"
                               + (f" - it's a fork of {fork_of}" if fork_of else ""))
