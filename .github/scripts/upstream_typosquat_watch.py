@@ -635,6 +635,69 @@ def scan_copycat_sites(found_repos):
     return found
 
 
+# Download links that are fine on a copy of the official docs
+OFFICIAL_DOWNLOADS = ("github.com", "github.com/dortania", "github.com/bridgepatcher",
+                      "dortania.github.io", "bridgepatcher.github.io")
+COPY_STATUS = "🟡 unofficial copy"
+
+
+def scan_fork_sites(found_repos, skip):
+    """Websites published from forks: of upstream, of this project and of every listed repo.
+    A fork with GitHub Pages on, or with a homepage of its own (not its parent's), is checked.
+    An unchanged copy of the docs on the fork's own github.io address is only an "unofficial copy"
+    (often a contributor's fork, but outdated and a ready-made base for a fake). It counts as a
+    lookalike website when its download links lead anywhere but the official releases, or when
+    it's published on its own domain.
+    Returns (lookalike sites, copies), keyed host/path."""
+    roots = [UPSTREAM, ISSUE_REPO] + sorted(found_repos)
+    ignore = ALLOW_OWNERS | {m.lstrip("@").lower() for m in MENTIONS} | {UPSTREAM.split("/")[0].lower()}
+    candidates = {}
+    for root in roots:
+        parent = get(f"/repos/{root}") or {}
+        parent_home = (parent.get("homepage") or "").strip().rstrip("/").lower()
+        for f in paginate(f"/repos/{root}/forks?per_page=100&sort=newest"):
+            owner, name = f["owner"]["login"], f["name"]
+            if owner.lower() in ignore or f["full_name"].lower() in ALLOW_REPOS:
+                continue
+            home = (f.get("homepage") or "").strip()
+            own_home = home and home.rstrip("/").lower() != parent_home
+            if own_home:
+                host, path = ts.split_address(home)
+                if not host or ts.allowed(host, "") or host in ("github.com", "www.github.com"):
+                    own_home = False
+            if own_home:
+                candidates.setdefault((host, path), (f["full_name"], root))
+            if f.get("has_pages"):
+                pages = f"{owner.lower()}.github.io"
+                candidates.setdefault((pages, "/" if name.lower() == pages else f"/{name}/"), (f["full_name"], root))
+    print(f"{len(candidates)} fork websites to check")
+    sites, copies = {}, {}
+    for (host, path), (repo, root) in sorted(candidates.items()):
+        key = f"{host}{path.rstrip('/')}"
+        if key.lower() in skip:
+            continue
+        r = ts.inspect_watched(host, path, ts.COPYCAT_MARK, repo=repo, need_marker=True)
+        own_domain = not host.endswith(".github.io")
+        if not r or (r.get("fake404") and not own_domain):
+            continue  # nothing published, or a broken Pages build on the fork's own address
+        dl = [h for h in r["download_hosts"] if h.lower() not in OFFICIAL_DOWNLOADS and h.lower() != host]
+        title = html.unescape(r["title"]) or "—"
+        entry = {
+            "downloads": cell(", ".join(r["download_hosts"]) or "no download links", 60),
+            "owner": site_owner(host, r.get("ips") or None),
+            "report": report_info(host, r.get("ips") or None),
+        }
+        if dl or own_domain:
+            why = f"downloads point to {', '.join(dl)}" if dl else "published on its own domain"
+            entry.update(title=cell(f"{title} · site of `{repo}`, a fork of `{root}`; {why}", 160),
+                         status=FAKE_404 if r.get("fake404") else "🟢 online")
+            sites[key] = entry
+        else:
+            entry.update(title=cell(f"{title} · site of `{repo}`, a fork of `{root}`", 160), status=COPY_STATUS)
+            copies[key] = entry
+    return sites, copies
+
+
 def search_candidates():
     """Web search hits (Brave Search API, optional) that could imitate the project: pages on
     hosting platforms under any account name (someone.itch.io/opencore-legacy-patcher) and
@@ -725,7 +788,7 @@ def prune_taken_down(state, seen):
 def load_state(body):
     m = STATE_RE.search(body or "")
     if not m:
-        return {"sites": {}, "repos": {}, "spam": {}, "watch": {}, "parked": {}}
+        return {"sites": {}, "repos": {}, "spam": {}, "watch": {}, "parked": {}, "copies": {}}
     state = json.loads(base64.b64decode(m.group(1)))
     for k in ("sites", "repos", "spam", "watch", "parked"):
         state.setdefault(k, {})
@@ -777,6 +840,17 @@ def render(state, seen):
                     "at any moment."]
     else:
         out.append("None found right now.")
+    copies = state.get("copies") or {}
+    if copies:
+        out += ["", f"### Unofficial copies of the official site ({len(copies)})",
+                f"Forks that publish their own copy of the {PROJECT} documentation. They aren't fakes as far as "
+                "the checks can tell (their download links lead to the official releases), but they may be "
+                "outdated and aren't maintained by the developers: use the official site instead. A copy "
+                "that changes its download links or moves to its own domain is listed as a website above.", "",
+                "| Site | Status | Belongs to | Page title | Download links point to | First seen | Last seen |",
+                "|---|---|---|---|---|---|---|"]
+        out += [f"| `{h}` | {e['status']} | {e.get('owner', '—')} | {e['title']} | {e['downloads']} "
+                f"| {e['first_seen']} | {e['last_seen']} |" for h, e in sorted(copies.items())]
     parked = state.get("parked") or {}
     if parked:
         out += ["", f"### Registered lookalike domains without a website yet ({len(parked)})",
@@ -878,7 +952,12 @@ def main():
     seen = {"sites": set(found_sites), "repos": set(found_repos), "spam": set(found_spam)}
     new_spam = merge(state["spam"], found_spam)
     found_sites.update(scan_copycat_sites(found_repos))
+    fork_sites, copies = scan_fork_sites(found_repos, {k.lower() for k in found_sites})
+    found_sites.update(fork_sites)
     seen["sites"] = set(found_sites)
+    old_copies = state.get("copies") or {}
+    state["copies"] = {k: dict(v, first_seen=(old_copies.get(k) or {}).get("first_seen", TODAY.isoformat()),
+                               last_seen=TODAY.isoformat()) for k, v in copies.items()}
     old_other = state.get("other") or {}
     state["other"] = scan_other_sites(old_other, {r.lower() for r in found_repos})
     new_other = [h for h, e in state["other"].items() if e.get("auto") and h not in old_other]
