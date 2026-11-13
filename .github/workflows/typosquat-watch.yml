@@ -29,6 +29,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Repos filed on earlier runs, so one whose issue was deleted isn't filed again
+      - name: Restore list of filed repos
+        uses: actions/cache/restore@v4
+        with:
+          path: .typosquat-state
+          key: typosquat-watch-state-${{ github.run_id }}
+          restore-keys: typosquat-watch-state-
+
       - name: Scan for typosquatting copies
         env:
           # Optional: a classic PAT with the public_repo scope lets the workflow
@@ -44,4 +52,12 @@ jobs:
           ALLOWLIST: ""                # space-separated owner/repo names to ignore
           # Former names of the project: copies still named like these count as typosquats
           ALIASES: "OpenCore-Legacy-Patcher-T2 OCLP-T2"
+          STATE_FILE: .typosquat-state/filed.txt
         run: python .github/scripts/typosquat_watch.py
+
+      - name: Save list of filed repos
+        if: always() && hashFiles('.typosquat-state/filed.txt') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .typosquat-state
+          key: typosquat-watch-state-${{ github.run_id }}

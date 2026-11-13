@@ -33,6 +33,10 @@ ALLOWLIST = {s.lower() for s in os.environ.get("ALLOWLIST", "").split()}
 # OCLP-T2). Copies named exactly like these, or like a lookalike of them, are flagged too.
 ALIASES = os.environ.get("ALIASES", "").split()
 LABEL = "typosquat"
+# Repos this watch has filed before, one per line, kept between runs (the workflow restores and
+# saves it with the Actions cache). Its issues remain the main record, but a deleted issue leaves
+# no trace there: without this list, the repo would be filed again on the next run.
+STATE_FILE = os.environ.get("STATE_FILE", "")
 OUR_MARKER = "<!-- typosquat:{} -->"
 THEIR_MARKER = f"<!-- typosquat-notice-from:{ORIGINAL} -->"
 
@@ -329,7 +333,7 @@ def tracking_issue(full, sha, suspicious, reasons, their_issue, note, own=None):
 
 **Next step:** {action}
 
-Closing this issue marks the case as handled, and the workflow won't file it again.
+Closing this issue marks the case as handled, and the workflow won't file it again (deleting it does too).
 
 {OUR_MARKER.format(full)}
 """
@@ -401,10 +405,30 @@ def main():
     if not DRY_RUN:
         post(f"/repos/{ORIGINAL}/labels",
              {"name": LABEL, "color": "d93f0b", "description": "Typosquatting copy of this repo"})
-    for issue in paginate(f"/repos/{ORIGINAL}/issues?labels={LABEL}&state=all&per_page=100"):
+    # Every issue, not just labelled ones: a report whose label was removed still counts
+    for issue in paginate(f"/repos/{ORIGINAL}/issues?state=all&per_page=100"):
         m = re.search(r"<!-- typosquat:(\S+) -->", issue.get("body") or "")
         if m:
             tracked.add(m.group(1).lower())
+    remembered = set()
+    if STATE_FILE and os.path.exists(STATE_FILE):
+        with open(STATE_FILE) as f:
+            remembered = {line.strip().lower() for line in f if line.strip()}
+    for full in sorted(remembered - tracked):
+        print(f"  {full}: filed before, but its issue is gone (deleted?); not filed again")
+    tracked |= remembered
+
+    def save_state():
+        if STATE_FILE and not DRY_RUN and tracked:
+            os.makedirs(os.path.dirname(os.path.abspath(STATE_FILE)), exist_ok=True)
+            with open(STATE_FILE, "w") as f:
+                f.write("\n".join(sorted(tracked)) + "\n")
+
+    def remember(full):
+        tracked.add(full.lower())
+        save_state()
+
+    save_state()  # what the issues record so far, so it outlives a later deletion
 
     found = 0
     for full, owner_sq in sorted(candidates.items()):
@@ -477,6 +501,8 @@ def main():
         })
         if status >= 300:
             print(f"::error::Could not open tracking issue for {full} (HTTP {status})")
+        else:
+            remember(full)
         time.sleep(3)
 
     summary(f"\n{found} new typosquatting copies found.")
