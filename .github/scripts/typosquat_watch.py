@@ -247,6 +247,57 @@ def assess(cand, owner_squat, our_owner):
 
 # ----------------------------------------------------------------- texts --
 
+# Names a suggested new name must stay clear of: this project's names and Dortania's
+AVOID_NAMES = [n for n in os.environ.get("AVOID_NAMES", "OpenCore-Legacy-Patcher OCLP").split()]
+
+
+def suggest_names(full):
+    """A few concrete new names for a copy: its own extra words (e.g. "Fork", "vibin",
+    "Instructions-for-T2-Macs") kept, the project's current, former and Dortania's names dropped,
+    and every suggestion checked so it doesn't contain or imitate any of them."""
+    owner, name = full.split("/")
+    ours = [ORIGINAL.split("/")[1]] + ALIASES + AVOID_NAMES
+    extra = name
+    for n in sorted(ours, key=len, reverse=True):
+        extra = re.sub(re.escape(n).replace(r"\-", "[-_ .]?"), " ", extra, flags=re.I)
+    words = [w for w in re.split(r"[-_ .]+", extra) if w]
+    if words and words[0].lower() == "t2":
+        words = words[1:]  # "OCLP" + "T2" written apart; the suggestions say T2 already
+    tail = "-".join(words)
+    t2 = re.search(r"t2", name, re.I) is not None
+    base = "T2-Mac-Patcher" if t2 else "Mac-Patcher"
+    options = [f"{owner}-{base}" + (f"-{tail}" if tail else "-Fork"),
+               f"{base}-{tail}" if tail else f"{base}-Experiments",
+               f"{owner}-{tail}" if tail and len(words) > 1 else f"{base}-{owner}"]
+    out = []
+    for o in options:
+        o = re.sub(r"[^A-Za-z0-9._-]", "-", o).strip("-.")[:100]
+        if (o and o.lower() not in {x.lower() for x in out} and o.lower() != name.lower()
+                and not contains_name(o, ours) and not any(looks_like(o, n) for n in ours)):
+            out.append(o)
+    return out
+
+
+def how_to_rename(full):
+    owner = full.split("/")[0]
+    names = suggest_names(full)
+    lines = []
+    if names:
+        avoid = ", ".join(f'"{n}"' for n in [ORIGINAL.split("/")[1]] + ALIASES + AVOID_NAMES)
+        lines += [f"**Some name ideas** (anything works, as long as it doesn't contain {avoid}):", ""]
+        lines += [f"- `{n}`" for n in names]
+        lines.append("")
+    lines += [
+        "**How to rename:** open this repository's **Settings → General**, change **Repository name**, "
+        "and click **Rename**. That's all: GitHub redirects the old address to the new one, so links, "
+        "stars, forks and existing clones keep working. To point a local clone at the new name:",
+        "",
+        "```bash",
+        f"git remote set-url origin https://github.com/{owner}/<new-name>.git",
+        "```",
+    ]
+    return "\n".join(lines)
+
 def rename_request(full, sha):
     return f"""Hi! 👋
 
@@ -258,6 +309,8 @@ We're assuming this wasn't intentional. Could you help avoid the confusion by do
 - **re-create it as a regular fork**, so GitHub shows "forked from {ORIGINAL}".
 
 A short note in the README saying where the code comes from would also help, and keeps the license attribution intact.
+
+{how_to_rename(full)}
 
 Thanks for understanding!
 
@@ -277,6 +330,8 @@ We're assuming this wasn't intentional. Could you help avoid the confusion by do
 - **Rename the repository** (Settings → General → Repository name) to something that doesn't use the project's name, or
 - if it's meant to be a copy of BridgePatcher, **re-create it as a regular fork** of {ORIGINAL}, so GitHub shows "forked from {ORIGINAL}".
 
+{how_to_rename(full)}
+
 Thanks for understanding!
 
 {THEIR_MARKER}
@@ -288,7 +343,9 @@ def former_name_request(full):
 
 This repository's name still uses a former name of [{ORIGINAL}](https://github.com/{ORIGINAL}) ({", ".join(ALIASES)}). The project has been renamed, and repositories still using the old name look like typosquats of it (and of Dortania's OpenCore Legacy Patcher) to users.
 
-We're assuming this wasn't intentional. Could you **rename the repository** (Settings → General → Repository name) to something that doesn't use the old project name?
+We're assuming this wasn't intentional. Could you **rename the repository** to something that doesn't use the old project name?
+
+{how_to_rename(full)}
 
 Thanks for understanding!
 
@@ -347,6 +404,70 @@ def summary(line):
     if path:
         with open(path, "a") as f:
             f.write(line + "\n")
+
+
+def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons):
+    """Open one issue on the copy: a rename request with name ideas when it looks unintentional
+    (a notice for its users when it looks suspicious, only with CONTACT_SUSPICIOUS). Never twice:
+    an earlier one (found by its marker) is reused. Returns (their issue URL, note)."""
+    if suspicious and not CONTACT_SUSPICIOUS:
+        return None, "not contacted, because it looks suspicious (CONTACT_SUSPICIOUS=false)"
+    if not me:
+        return None, "not contacted, because no TYPOSQUAT_PAT secret is configured"
+    if not cand.get("has_issues"):
+        return None, "not possible, because issues are disabled"
+    existing = paginate(f"/repos/{full}/issues?creator={me}&state=all&per_page=100")
+    prior = next((i for i in existing if THEIR_MARKER in (i.get("body") or "")), None)
+    if prior:
+        return prior["html_url"], ""
+    title = (f"Notice: this repository is an unofficial copy of {ORIGINAL}" if suspicious
+             else f"Please consider renaming: the name is very close to {ORIGINAL}")
+    body = (suspicious_notice(full, sha, reasons) if suspicious and sha
+            else rename_request(full, sha) if sha
+            else name_request(full, fork_of) if named == "current"
+            else former_name_request(full))
+    status, data = post(f"/repos/{full}/issues", {"title": title, "body": body})
+    time.sleep(3)
+    if status < 300:
+        return data["html_url"], ""
+    return None, f"failed with HTTP {status} (issues may be restricted, or you may be blocked)"
+
+
+def recheck_uncontacted(me, owner, name, shas):
+    """Open tracking issues whose copy couldn't be asked to rename (issues were disabled): if its
+    owner has turned issues on since, and it still looks unintentional, ask now and update the
+    tracking issue."""
+    if not me:
+        return
+    for issue in paginate(f"/repos/{ORIGINAL}/issues?labels={LABEL}&state=open&per_page=100"):
+        body = issue.get("body") or ""
+        m = re.search(r"<!-- typosquat:(\S+) -->", body)
+        if not m or "**Issue on their repo:** not possible, because issues are disabled" not in body:
+            continue
+        full = m.group(1)
+        cand = get(f"/repos/{full}")
+        if not cand or not cand.get("has_issues"):
+            continue
+        suspicious, reasons = assess(cand, looks_like(cand["owner"]["login"], owner), owner)
+        if suspicious:
+            continue
+        sha, own = shared_history(full)
+        if not sha:
+            sha, own = copied_commit(full, shas), None
+        fork_of = (cand.get("source") or {}).get("full_name") if cand.get("fork") else None
+        named = ("current" if contains_name(cand["name"], [name]) else
+                 "former" if contains_name(cand["name"], ALIASES) else None)
+        url, note = contact_owner(me, full, cand, sha, named, fork_of, False, reasons)
+        if not url:
+            continue
+        new_body = (body.replace("**Issue on their repo:** not possible, because issues are disabled",
+                                 f"**Issue on their repo:** {url}")
+                    .replace("**Next step:** Ask the owner to rename the repository (the workflow couldn't contact them).",
+                             "**Next step:** Wait for the owner to respond to the rename request."))
+        request("PATCH", f"/repos/{ORIGINAL}/issues/{issue['number']}", {"body": new_body})
+        post(f"/repos/{ORIGINAL}/issues/{issue['number']}/comments",
+             {"body": f"The owner has enabled issues, so the workflow asked them to rename the repository: {url}"})
+        summary(f"- asked **{full}** to rename (issues enabled since): {url}")
 
 
 def main():
@@ -466,32 +587,7 @@ def main():
             continue
 
         # 3. Issue on their repo
-        their_url, note = None, ""
-        contact = CONTACT_SUSPICIOUS or not suspicious
-        if not contact:
-            note = "not contacted (CONTACT_SUSPICIOUS=false)"
-        elif not me:
-            note = "not contacted, because no TYPOSQUAT_PAT secret is configured"
-        elif not cand.get("has_issues"):
-            note = "not possible, because issues are disabled"
-        else:
-            existing = paginate(f"/repos/{full}/issues?creator={me}&state=all&per_page=100")
-            prior = next((i for i in existing if THEIR_MARKER in (i.get("body") or "")), None)
-            if prior:
-                their_url = prior["html_url"]
-            else:
-                title = (f"Notice: this repository is an unofficial copy of {ORIGINAL}" if suspicious
-                         else f"Please consider renaming: name is very close to {ORIGINAL}")
-                body = (suspicious_notice(full, sha, reasons) if suspicious and sha
-                        else rename_request(full, sha) if sha
-                        else name_request(full, fork_of) if named == "current"
-                        else former_name_request(full))
-                status, data = post(f"/repos/{full}/issues", {"title": title, "body": body})
-                if status < 300:
-                    their_url = data["html_url"]
-                else:
-                    note = f"failed with HTTP {status} (issues may be restricted, or you may be blocked)"
-                time.sleep(3)
+        their_url, note = contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons)
 
         # 4. Tracking issue in our repo
         status, data = post(f"/repos/{ORIGINAL}/issues", {
@@ -504,6 +600,9 @@ def main():
         else:
             remember(full)
         time.sleep(3)
+
+    if not DRY_RUN:
+        recheck_uncontacted(me, owner, name, shas)
 
     summary(f"\n{found} new typosquatting copies found.")
 
