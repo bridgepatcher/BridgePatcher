@@ -499,7 +499,8 @@ def scan_other_sites(previous, copycats):
     Articles found before are re-checked even when today's news feeds don't list them."""
     out = {}
     extra = [(e["url"], e.get("headline", "")) for e in previous.values() if e.get("auto") and e.get("url")]
-    articles = ts.find_articles("", copycats, extra, malvertising=True) if ts.NEWS_QUERIES or ts.NEWS_SITES else []
+    articles = (ts.find_articles("", copycats, extra, malvertising=True, false_claims=True)
+                if ts.NEWS_QUERIES or ts.NEWS_SITES else [])
     manual_families = {ts.site_family((row + [""])[0].lower()): (row + [""])[0].lower() for row in OTHER_SITES}
     also = {}
     for a in articles:
@@ -514,6 +515,8 @@ def scan_other_sites(previous, copycats):
                f"hijackers) often come through: {', '.join(a['malvertising'])}." if a.get("malvertising") else "")
         if a.get("kind") == "malvertising":
             lead = f"Article about {PROJECT}, “{a['title']}”, on a site with risky ads.{mal}"
+        elif a.get("kind") == "false-claim":
+            lead = f"Article that {a['false_claim']}: “{a['title'] or a['claim'][:140]}”.{mal}"
         else:
             lead = (f"Article that presents T2 Mac support as news about {PROJECT} (it comes from an "
                     f"unofficial fork): “{a['title']}”.{mal}")
@@ -897,7 +900,8 @@ def render(state, seen):
         out += ["", f"### Other sites to avoid ({len(other)})",
                 "These don't imitate the name, but they mislead visitors about "
                 f"{PROJECT} or expose them to malicious ads (checked by the maintainers, or found automatically: "
-                "articles presenting an unofficial fork's T2 support as the project's).", "",
+                "articles presenting an unofficial fork's T2 support as the project's, claiming support it doesn't "
+                "have such as macOS 27 or Apple silicon Macs, or loading ad networks malicious ads come through).", "",
                 "| Site | Status | Belongs to | What we found | Details |", "|---|---|---|---|---|"]
         out += [f"| `{h}` | {e['status']} | {e['owner']} | {e['what']} | {e['doc']} |" for h, e in sorted(other.items())]
     to_report = {h: e["report"] for h, e in {**sites, **parked, **other}.items() if e.get("report")}

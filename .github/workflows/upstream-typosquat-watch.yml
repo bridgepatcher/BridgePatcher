@@ -83,7 +83,8 @@ jobs:
           # --- Misleading articles and risky-ad sites (found automatically) ---
           # News and blog posts, often machine-translated editions like en.soydemac.com, that present
           # an unofficial fork's T2 support as news about OpenCore Legacy Patcher, or that write about
-          # it on pages loading malvertising-prone ad networks. Listed under
+          # it on pages loading malvertising-prone ad networks, or that claim it supports things it
+          # doesn't (macOS 27, Apple silicon Macs; see FALSE_CLAIMS in typosquat_sites.py). Listed under
           # "Other sites to avoid", one entry per site with all its language editions. Searched in
           # Bing News and Google News (no key needed) and, with the Brave key, the web.
           # The general queries find articles on sites with risky ads (pop-under / push ad networks
@@ -95,7 +96,11 @@ jobs:
             "OpenCore Legacy Patcher" Sequoia T2|
             "OpenCore Legacy Patcher"|
             "OpenCore Legacy Patcher" download|
-            OCLP unsupported Mac macOS
+            OCLP unsupported Mac macOS|
+            "OpenCore Legacy Patcher" "macOS 27"|
+            "OpenCore Legacy Patcher" Golden Gate|
+            "OpenCore Legacy Patcher" "Apple Silicon"|
+            "OpenCore Legacy Patcher" M1
           NEWS_MARKETS: "en-US es-ES de-DE fr-FR it-IT pt-BR"
           # Always searched through their own (WordPress) search, even when no news feed lists them
           NEWS_SITES: "soydemac.com en.soydemac.com"

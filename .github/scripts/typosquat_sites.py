@@ -768,6 +768,44 @@ def t2_claim(text, context=2):
     return ""
 
 
+# Claims about Dortania's OpenCore Legacy Patcher that are false no matter who makes them, checked
+# by the upstream tracker (this project's own watch only checks T2): (name, topic, what's wrong)
+FALSE_CLAIMS = [
+    ("macos27", re.compile(r"macos\s*27\b|golden\s*gate"),
+     "says OpenCore Legacy Patcher runs macOS 27, which exists only for Apple silicon Macs"),
+    ("apple-silicon", re.compile(r"apple[\s-]*silicon|\bm[1-5](?:\s*(?:pro|max|ultra))?[\s-]+(?:chip|mac|macbook|imac)|"
+                                 r"\barm64\s+macs?\b|\barm[\s-]*macs?\b"),
+     "says OpenCore Legacy Patcher supports Apple silicon Macs; it's made for Intel Macs only"),
+]
+# Words that let a claim run on: "runs", "lets you install", "boots" (besides SUPPORT_CLAIM)
+RUN_CLAIM = re.compile(r"\bruns?\b|\binstall(?:s|ing)?\b|\bboots?\b|\bworks?\s+on\b|\bauf\b.{0,20}\binstallier|"
+                       r"\bfunciona\b|\bfonctionne\b|\bfunziona\b")
+# Where a sentence turns to something else ("adds Tahoe support, but macOS 27 is Apple-only")
+CLAUSE_BREAK = re.compile(r"[,;:(]|\b(?:but|however|while|whereas|unlike|although|aber|jedoch|pero|aunque|"
+                          r"mais|alors que|ma|mentre|mas|enquanto)\b")
+
+
+def false_claim(text, names=None):
+    """(name, what's wrong, sentence) for the first FALSE_CLAIMS claim in `text`, or None. The
+    sentence must name the project, then a claim word, then the topic, in that order and in one
+    clause, with nothing that negates or excludes it."""
+    for sent in SENTENCE_END.split(text):
+        if not sent.strip() or len(sent) > MAX_SENTENCE or EXCLUDED.search(sent):
+            continue
+        for m in OCLP_NAMES.finditer(sent):
+            tail = sent[m.end():m.end() + 200]
+            for c in list(SUPPORT_CLAIM.finditer(tail)) + list(RUN_CLAIM.finditer(tail)):
+                if NEGATED.search(tail[max(0, c.start() - 40):c.start()]) or CLAUSE_BREAK.search(tail[:c.start()]):
+                    continue
+                rest = tail[c.end():c.end() + 100]
+                cut = CLAUSE_BREAK.search(rest)
+                rest = rest[:cut.start()] if cut else rest
+                for name, topic, what in FALSE_CLAIMS:
+                    if (names is None or name in names) and topic.search(rest):
+                        return name, what, sent.strip()
+    return None
+
+
 def bing_news(query, market):
     """(url, title) pairs from Bing News' RSS feed; links carry the article URL in `url=`."""
     q = urllib.parse.urlencode({"q": query, "format": "rss", "mkt": market, "setlang": market.split("-")[0]})
@@ -839,7 +877,7 @@ def article_candidates(site_host):
     return found
 
 
-def article_editions(hit, copycats, site_host, malvertising=False):
+def article_editions(hit, copycats, site_host, malvertising=False, false_claims=False):
     """Other language editions of a flagged article's site: the same address path on each
     edition host, and the edition's own WordPress search."""
     parts = urllib.parse.urlsplit(hit["url"])
@@ -854,7 +892,7 @@ def article_editions(hit, copycats, site_host, malvertising=False):
         for query in SITE_SEARCHES:
             tries += wp_search(host, query)
         for url, title in tries:
-            r = inspect_article(host, url, title, True, copycats, malvertising)
+            r = inspect_article(host, url, title, True, copycats, malvertising, false_claims)
             if r:
                 r["edition_of"] = hit["host"]
                 out.append(r)
@@ -862,11 +900,12 @@ def article_editions(hit, copycats, site_host, malvertising=False):
     return out
 
 
-def inspect_article(host, url, title, fetchable, copycats, malvertising=False):
+def inspect_article(host, url, title, fetchable, copycats, malvertising=False, false_claims=False):
     """An article that presents T2 support as OpenCore Legacy Patcher news without crediting
     this fork. Judged on the page when it can be fetched, otherwise on the headline.
     With malvertising, also any article about the project on a page that loads ad networks
-    malicious ads come through (MALVERTISING), whatever it says."""
+    malicious ads come through (MALVERTISING), whatever it says. With false_claims, also articles
+    making one of the FALSE_CLAIMS about Dortania's project (macOS 27, Apple silicon)."""
     status, final, page = fetch(url) if fetchable else (None, url, "")
     if not fetchable and title:
         # Google News only gives a headline: try the address blogs derive from it
@@ -884,8 +923,11 @@ def inspect_article(host, url, title, fetchable, copycats, malvertising=False):
         claim = ""  # names the fork or says it's unofficial
     low = fold(page)
     mal = sorted({n.rstrip(".") for n in MALVERTISING if n in low})
+    wrong = (false_claim(head) or false_claim(text)) if false_claims else None
     if claim:
         kind = "misattribution"
+    elif wrong:
+        kind, claim = "false-claim", wrong[2]
     elif malvertising and mal and (OCLP_NAMES.search(head) or OCLP_NAMES.search(text)):
         kind = "malvertising"
     else:
@@ -899,12 +941,12 @@ def inspect_article(host, url, title, fetchable, copycats, malvertising=False):
         "dortania": "dortania" in low or "dortania" in head,
         "copycat_links": [r for r in linked if r.lower() in copycats],
         "ads": sorted({a for a in AD_NETWORKS if a in low}),
-        "malvertising": mal, "kind": kind,
+        "malvertising": mal, "kind": kind, "false_claim": wrong[1] if wrong and kind == "false-claim" else "",
         "key": f"article:{host}",
     }
 
 
-def find_articles(site_host, copycats, extra=(), malvertising=False):
+def find_articles(site_host, copycats, extra=(), malvertising=False, false_claims=False):
     """Misattributing articles, one result per site with all its language editions in
     r["editions"] (keyed article:<site>). `extra` adds (url, title) pairs to re-check,
     e.g. articles found on earlier runs that today's feeds don't list."""
@@ -914,12 +956,12 @@ def find_articles(site_host, copycats, extra=(), malvertising=False):
         if host and host not in arts:
             arts[host] = (url, title, True)
     with cf.ThreadPoolExecutor(max_workers=16) as ex:
-        hits = [r for r in ex.map(lambda kv: inspect_article(kv[0], *kv[1], copycats, malvertising),
-                                  arts.items()) if r]
+        hits = [r for r in ex.map(lambda kv: inspect_article(kv[0], *kv[1], copycats, malvertising,
+                                                             false_claims), arts.items()) if r]
     # Translated editions (en.soydemac.com for soydemac.com) rarely show up in news feeds
     known = {r["host"] for r in hits}
     for hit in list(hits):
-        for r in article_editions(hit, copycats, site_host, malvertising):
+        for r in article_editions(hit, copycats, site_host, malvertising, false_claims):
             if r["host"] not in known:
                 known.add(r["host"])
                 hits.append(r)
