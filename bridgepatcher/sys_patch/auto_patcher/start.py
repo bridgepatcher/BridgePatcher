@@ -32,6 +32,10 @@ from ..patchsets import (
     HardwarePatchsetDetection,
     HardwarePatchsetValidation
 )
+from .auto_update import (
+    AutomaticUpdates,
+    AUTO_OPENCORE_INSTALLED_KEY,
+)
 
 
 class StartAutomaticPatching:
@@ -58,6 +62,10 @@ class StartAutomaticPatching:
 
         If all these tests pass, start Root Patcher
 
+        After an update of BridgePatcher itself, OpenCore and the root patches are
+        brought up to date automatically (see auto_update.py), unless turned off in
+        Settings > App.
+
         """
 
         logging.info("- Starting Automatic Patching")
@@ -65,7 +73,21 @@ class StartAutomaticPatching:
             logging.info("- Auto Patch option is not supported on TUI, please use GUI")
             return
 
+        automatic = AutomaticUpdates(self.constants)
+
+        # Report what the automatic root patch update did at boot. While one is in
+        # progress (or just failed and was reported), offering root patching on top
+        # of it would only get in its way.
+        if automatic.handle_previous_run(open_root_patcher=self._open_root_patcher) is True:
+            return
+
         if self._check_for_updates() is True:
+            return
+
+        if automatic.opencore_outdated() and automatic.update_opencore():
+            self._notify_opencore_updated()
+
+        if utilities.check_seal() is False and automatic.update_root_patches() is True:
             return
 
         if utilities.check_seal() is True:
@@ -113,6 +135,21 @@ class StartAutomaticPatching:
 
         if self._determine_if_versions_match():
             self._determine_if_boot_matches()
+
+
+    def _open_root_patcher(self) -> None:
+        gui_entry.EntryPoint(self.constants).start(entry=gui_entry.SupportedEntryPoints.SYS_PATCH)
+
+
+    def _notify_opencore_updated(self) -> None:
+        version_string = subprocess_wrapper.applescript_quote(self.constants.patcher_version)
+        args = [
+            "/usr/bin/osascript",
+            "-e",
+            f"""display dialog "BridgePatcher has updated OpenCore to {version_string} automatically.\n\nThe new OpenCore is used from the next restart.\n\nYou can turn this off in Settings > App > Turn Off Auto OpenCore Updates." buttons {{"OK"}} default button "OK" """
+            f'with icon POSIX file "{self.constants.app_icon_path}"',
+        ]
+        subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
 
     def _check_for_updates(self) -> bool:
@@ -319,6 +356,11 @@ class StartAutomaticPatching:
 
         if self.constants.computer.booted_patcher_version == self.constants.patcher_version:
             logging.info("- Versions match")
+            return True
+
+        # Installed automatically already (auto_update.py), the restart that boots it is pending
+        if global_settings.GlobalEnviromentSettings().read_property(AUTO_OPENCORE_INSTALLED_KEY) == self.constants.patcher_version:
+            logging.info("- OpenCore of this build was installed automatically, waiting for a restart")
             return True
 
         if self.constants.special_build is True:

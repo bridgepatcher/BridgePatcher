@@ -372,27 +372,97 @@ class InstallAutomaticPatchingServices:
             services["/Library/LaunchDaemons/com.bridgepatcher.bridgepatcher.os-caching.plist"] = self._render_service(self.constants.kdk_launch_daemon_path)
 
         for destination, content in services.items():
-            name = Path(destination).name
-            logging.info(f"- Installing {name}")
-            if Path(destination).exists() and not Path(destination).is_symlink():
-                if hashlib.sha256(Path(destination).read_bytes()).digest() == hashlib.sha256(content).digest():
-                    logging.info(f"  - {name} checksums match, skipping")
-                    continue
-            if Path(destination).exists() or Path(destination).is_symlink():
-                logging.info("  - Existing service found, removing")
-                subprocess_wrapper.run_as_root_and_verify(["/bin/rm", "-f", destination], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            # Create parent directories
-            if not Path(destination).parent.exists():
-                logging.info(f"  - Creating {Path(destination).parent} directory")
-                subprocess_wrapper.run_as_root_and_verify(["/bin/mkdir", "-p", Path(destination).parent], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            self._install_service(destination, content)
 
-            source = self._stage_bytes(name, content)
-            subprocess_wrapper.run_as_root_and_verify(generate_copy_arguments(source, destination), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
-            # Lock the file down first, then check it is really what we rendered
-            subprocess_wrapper.run_as_root_and_verify(["/usr/sbin/chown", "root:wheel", destination], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            subprocess_wrapper.run_as_root_and_verify(["/bin/chmod", "644", destination], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            self._verify_installed_service(destination, content)
+    def _install_service(self, destination: str, content: bytes) -> None:
+        """
+        Install one launch service (or any other root-owned 0644 file) with exactly
+        the given bytes
+
+        Staged in a private directory, copied as root, locked down to root:wheel 0644
+        and then read back: anything that does not match 'content' is removed again
+        and raises (see '_verify_installed_service()').
+        """
+        name = Path(destination).name
+        logging.info(f"- Installing {name}")
+        if Path(destination).exists() and not Path(destination).is_symlink():
+            if hashlib.sha256(Path(destination).read_bytes()).digest() == hashlib.sha256(content).digest():
+                logging.info(f"  - {name} checksums match, skipping")
+                return
+        if Path(destination).exists() or Path(destination).is_symlink():
+            logging.info("  - Existing file found, removing")
+            subprocess_wrapper.run_as_root_and_verify(["/bin/rm", "-f", destination], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        # Create parent directories
+        if not Path(destination).parent.exists():
+            logging.info(f"  - Creating {Path(destination).parent} directory")
+            subprocess_wrapper.run_as_root_and_verify(["/bin/mkdir", "-p", Path(destination).parent], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+        source = self._stage_bytes(name, content)
+        subprocess_wrapper.run_as_root_and_verify(generate_copy_arguments(source, destination), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+        # Lock the file down first, then check it is really what we rendered
+        subprocess_wrapper.run_as_root_and_verify(["/usr/sbin/chown", "root:wheel", destination], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        subprocess_wrapper.run_as_root_and_verify(["/bin/chmod", "644", destination], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self._verify_installed_service(destination, content)
+
+
+    def install_root_owned_file(self, destination: str, content: bytes) -> None:
+        """
+        Public wrapper around '_install_service()' for files that are not launch
+        services (ex. the automatic root patch update state, see auto_update.py)
+
+        Raises on failure, like '_install_service()'.
+        """
+        self._install_service(destination, content)
+
+
+    def install_auto_root_patch_update_daemon(self, destination: str, label: str, log_path: str) -> str:
+        """
+        Install the one-shot LaunchDaemon that finishes an automatic root patch update
+        at the next boot (see auto_update.py)
+
+        The plist is generated here instead of being shipped in payloads/Launch Services:
+        it only ever exists for a single boot and removes itself before it does
+        anything else, so there is no template worth keeping in the app bundle.
+
+        Returns:
+            str: Patcher binary the daemon runs
+
+        Raises on failure.
+        """
+        binary = self._resolve_patcher_binary()
+        if not Path(binary).exists():
+            raise FileNotFoundError(f"Installed patcher binary not found: {binary}")
+
+        content = plistlib.dumps({
+            "Label": label,
+            "AssociatedBundleIdentifiers": [self.constants.bundle_identifier],
+            "ProgramArguments": [binary, "--auto_root_patch_update"],
+            "RunAtLoad": True,
+            # Never restarted by launchd: a crash must not turn into a loop
+            "LaunchOnlyOnce": True,
+            "KeepAlive": False,
+            "StandardOutPath": log_path,
+            "StandardErrorPath": log_path,
+        })
+        self._install_service(destination, content)
+        return binary
+
+
+    def remove_root_owned_file(self, path: str) -> bool:
+        """
+        Remove a file installed with 'install_root_owned_file()' or
+        'install_auto_root_patch_update_daemon()'
+
+        Returns:
+            bool: True if the file is gone afterwards
+        """
+        if not Path(path).exists() and not Path(path).is_symlink():
+            return True
+        logging.info(f"- Removing {path}")
+        subprocess_wrapper.run_as_root(["/bin/rm", "-f", path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        return not Path(path).exists() and not Path(path).is_symlink()
 
 
     def _create_rsr_monitor_daemon(self):

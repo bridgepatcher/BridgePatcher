@@ -30,6 +30,7 @@ from ..datasets import (
     smbios_data,
     os_data,
 )
+from ..sys_patch.auto_patcher import auto_update
 
 
 class SettingsFrame(wx.Frame):
@@ -362,6 +363,35 @@ class SettingsFrame(wx.Frame):
                         "Switching requires reverting root patches.",
                     ],
                 },
+                # Opt-outs for auto_update.py. Deliberately on the App tab and not under
+                # Advanced: turning an automatic system change off must never need
+                # Experimental Features.
+                "Turn Off Auto Root Patch Updates": {
+                    "type": "checkbox",
+                    "value": not auto_update.auto_root_patch_updates_enabled(),
+                    "variable": auto_update.AUTO_ROOT_PATCH_UPDATES_KEY,
+                    # Built when the box is clicked, so it can mention an update that
+                    # is already prepared (see on_checkbox())
+                    "warning": self._auto_root_patch_opt_out_warning,
+                    "description": [
+                        "When enabled, root patches are no longer",
+                        "updated automatically after BridgePatcher",
+                        "was updated. Use the root patching menu.",
+                    ],
+                    "override_function": self._toggle_automatic_update_setting,
+                },
+                "Turn Off Auto OpenCore Updates": {
+                    "type": "checkbox",
+                    "value": not auto_update.auto_opencore_updates_enabled(),
+                    "variable": auto_update.AUTO_OPENCORE_UPDATES_KEY,
+                    "warning": self._auto_opencore_opt_out_warning,
+                    "description": [
+                        "When enabled, OpenCore is no longer",
+                        "built and installed automatically after",
+                        "an update. You are asked first instead.",
+                    ],
+                    "override_function": self._toggle_automatic_update_setting,
+                },
                 "wrap_around 1": {
                     "type": "wrap_around",
                 },
@@ -659,6 +689,9 @@ Hardware Information:
         """
         label = event.GetEventObject().GetLabel()
         value = event.GetEventObject().GetValue()
+        if callable(warning_pop):
+            # Warnings that depend on the current state are built when clicked
+            warning_pop = warning_pop() if value is True else ""
         if warning_pop != "" and value is True:
             warning = wx.MessageDialog(self.frame_modal, warning_pop, f"Warning: {label}", wx.YES_NO | wx.ICON_WARNING | wx.NO_DEFAULT)
             if warning.ShowModal() == wx.ID_NO:
@@ -849,6 +882,60 @@ Hardware Information:
         self.constants.app_mode = "matteo" if value else "albert"
 
         self._restart_app(f"Developer Mode is now {'enabled' if value else 'disabled'}.")
+
+    def _toggle_automatic_update_setting(self, variable: str, value: bool, constants_variable: str = None) -> None:
+        """
+        "Turn Off Auto Root Patch Updates" / "Turn Off Auto OpenCore Updates"
+
+        The checkbox says "Turn Off", the stored setting says "enabled", so the
+        stored value is the opposite of the checkbox. Written straight to the
+        global settings: the auto patcher and the boot daemon are separate
+        processes and read them from there (see auto_update.py).
+        """
+        enabled = not bool(value)
+        logging.info(f"Updating Global Setting: {variable} = {enabled}")
+        global_settings.GlobalEnviromentSettings().write_property(variable, enabled)
+
+
+    def _auto_root_patch_opt_out_warning(self) -> str:
+        """
+        Confirmation shown before "Turn Off Auto Root Patch Updates" is ticked
+
+        Used to be a message box after the setting was already stored, and only
+        while an update was prepared - so turning it off normally showed nothing.
+        """
+        warning = (
+            "You are about to turn off automatic root patch updates.\n\n"
+            "After BridgePatcher is updated, your root patches stay on the previous build until you update "
+            "them yourself from the root patching menu. Outdated root patches can stop graphics acceleration, "
+            "Wi-Fi or other patched hardware from working correctly."
+        )
+        if Path(auto_update.STATE_FILE).exists():
+            warning += (
+                "\n\nAn automatic root patch update is already prepared and your old root patches were already removed. "
+                "It is cancelled at the next restart, and your Mac then starts without root patches "
+                "until you patch it again from the root patching menu."
+            )
+        return warning + "\n\nDo you want to continue?"
+
+
+    def _auto_opencore_opt_out_warning(self) -> str:
+        """
+        Confirmation shown before "Turn Off Auto OpenCore Updates" is ticked
+        """
+        warning = (
+            "You are about to turn off automatic OpenCore updates.\n\n"
+            "After BridgePatcher is updated, OpenCore is no longer built and installed for you. "
+            "You are asked first instead, and if you decline, your Mac keeps booting the previous OpenCore build, "
+            "which may lack fixes the new BridgePatcher and its root patches rely on."
+        )
+        if global_settings.GlobalEnviromentSettings().read_property(auto_update.AUTO_OPENCORE_INSTALLED_KEY) == self.constants.patcher_version:
+            warning += (
+                "\n\nThe OpenCore of this BridgePatcher version was already installed automatically. "
+                "It stays installed and is used from the next restart."
+            )
+        return warning + "\n\nDo you want to continue?"
+
 
     def toggle_auto_updates(self, variable: str = None, value: bool = None, constants_variable: str = None) -> None:
         """

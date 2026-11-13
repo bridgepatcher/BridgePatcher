@@ -666,6 +666,7 @@ def check_cli_args():
     parser.add_argument("--gui_patch", help="Starts GUI in Root Patcher", action="store_true", required=False)
     parser.add_argument("--gui_unpatch", help="Starts GUI in Root Unpatcher", action="store_true", required=False)
     parser.add_argument("--auto_patch", help="Check if patches are needed and prompt user", action="store_true", required=False)
+    parser.add_argument("--auto_root_patch_update", help="Finish an automatic root patch update at boot (only run by its one-shot LaunchDaemon, as root)", action="store_true", required=False)
     parser.add_argument("--update_installed", help="Prompt user to finish updating via GUI", action="store_true", required=False)
     parser.add_argument("--check_updates", help="Check for patcher updates in the background (update-check LaunchAgent), opens the patcher only if one is found", action="store_true", required=False)
     # Both of these are GUI-side switches, not CLI-mode triggers: they are
