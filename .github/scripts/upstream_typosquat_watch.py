@@ -643,6 +643,16 @@ def scan_copycat_sites(found_repos):
     return found
 
 
+def registrable(host):
+    """example.co.uk / example.com for a host (rough: the last two labels, three for ccTLD-style
+    second levels like co.uk); github.com/owner stays as it is."""
+    if "/" in host:
+        return host.lower()
+    labels = host.lower().split(".")
+    n = 3 if len(labels) > 2 and labels[-2] in ("co", "com", "net", "org", "ac", "gov", "edu") else 2
+    return ".".join(labels[-n:])
+
+
 # Download links that are fine on a copy of the official docs
 OFFICIAL_DOWNLOADS = ("github.com", "github.com/dortania", "github.com/bridgepatcher",
                       "dortania.github.io", "bridgepatcher.github.io")
@@ -652,10 +662,11 @@ COPY_STATUS = "🟡 unofficial copy"
 def scan_fork_sites(found_repos, skip):
     """Websites published from forks: of upstream, of this project and of every listed repo.
     A fork with GitHub Pages on, or with a homepage of its own (not its parent's), is checked.
-    An unchanged copy of the docs on the fork's own github.io address is only an "unofficial copy"
-    (often a contributor's fork, but outdated and a ready-made base for a fake). It counts as a
-    lookalike website when its download links lead anywhere but the official releases, or when
-    it's published on its own domain.
+    A copy of the docs is only an "unofficial copy" (often a contributor's fork, but outdated and a
+    ready-made base for a fake), also when it's on the owner's own domain or offers the owner's own
+    builds (their GitHub releases, a domain of theirs): derivatives with their own downloads aren't
+    fakes. It counts as a lookalike website when its download links lead to someone else: file
+    hosts, unrelated domains, other GitHub accounts.
     Returns (lookalike sites, copies), keyed host/path."""
     roots = [UPSTREAM, ISSUE_REPO] + sorted(found_repos)
     ignore = ALLOW_OWNERS | {m.lstrip("@").lower() for m in MENTIONS} | {UPSTREAM.split("/")[0].lower()}
@@ -688,20 +699,36 @@ def scan_fork_sites(found_repos, skip):
         own_domain = not host.endswith(".github.io")
         if not r or (r.get("fake404") and not own_domain):
             continue  # nothing published, or a broken Pages build on the fork's own address
-        dl = [h for h in r["download_hosts"] if h.lower() not in OFFICIAL_DOWNLOADS and h.lower() != host]
+        owner = repo.split("/")[0].lower()
+        final = (urllib.parse.urlsplit(r["url"]).hostname or host).lower()
+        own_domains = {registrable(host), registrable(final)}
+
+        def owners(h):
+            h = h.lower()
+            if h in (f"github.com/{owner}", host, final):
+                return True
+            base = registrable(h)
+            return base in own_domains or re.sub(r"[^a-z0-9]", "", owner) in re.sub(r"[^a-z0-9]", "", base.split(".")[0])
+
+        others = [h for h in r["download_hosts"] if h.lower() not in OFFICIAL_DOWNLOADS and not owners(h)]
+        own_dl = [h for h in r["download_hosts"] if h.lower() not in OFFICIAL_DOWNLOADS and owners(h)
+                  and h.lower() not in (host, final)]
         title = html.unescape(r["title"]) or "—"
         entry = {
             "downloads": cell(", ".join(r["download_hosts"]) or "no download links", 60),
             "owner": site_owner(host, r.get("ips") or None),
             "report": report_info(host, r.get("ips") or None),
         }
-        if dl or own_domain:
-            why = f"downloads point to {', '.join(dl)}" if dl else "published on its own domain"
-            entry.update(title=cell(f"{title} · site of `{repo}`, a fork of `{root}`; {why}", 160),
+        if others:
+            entry.update(title=cell(f"{title} · site of `{repo}`, a fork of `{root}`; downloads point to "
+                                    f"{', '.join(others)}", 160),
                          status=FAKE_404 if r.get("fake404") else "🟢 online")
             sites[key] = entry
         else:
-            entry.update(title=cell(f"{title} · site of `{repo}`, a fork of `{root}`", 160), status=COPY_STATUS)
+            notes = (["on its own domain"] if own_domain or final != host else []) + \
+                    ([f"offers its owner's own builds ({', '.join(own_dl)})"] if own_dl else [])
+            entry.update(title=cell(f"{title} · site of `{repo}`, a fork of `{root}`"
+                                    + (f"; {', '.join(notes)}" if notes else ""), 160), status=COPY_STATUS)
             copies[key] = entry
     return sites, copies
 
@@ -964,6 +991,8 @@ def main():
     found_sites.update(fork_sites)
     seen["sites"] = set(found_sites)
     old_copies = state.get("copies") or {}
+    for k in copies:  # an entry that turned out to be a mere copy leaves the website list
+        state["sites"].pop(k, None)
     state["copies"] = {k: dict(v, first_seen=(old_copies.get(k) or {}).get("first_seen", TODAY.isoformat()),
                                last_seen=TODAY.isoformat()) for k, v in copies.items()}
     old_other = state.get("other") or {}
