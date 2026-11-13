@@ -60,7 +60,9 @@ jobs:
           # <name>.github.io) counts as a lookalike even if its page doesn't mention the project
           FORMER_NAMES: "OpenCore-Legacy-Patcher-T2 OCLP-T2"
           # Former official addresses: always reported as typosquats, online or not
-          FORMER_HOSTS: "oclp-t2.github.io"
+          # albert-mueller.github.io: the account was renamed and its name is free to register; search
+          # engines still list the address as "OpenCore Legacy Patcher"
+          FORMER_HOSTS: "oclp-t2.github.io albert-mueller.github.io"
           # Known impersonation sites, full address with path (space separated). Checked on every
           # run: an issue is opened right away while one is offline, and another as soon as it
           # serves a page. (Copycat repos' own GitHub Pages addresses are handled the same way.)

@@ -65,7 +65,9 @@ jobs:
           # too, whether they're GitHub forks (of upstream or of this project) or not
           FORMER_NAMES: "OpenCore-Legacy-Patcher-T2 OCLP-T2"
           # Former official addresses: listed as typosquats whenever something is published there
-          FORMER_HOSTS: "oclp-t2.github.io"
+          # albert-mueller.github.io: the account was renamed and its name is free to register; search
+          # engines still list the address as "OpenCore Legacy Patcher"
+          FORMER_HOSTS: "oclp-t2.github.io albert-mueller.github.io"
           # Spam repositories named after the abbreviation (oclp, oclpu, oclpy, ...) and filled with
           # gambling ads: listed when at least SPAM_MIN_FILES top-level file names contain one of
           # SPAM_TERMS (| separated). Only specific Chinese gambling terms, so an honest repo that
@@ -78,16 +80,22 @@ jobs:
           # malicious ads. One per line: host | what was found | where it's documented
           OTHER_SITES: |
             en.soydemac.com | Machine-written article that falsely claims Dortania's OpenCore Legacy Patcher now supports T2 Macs; its ads led to a fake payment page, a fake Steam login (phishing), notification spam and a browser hijacker | bridgepatcher/BridgePatcher#599
-          # --- Misleading articles (found automatically) ---
+          # --- Misleading articles and risky-ad sites (found automatically) ---
           # News and blog posts, often machine-translated editions like en.soydemac.com, that present
-          # an unofficial fork's T2 support as news about OpenCore Legacy Patcher. Listed under
+          # an unofficial fork's T2 support as news about OpenCore Legacy Patcher, or that write about
+          # it on pages loading malvertising-prone ad networks. Listed under
           # "Other sites to avoid", one entry per site with all its language editions. Searched in
           # Bing News and Google News (no key needed) and, with the Brave key, the web.
+          # The general queries find articles on sites with risky ads (pop-under / push ad networks
+          # that malicious ads come through), listed whatever they claim, like en.soydemac.com's.
           NEWS_QUERIES: >-
             "OpenCore Legacy Patcher" T2|
             OCLP T2 Mac|
             "OpenCore Legacy Patcher" Tahoe T2|
-            "OpenCore Legacy Patcher" Sequoia T2
+            "OpenCore Legacy Patcher" Sequoia T2|
+            "OpenCore Legacy Patcher"|
+            "OpenCore Legacy Patcher" download|
+            OCLP unsupported Mac macOS
           NEWS_MARKETS: "en-US es-ES de-DE fr-FR it-IT pt-BR"
           # Always searched through their own (WordPress) search, even when no news feed lists them
           NEWS_SITES: "soydemac.com en.soydemac.com"

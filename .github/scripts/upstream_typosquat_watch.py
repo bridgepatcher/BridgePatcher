@@ -499,7 +499,7 @@ def scan_other_sites(previous, copycats):
     Articles found before are re-checked even when today's news feeds don't list them."""
     out = {}
     extra = [(e["url"], e.get("headline", "")) for e in previous.values() if e.get("auto") and e.get("url")]
-    articles = ts.find_articles("", copycats, extra) if ts.NEWS_QUERIES or ts.NEWS_SITES else []
+    articles = ts.find_articles("", copycats, extra, malvertising=True) if ts.NEWS_QUERIES or ts.NEWS_SITES else []
     manual_families = {ts.site_family((row + [""])[0].lower()): (row + [""])[0].lower() for row in OTHER_SITES}
     also = {}
     for a in articles:
@@ -510,9 +510,15 @@ def scan_other_sites(previous, copycats):
         editions = f" Also in {len(hosts) - 1} other language edition(s): " + ", ".join(hosts[1:]) + "." \
             if len(hosts) > 1 else ""
         dl = [h for h in a["download_hosts"] if h.lower() != a["host"]]
+        mal = (f" Its pages load ad networks that malicious ads (fake payment pages, phishing, browser "
+               f"hijackers) often come through: {', '.join(a['malvertising'])}." if a.get("malvertising") else "")
+        if a.get("kind") == "malvertising":
+            lead = f"Article about {PROJECT}, “{a['title']}”, on a site with risky ads.{mal}"
+        else:
+            lead = (f"Article that presents T2 Mac support as news about {PROJECT} (it comes from an "
+                    f"unofficial fork): “{a['title']}”.{mal}")
         out[a["family"]] = {
-            "what": cell(f"Article that presents T2 Mac support as news about {PROJECT} (it comes from an "
-                         f"unofficial fork): “{a['title']}”.{editions}"
+            "what": cell(f"{lead}{editions}"
                          + (f" Links to copycat repos: {', '.join(a['copycat_links'])}." if a["copycat_links"] else "")
                          + (f" Download links point to: {', '.join(dl)}." if dl else ""), 400),
             "doc": "found automatically",
@@ -578,12 +584,14 @@ def scan_sites(watch):
     # out instead of being shown as a 🔴 entry.
     for h in ts.FORMER_HOSTS:
         if h not in found:
-            st, _, page = ts.fetch(f"https://{h}/")
-            if not st or st >= 400 or not page.strip():
+            st, _, page = ts.fetch(f"https://{h}/", error_body=True)
+            state = ts.watched_state(h, st, page)
+            if state == "down":
                 print(f"Former address {h} is down ({st or 'no response'}); not listed")
                 continue
             found[h] = {"title": "—", "downloads": "—",
-                        "status": "🟢 online" + (f" (HTTP {st})" if st != 200 else ""),
+                        "status": FAKE_404 if state == "fake404" else
+                        "🟢 online" + (f" (HTTP {st})" if st != 200 else ""),
                         "ips": ts.resolve(h) or []}
         found[h]["title"] = cell("former BridgePatcher address, no longer official · " + found[h]["title"])
     with cf.ThreadPoolExecutor(max_workers=4) as ex:  # RDAP servers rate-limit bursts

@@ -84,6 +84,14 @@ AD_NETWORKS = ("googlesyndication.com", "adsbygoogle", "doubleclick.net", "adser
                "propellerads", "popads.net", "popcash.net", "adsterra", "monetag", "a-ads.com",
                "hilltopads", "clickadu", "exoclick", "juicyads", "ezoic", "mediavine", "taboola",
                "outbrain", "revcontent", "mgid.com", "adcash", "onclickads", "galaksion")
+# Pop-under, redirect and push-notification ad networks that malicious ads (fake payment pages,
+# phishing logins, browser hijackers, notification spam) commonly come through. Mainstream networks
+# (Google, Ezoic, Taboola, ...) are left out: they're in AD_NETWORKS and alone don't mark a site.
+MALVERTISING = ("propellerads", "propeller-tracking", "popads.net", "popcash.net", "adsterra",
+                "highperformanceformat", "profitablecpmrate", "effectivegatecpm", "toprevenuegate",
+                "monetag", "hilltopads", "clickadu", "exoclick", "juicyads", "onclickads", "onclicka.",
+                "galaksion", "adcash", "admaven", "ad-maven", "richads", "evadav", "rollerads",
+                "pushground", "trafficstars", "zeropark", "clickaine", "realsrv.com", "popunder")
 # Text that an honest page about this fork would contain
 DISCLAIMERS = ("not affiliated", "unofficial", "independent community fork", "nicht mit dortania",
                "nicht offiziell", "inoffiziell")
@@ -831,7 +839,7 @@ def article_candidates(site_host):
     return found
 
 
-def article_editions(hit, copycats, site_host):
+def article_editions(hit, copycats, site_host, malvertising=False):
     """Other language editions of a flagged article's site: the same address path on each
     edition host, and the edition's own WordPress search."""
     parts = urllib.parse.urlsplit(hit["url"])
@@ -846,7 +854,7 @@ def article_editions(hit, copycats, site_host):
         for query in SITE_SEARCHES:
             tries += wp_search(host, query)
         for url, title in tries:
-            r = inspect_article(host, url, title, True, copycats)
+            r = inspect_article(host, url, title, True, copycats, malvertising)
             if r:
                 r["edition_of"] = hit["host"]
                 out.append(r)
@@ -854,9 +862,11 @@ def article_editions(hit, copycats, site_host):
     return out
 
 
-def inspect_article(host, url, title, fetchable, copycats):
+def inspect_article(host, url, title, fetchable, copycats, malvertising=False):
     """An article that presents T2 support as OpenCore Legacy Patcher news without crediting
-    this fork. Judged on the page when it can be fetched, otherwise on the headline."""
+    this fork. Judged on the page when it can be fetched, otherwise on the headline.
+    With malvertising, also any article about the project on a page that loads ad networks
+    malicious ads come through (MALVERTISING), whatever it says."""
     status, final, page = fetch(url) if fetchable else (None, url, "")
     if not fetchable and title:
         # Google News only gives a headline: try the address blogs derive from it
@@ -870,11 +880,16 @@ def inspect_article(host, url, title, fetchable, copycats):
     text = page_text(main_content(page)) if page else ""
     head = fold(title)
     claim = t2_claim(head) or t2_claim(text)
-    if not claim:
-        return None
-    if any(c in head or c in text for c in CREDITS):
-        return None  # names the fork or says it's unofficial
+    if claim and any(c in head or c in text for c in CREDITS):
+        claim = ""  # names the fork or says it's unofficial
     low = fold(page)
+    mal = sorted({n.rstrip(".") for n in MALVERTISING if n in low})
+    if claim:
+        kind = "misattribution"
+    elif malvertising and mal and (OCLP_NAMES.search(head) or OCLP_NAMES.search(text)):
+        kind = "malvertising"
+    else:
+        return None
     linked = sorted({f"{o}/{n}" for o, n in re.findall(r"github\.com/([\w.-]+)/([\w.-]+)", low)})
     return {
         "host": host, "url": final, "status": status, "ips": resolve(host), "title": title[:200],
@@ -884,11 +899,12 @@ def inspect_article(host, url, title, fetchable, copycats):
         "dortania": "dortania" in low or "dortania" in head,
         "copycat_links": [r for r in linked if r.lower() in copycats],
         "ads": sorted({a for a in AD_NETWORKS if a in low}),
+        "malvertising": mal, "kind": kind,
         "key": f"article:{host}",
     }
 
 
-def find_articles(site_host, copycats, extra=()):
+def find_articles(site_host, copycats, extra=(), malvertising=False):
     """Misattributing articles, one result per site with all its language editions in
     r["editions"] (keyed article:<site>). `extra` adds (url, title) pairs to re-check,
     e.g. articles found on earlier runs that today's feeds don't list."""
@@ -898,11 +914,12 @@ def find_articles(site_host, copycats, extra=()):
         if host and host not in arts:
             arts[host] = (url, title, True)
     with cf.ThreadPoolExecutor(max_workers=16) as ex:
-        hits = [r for r in ex.map(lambda kv: inspect_article(kv[0], *kv[1], copycats), arts.items()) if r]
+        hits = [r for r in ex.map(lambda kv: inspect_article(kv[0], *kv[1], copycats, malvertising),
+                                  arts.items()) if r]
     # Translated editions (en.soydemac.com for soydemac.com) rarely show up in news feeds
     known = {r["host"] for r in hits}
     for hit in list(hits):
-        for r in article_editions(hit, copycats, site_host):
+        for r in article_editions(hit, copycats, site_host, malvertising):
             if r["host"] not in known:
                 known.add(r["host"])
                 hits.append(r)
@@ -938,6 +955,7 @@ def article_issue_body(r):
         f"- **Links to copycat repos:** {', '.join(r['copycat_links']) or 'none'}",
         f"- **Download links point to:** {', '.join(r['download_hosts']) or 'no download links'}",
         f"- **Ad networks:** {', '.join(r['ads']) or 'none found'}",
+        f"- **Malvertising-prone ad networks:** {', '.join(r.get('malvertising') or []) or 'none found'}",
         "",
         "Articles like this make readers think Dortania's OpenCore Legacy Patcher supports T2 Macs, which "
         "sends them to the wrong project for downloads and support. It may simply be a news report that "
