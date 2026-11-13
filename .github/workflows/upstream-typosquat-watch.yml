@@ -78,6 +78,24 @@ jobs:
           # malicious ads. One per line: host | what was found | where it's documented
           OTHER_SITES: |
             en.soydemac.com | Machine-written article that falsely claims Dortania's OpenCore Legacy Patcher now supports T2 Macs; its ads led to a fake payment page, a fake Steam login (phishing), notification spam and a browser hijacker | bridgepatcher/BridgePatcher#599
+          # --- Misleading articles (found automatically) ---
+          # News and blog posts, often machine-translated editions like en.soydemac.com, that present
+          # an unofficial fork's T2 support as news about OpenCore Legacy Patcher. Listed under
+          # "Other sites to avoid", one entry per site with all its language editions. Searched in
+          # Bing News and Google News (no key needed) and, with the Brave key, the web.
+          NEWS_QUERIES: >-
+            "OpenCore Legacy Patcher" T2|
+            OCLP T2 Mac|
+            "OpenCore Legacy Patcher" Tahoe T2|
+            "OpenCore Legacy Patcher" Sequoia T2
+          NEWS_MARKETS: "en-US es-ES de-DE fr-FR it-IT pt-BR"
+          # Always searched through their own (WordPress) search, even when no news feed lists them
+          NEWS_SITES: "soydemac.com en.soydemac.com"
+          # --- Websites of listed repositories ---
+          # The homepage link and GitHub Pages site of every listed repository is checked, and listed
+          # while it serves a page, including one hidden behind a fake 404 (the owner's own "not
+          # found" page). Known ones are checked even if their repository disappears (full address).
+          KNOWN_SITES: "https://tea-ching.github.io/OpenCore-Legacy-Patcher-T2/"
           # --- Websites ---
           # Names whose typo variants are checked as domains under each TLD
           KEYWORDS: "opencore-legacy-patcher opencorelegacypatcher oclp opencore-patcher opencore-legacy-patcher-t2 oclp-t2"

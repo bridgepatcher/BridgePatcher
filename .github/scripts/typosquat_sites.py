@@ -488,22 +488,30 @@ def copycat_repos(original):
 
 def copycat_sites(repos, site_host):
     """{(host, path): (repo, own_pages)} for the websites copycat repositories point to: the
-    homepage link and, if Pages is on, <owner>.github.io/<repo>/. own_pages is True for the
-    repo's own Pages address, which counts whatever it shows; other homepages only count if
-    they name the project (a fork's owner may link a personal site)."""
-    sites = {}
+    homepage link and, if Pages is on, <owner>.github.io/<repo>/. own_pages is True for a repo's
+    own Pages address, which counts whatever it shows; other homepages only count if they name
+    the project (a fork's owner may link a personal site). Forks copy their parent's homepage
+    link, so an address is credited to the repo whose own Pages address it is."""
+    own_sites, links = {}, {}
     for full, r in sorted(repos.items()):
-        owner, name = r["owner"]["login"].lower(), r["name"].lower()
+        owner, name = r["owner"]["login"].lower(), r["name"]
         pages = f"{owner}.github.io"
-        own = (pages, "/") if name == pages else (pages, f"/{name}/")
+        own = (pages, "/") if name.lower() == pages else (pages, f"/{name}/")
         home = (r.get("homepage") or "").strip()
         if home:
             host, path = split_address(home)
             if host and not allowed(host, site_host) and host not in ("github.com", "www.github.com"):
-                is_own = host == pages and path.rstrip("/").lower() == own[1].rstrip("/")
-                sites.setdefault((host, path), (r["full_name"], is_own))
+                if host == pages and path.rstrip("/").lower() == own[1].rstrip("/").lower():
+                    own_sites[own] = (r["full_name"], True)
+                else:
+                    links.setdefault((host, path), (r["full_name"], False))
         if r.get("has_pages"):
-            sites.setdefault(own, (r["full_name"], True))
+            own_sites[own] = (r["full_name"], True)
+    sites = dict(own_sites)
+    for (host, path), v in links.items():
+        if (host, path.lower()) not in {(h, p.lower()) for h, p in sites}:
+            # Another account's GitHub Pages project address counts as that repo's own site
+            sites[(host, path)] = (v[0], host.endswith(".github.io") and path.strip("/") != "")
     return sites
 
 
@@ -880,6 +888,38 @@ def inspect_article(host, url, title, fetchable, copycats):
     }
 
 
+def find_articles(site_host, copycats, extra=()):
+    """Misattributing articles, one result per site with all its language editions in
+    r["editions"] (keyed article:<site>). `extra` adds (url, title) pairs to re-check,
+    e.g. articles found on earlier runs that today's feeds don't list."""
+    arts = article_candidates(site_host)
+    for url, title in extra:
+        host = (urllib.parse.urlsplit(url).hostname or "").lower()
+        if host and host not in arts:
+            arts[host] = (url, title, True)
+    with cf.ThreadPoolExecutor(max_workers=16) as ex:
+        hits = [r for r in ex.map(lambda kv: inspect_article(kv[0], *kv[1], copycats), arts.items()) if r]
+    # Translated editions (en.soydemac.com for soydemac.com) rarely show up in news feeds
+    known = {r["host"] for r in hits}
+    for hit in list(hits):
+        for r in article_editions(hit, copycats, site_host):
+            if r["host"] not in known:
+                known.add(r["host"])
+                hits.append(r)
+    families = {}
+    for r in sorted(hits, key=lambda r: (bool(r.get("edition_of")), r["host"])):
+        families.setdefault(site_family(r["host"]), []).append(r)
+    out = []
+    for family, group in families.items():
+        main_hit = group[0]
+        main_hit["key"] = f"article:{family}"
+        main_hit["family"] = family
+        main_hit["editions"] = [(r["host"], r["url"], r["title"]) for r in group[1:]]
+        main_hit.pop("edition_of", None)
+        out.append(main_hit)
+    return out
+
+
 def article_issue_body(r):
     shown = unpuny(r["host"])
     lines = [
@@ -1140,27 +1180,7 @@ def main():
 
     # Articles presenting this fork's T2 support as OpenCore Legacy Patcher news (daily runs only)
     if not QUICK_RUN and NEWS_QUERIES:
-        arts = article_candidates(site_host)
-        with cf.ThreadPoolExecutor(max_workers=16) as ex:
-            hits = [r for r in ex.map(lambda kv: inspect_article(kv[0], *kv[1], set(repos)), arts.items()) if r]
-        # Translated editions (en.soydemac.com for soydemac.com) rarely show up in news feeds
-        known = {r["host"] for r in hits}
-        for hit in list(hits):
-            for r in article_editions(hit, set(repos), site_host):
-                if r["host"] not in known:
-                    known.add(r["host"])
-                    hits.append(r)
-        # One issue per site, listing all its language editions
-        families = {}
-        for r in sorted(hits, key=lambda r: (bool(r.get("edition_of")), r["host"])):
-            families.setdefault(site_family(r["host"]), []).append(r)
-        for family, group in families.items():
-            main_hit = group[0]
-            main_hit["key"] = f"article:{family}"
-            main_hit["family"] = family
-            main_hit["editions"] = [(r["host"], r["url"], r["title"]) for r in group[1:]]
-            main_hit.pop("edition_of", None)
-            results.append(main_hit)
+        results += find_articles(site_host, set(repos))
     all_sites = copycat_sites(repos, site_host)
     for r in results:  # a KNOWN_SITES entry that is also a copycat repo's site: name the repo
         if r.get("key") and not r.get("repo"):
