@@ -268,7 +268,7 @@ class StartAutomaticPatching:
         ID_GITHUB = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
         ID_UPDATE = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
 
-        html_markdown = markdown2.markdown(self._fetch_changelog(remote_version_str), extras=["tables"])
+        html_markdown = markdown2.markdown(self._fetch_changelog(remote_version_str), extras=["tables", "cuddled-lists"])
         html_css = css_data.updater_css
 
         frame = wx.Dialog(None, -1, title="", size=(650, 500))

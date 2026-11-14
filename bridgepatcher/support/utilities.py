@@ -4,6 +4,7 @@ utilities.py: Utility functions for BridgePatcher
 
 import os
 import re
+import sys
 import math
 import atexit
 import shutil
@@ -318,6 +319,16 @@ def check_kext_loaded(bundle_id: str) -> str:
     return ""
 
 
+def modern_audio_root_patch_installed() -> bool:
+    """
+    Whether the "Modern Audio" root patch is installed on the booted system.
+
+    Only meaningful on macOS Tahoe: Apple removed AppleHDA.kext there, so finding it
+    in /System/Library/Extensions means root patching put it back.
+    """
+    return Path("/System/Library/Extensions/AppleHDA.kext").exists()
+
+
 def check_secure_boot_model():
     sbm_byte = get_nvram("HardwareModel", "94B73556-2197-4702-82A8-3E1337DAFBFB", decode=False)
     if sbm_byte:
@@ -386,7 +397,12 @@ def cls():
     if check_cli_args() is None:
         # Our GUI does not support clear screen
         if not check_recovery():
-            os.system("cls" if os.name == "nt" else "clear")
+            # Clear the terminal with the ANSI "erase screen, cursor home" sequence instead
+            # of os.system("clear"): no shell and no program looked up on $PATH (Bandit
+            # B605/B607). Only when there is a terminal - the GUI's output has none.
+            if sys.stdout is not None and sys.stdout.isatty():
+                sys.stdout.write("\033[2J\033[H")
+                sys.stdout.flush()
         else:
             logging.info("\u001Bc")
             

@@ -642,7 +642,7 @@ class MainFrame(wx.Frame):
         ID_GITHUB = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
         ID_UPDATE = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
 
-        html_markdown = markdown2.markdown(changelog_text, extras=["tables"])
+        html_markdown = markdown2.markdown(changelog_text, extras=["tables", "cuddled-lists"])
         html_css = css_data.updater_css
 
         # Parent auf self gesetzt zur sauberen Speicherhierarchie

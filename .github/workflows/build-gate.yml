@@ -9,8 +9,11 @@
 #                upstream (removed/replaced copyright notices, Dortania's artwork, names,
 #                Discord links, ...), plus the license compliance check (Dortania's complete
 #                LICENSE.txt, LICENSE.txt bundled in the app, the acknowledgement in the README
-#                and on the website). Same scripts as license-guard.yml and
-#                license-compliance.yml, run on exactly the commit that would be built, so a
+#                and on the website), and the open-source kext license check (every kext
+#                archive classified in licenses/kexts.json, the notices of the open-source
+#                ones in THIRD-PARTY-NOTICES.txt and that file bundled in the app). Same
+#                scripts as license-guard.yml, license-compliance.yml and
+#                kext-license-check.yml, run on exactly the commit that would be built, so a
 #                branch that fixes a violation can build even before it is merged.
 #   malware      ClamAV over every file of the commit being built (binaries in payloads/
 #                included), plus the "high" malware techniques of the PR scanner
@@ -120,12 +123,18 @@ jobs:
           CHECK_WEBSITE: "1"
         run: python3 .github/scripts/check_license_compliance.py .
 
+      - name: Open-source kext license check
+        id: kext_licenses
+        if: always() && steps.range.outcome == 'success'
+        run: python3 .github/scripts/check_kext_licenses.py .
+
       - name: Block the build on violations
         if: always()
         env:
           GUARD: ${{ steps.guard.outcome }}
           VIOLATIONS: ${{ steps.guard.outputs.violations }}
           COMPLIANCE: ${{ steps.compliance.outcome }}
+          KEXT_LICENSES: ${{ steps.kext_licenses.outcome }}
         run: |
           fail=0
           if [ "$GUARD" != "success" ] || [ -z "$VIOLATIONS" ]; then
@@ -135,6 +144,9 @@ jobs:
           fi
           if [ "$COMPLIANCE" != "success" ]; then
             echo "::error::The license compliance check failed (Dortania's BSD 4-Clause terms). Nothing is built or uploaded until it passes."; fail=1
+          fi
+          if [ "$KEXT_LICENSES" != "success" ]; then
+            echo "::error::The open-source kext license check failed (see the job summary). Nothing is built or uploaded until it passes."; fail=1
           fi
           exit $fail
 
