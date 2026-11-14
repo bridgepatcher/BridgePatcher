@@ -44,6 +44,7 @@ import os
 import re
 import subprocess
 import sys
+import zoneinfo
 
 LEDGER = "CHECKSUMS.md"
 RELEASES_MARKER = "<!-- releases (newest first) -->"
@@ -54,6 +55,8 @@ BLOCK_END = "<!-- release-checksums:end -->"
 # Release notes can't be longer than this (GitHub's limit is 125000 characters).
 BODY_LIMIT = 120000
 EXIT_CHANGED = 3
+# Times are shown in Eastern European time: EEST (UTC+3) in summer, EET (UTC+2) in winter.
+TIMEZONE = "Europe/Sofia"
 EXIT_NEED_DOWNLOAD = 4
 EXIT_PUBLISHED_MISMATCH = 5
 # Published checksum files are small; anything bigger isn't one.
@@ -134,8 +137,31 @@ def read_sums(path):
     return sums
 
 
-def now_utc():
-    return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")
+def local_time(dt):
+    """dt (aware) in TIMEZONE, e.g. "2026-07-01 14:05 EEST (UTC+3)". Falls back to UTC
+    if the runner has no time zone data."""
+    try:
+        dt = dt.astimezone(zoneinfo.ZoneInfo(TIMEZONE))
+    except zoneinfo.ZoneInfoNotFoundError:
+        dt = dt.astimezone(datetime.UTC)
+        return dt.strftime("%Y-%m-%d %H:%M UTC")
+    hours, rest = divmod(int(dt.utcoffset().total_seconds()) // 60, 60)
+    offset = f"{hours:+d}" + (f":{rest:02d}" if rest else "")
+    return dt.strftime("%Y-%m-%d %H:%M %Z") + f" (UTC{offset})"
+
+
+def now_local():
+    return local_time(datetime.datetime.now(datetime.UTC))
+
+
+def local_date(iso):
+    """Date part of a GitHub timestamp ("2026-11-14T21:10:44Z") in TIMEZONE."""
+    if not iso:
+        return ""
+    try:
+        return local_time(datetime.datetime.fromisoformat(iso))[:10]
+    except ValueError:
+        return iso[:10]
 
 
 # ---------- CHECKSUMS.md ----------
@@ -213,7 +239,7 @@ def update_ledger(text, repo, tag, release, sums):
     if not new and not changed:
         return text, first, changed
 
-    stamp = now_utc()
+    stamp = now_local()
     add = ""
     if new:
         add += f"\nRecorded {stamp}:\n\n" + code_block(new)
@@ -224,7 +250,7 @@ def update_ledger(text, repo, tag, release, sums):
     lines = text.split("\n")
     start = next((i for i, l in enumerate(lines) if SECTION_RE.match(l) and SECTION_RE.match(l).group(1) == tag), None)
     if start is None:
-        published = (release.get("published_at") or "")[:10]
+        published = local_date(release.get("published_at"))
         kind = " (pre-release)" if release.get("prerelease") else ""
         section = (f"<!-- release: {tag} -->\n## {tag}{kind}\n\n"
                    f"[Release page]({release['html_url']})" + (f" · published {published}" if published else "") +

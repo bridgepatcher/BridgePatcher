@@ -31,7 +31,7 @@ next to the downloads and run `shasum -a 256 -c sums.txt`.
 
 [Release page](https://github.com/bridgepatcher/BridgePatcher/releases/tag/4.0.0.2000003.4) · published 2026-11-14
 
-Recorded 2026-11-14 22:17 UTC:
+Recorded 2026-11-15 00:17 EET (UTC+2):
 
 ```
 65b11f9c2dcd60975ca158d198c10cc3eb3e4a9e6dbe0fbbebcd07ff722be270  AutoPkg-Assets.pkg
@@ -44,7 +44,7 @@ ad064ab2d695786b574c2f490c963939724a8aa5f47ae8d8c3f2fac13106f6b6  BridgePatcher-
 
 [Release page](https://github.com/bridgepatcher/BridgePatcher/releases/tag/4.0.0.2000003.3) · published 2026-11-14
 
-Recorded 2026-11-14 22:17 UTC:
+Recorded 2026-11-15 00:17 EET (UTC+2):
 
 ```
 84d9ffcea969120f0a6cec5d0dbc755bf0d801d91192b0e3ccb36fe015a74c54  AutoPkg-Assets.pkg
@@ -55,9 +55,9 @@ d6c0d88aefdf965df4d35edb4952a117455d8c6727f88ec0d2d9f1f5d7b74572  BridgePatcher-
 <!-- release: 4.0.0.2000003.2 -->
 ## 4.0.0.2000003.2
 
-[Release page](https://github.com/bridgepatcher/BridgePatcher/releases/tag/4.0.0.2000003.2) · published 2026-11-12
+[Release page](https://github.com/bridgepatcher/BridgePatcher/releases/tag/4.0.0.2000003.2) · published 2026-11-13
 
-Recorded 2026-11-14 22:18 UTC:
+Recorded 2026-11-15 00:18 EET (UTC+2):
 
 ```
 35fa9abfbbe77a07df136a84f4dba9932d9c3a5199b6642c24ecd4896223b390  AutoPkg-Assets.pkg
@@ -70,7 +70,7 @@ ec0e9f7edb261649ef67612b923e0a16ccf3a2ab27ebfd25f4ae14b2226d8883  BridgePatcher-
 
 [Release page](https://github.com/bridgepatcher/BridgePatcher/releases/tag/4.0.0.2000003.1) · published 2026-11-09
 
-Recorded 2026-11-14 22:18 UTC:
+Recorded 2026-11-15 00:18 EET (UTC+2):
 
 ```
 4842b099b339772aadb2f629c26d4d367e7aad35c4f15625356c1ff053e96c6c  AutoPkg-Assets.pkg
