@@ -191,6 +191,8 @@ def clamav(path, extra=()):
 
 
 def cmd_tree(a):
+    # Absolute: License Guard runs with the target as its working directory.
+    a.checker, a.target = os.path.abspath(a.checker), os.path.abspath(a.target)
     upstream = os.environ.get("UPSTREAM_REPO", "")
     out = {
         "license_guard": check_license_guard(a.checker, a.target, upstream) if upstream
