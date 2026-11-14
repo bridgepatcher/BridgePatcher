@@ -6,7 +6,7 @@ This version:
   - AppleALC and SimpleHDA only load on macOS Tahoe, so dual-booted older macOS versions keep their native audio
   - if the Modern Audio root patch is already installed, it is kept and SimpleHDA isn't added. To switch, revert root patches and build OpenCore again
   - only applies to these two iMac models, and is on by default. When building for one of them, it can be turned off in Settings → Extras → "SimpleHDA Tahoe Audio" (the setting isn't shown for other Macs)
-- now ships THIRD-PARTY-NOTICES.txt in the app, with the license of every bundled open-source kext (Lilu, AppleALC, WhateverGreen, BlueToolFixup and 10 more), as their BSD and GPL licenses require. Settings → License now shows them below BridgePatcher's own license. A new check (`.github/scripts/check_kext_licenses.py`, also part of the build gate) makes sure every kext in payloads/Kexts is classified and that the notices stay complete when kexts are added or updated
+- now ships THIRD-PARTY-NOTICES.txt in the app, with the license of every bundled open-source kext (Lilu, AppleALC, WhateverGreen, BlueToolFixup and 10 more), as their BSD and GPL licenses require. They can be read in the new Settings → Third-Party tab. A new check (`.github/scripts/check_kext_licenses.py`, also part of the build gate) makes sure every kext in payloads/Kexts is classified and that the notices stay complete when kexts are added or updated
 
 ## 4.0.0.2000003.2 - 4.0.0 alpha 20.3.2
 This version:

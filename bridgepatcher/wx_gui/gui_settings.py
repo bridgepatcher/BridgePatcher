@@ -444,6 +444,16 @@ class SettingsFrame(wx.Frame):
                     "args": wx.Frame,
                 },
             },
+            "Third-Party": {
+                "Third-Party Notices": {
+                    "type": "title",
+                },
+                "Populate Third-Party Notices": {
+                    "type": "populate",
+                    "function": self._populate_third_party_notices,
+                    "args": wx.Frame,
+                },
+            },
             "Advanced": {
                 "Validation": {
                     "type": "title",
@@ -569,13 +579,23 @@ Hardware Information:
         self.license_view.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
         self.license_view.SetScrollbar(wx.HORIZONTAL, 0, 600, 1200)
     def _read_license(self) -> str:
+        return self._read_bundled_text("LICENSE.txt")
+
+    def _populate_third_party_notices(self, panel: wx.Frame) -> None:
         """
-        BridgePatcher's LICENSE.txt, followed by THIRD-PARTY-NOTICES.txt (the licenses of
-        the bundled open-source kexts).
+        THIRD-PARTY-NOTICES.txt: the licenses of the bundled open-source kexts, which
+        their BSD/GPL licenses require to ship with the app.
         """
-        text = self._read_bundled_text("LICENSE.txt")
+        title: wx.StaticText = None
+        for child in panel.GetChildren():
+            if child.GetLabel() == "Third-Party Notices":
+                title = child
+                break
         notices = self._read_bundled_text("THIRD-PARTY-NOTICES.txt")
-        return f"{text.rstrip()}\n\n\n{'=' * 78}\n\n{notices}"
+        self.notices_view = wx.TextCtrl(panel, value=notices, pos=(-1, title.GetPosition()[1] + 30), size=(712, 508),
+                                        style=wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_RICH2 | wx.BORDER_NONE | wx.HSCROLL | wx.VSCROLL | wx.TE_DONTWRAP)
+        self.notices_view.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
+        self.notices_view.SetScrollbar(wx.HORIZONTAL, 0, 600, 1200)
 
     def _read_bundled_text(self, file_name: str) -> str:
         """
