@@ -37,7 +37,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -101,7 +101,7 @@ jobs:
             "OpenCore Legacy Patcher" Golden Gate|
             "OpenCore Legacy Patcher" "Apple Silicon"|
             "OpenCore Legacy Patcher" M1
-          NEWS_MARKETS: "en-US es-ES de-DE fr-FR it-IT pt-BR"
+          NEWS_MARKETS: "en-US es-ES de-DE fr-FR it-IT pt-BR bg-BG ru-RU ja-JP zh-CN zh-TW zh-HK zh-SG zh-MO zh-Hans zh-Hant lu-LU en-AU en-GB ro-RO hu-HU de-AT sl-SI sk-SK cs-CZ de-CH fr-CH it-CH rm-CH it-IT pt-PT fi-FI sv-SE sv-FI nb-NO"
           # Always searched through their own (WordPress) search, even when no news feed lists them
           NEWS_SITES: "soydemac.com en.soydemac.com"
           # --- Websites of listed repositories ---
@@ -124,13 +124,12 @@ jobs:
           # Newly registered domains: days to look back, names to match, and how long
           # an empty one keeps being re-checked before it's dropped
           NRD_DAYS: "7"
-          NRD_KEYWORDS: "opencorelegacypatcher legacypatcher legacyopencorepatcher opencorepatcher"
+          NRD_KEYWORDS: "opencorelegacypatcher legacypatcher legacyopencorepatcher opencorepatcher patcheropencorelegacy oclp-patcher oclp"
           WATCH_DAYS: "60"
           # A site is only listed if its page mentions one of these (case-insensitive, | separated)
           CONTENT_MARKERS: "opencore legacy patcher|opencore-legacy-patcher|opencorelegacypatcher"
           # Hosts (and their subdomains) that are never listed
-          # oclp.net: possibly a Chinese community site, not verified as a fake
-          ALLOWLIST: "github.com githubusercontent.com dortania.github.io bridgepatcher.github.io oclp.net"
+          ALLOWLIST: "github.com githubusercontent.com dortania.github.io bridgepatcher.github.io"
           # --- Web search (optional) ---
           # With a free Brave Search API key (https://api-dashboard.search.brave.com) stored as repo
           # secret BRAVE_SEARCH_API_KEY (or BRAVE_API_KEY), search results are checked too. Only pages
