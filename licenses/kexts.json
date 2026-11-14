@@ -152,7 +152,7 @@
             ]
         },
         {
-            "reason": "Dortania's and BridgePatcher's own kexts (mostly plist-only injectors), covered by LICENSE.txt",
+            "reason": "Dortania's/OCLP's and BridgePatcher's own kexts, covered by LICENSE.txt: plist-only injectors, kexts by OCLP's authors and contributors that always shipped with OCLP (AMFIPass by Dhinak G, AutoPkgInstaller by Mykola Grymalyuk, KDKlessWorkaround by flagers) and the T2 kexts by a BridgePatcher author",
             "archives": [
                 "payloads/Kexts/Acidanthera/EFICheckDisabler.zip",
                 "payloads/Kexts/Misc/ASPP-Override-v*.zip",
@@ -163,23 +163,23 @@
                 "payloads/Kexts/Misc/ECM-Override-v*.zip",
                 "payloads/Kexts/Misc/LegacyKeyboardInjector-v*.zip",
                 "payloads/Kexts/Misc/SMC-Spoof-v*.zip",
-                "payloads/Kexts/USB/USB1.1-Injector-v*.zip"
+                "payloads/Kexts/USB/USB1.1-Injector-v*.zip",
+                "payloads/Kexts/Acidanthera/AMFIPass-v*.zip",
+                "payloads/Kexts/Acidanthera/AutoPkgInstaller-v*.zip",
+                "payloads/Kexts/Misc/KDKlessWorkaround-v*.zip",
+                "payloads/Kexts/T2/AppleANS2Disabler-*.zip",
+                "payloads/Kexts/T2/T2TahoeFixup-*.zip",
+                "payloads/Kexts/T2/libT2Stage2Bypass-*.zip"
             ]
         },
         {
             "reason": "Published without a license (no LICENSE in the author's repository, or no public source)",
             "archives": [
-                "payloads/Kexts/Acidanthera/AMFIPass-v*.zip",
-                "payloads/Kexts/Acidanthera/AutoPkgInstaller-v*.zip",
                 "payloads/Kexts/Misc/AMDGPUWakeHandler-v*.zip",
                 "payloads/Kexts/Misc/AppleMCEReporterDisabler-v*.zip",
-                "payloads/Kexts/Misc/KDKlessWorkaround-v*.zip",
                 "payloads/Kexts/Misc/LegacyUSBVideoSupport-v*.zip",
                 "payloads/Kexts/SSE/AAAMouSSE-v*.zip",
-                "payloads/Kexts/SSE/telemetrap-v*.zip",
-                "payloads/Kexts/T2/AppleANS2Disabler-*.zip",
-                "payloads/Kexts/T2/T2TahoeFixup-*.zip",
-                "payloads/Kexts/T2/libT2Stage2Bypass-*.zip"
+                "payloads/Kexts/SSE/telemetrap-v*.zip"
             ]
         }
     ]
