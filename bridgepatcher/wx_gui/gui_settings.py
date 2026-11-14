@@ -444,6 +444,16 @@ class SettingsFrame(wx.Frame):
                     "args": wx.Frame,
                 },
             },
+            "Third-Party": {
+                "Third-Party Notices": {
+                    "type": "title",
+                },
+                "Populate Third-Party Notices": {
+                    "type": "populate",
+                    "function": self._populate_third_party_notices,
+                    "args": wx.Frame,
+                },
+            },
             "Advanced": {
                 "Validation": {
                     "type": "title",
@@ -569,8 +579,27 @@ Hardware Information:
         self.license_view.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
         self.license_view.SetScrollbar(wx.HORIZONTAL, 0, 600, 1200)
     def _read_license(self) -> str:
+        return self._read_bundled_text("LICENSE.txt")
+
+    def _populate_third_party_notices(self, panel: wx.Frame) -> None:
         """
-        Locate the LICENSE.txt shipped with the patcher.
+        THIRD-PARTY-NOTICES.txt: the licenses of the bundled open-source kexts, which
+        their BSD/GPL licenses require to ship with the app.
+        """
+        title: wx.StaticText = None
+        for child in panel.GetChildren():
+            if child.GetLabel() == "Third-Party Notices":
+                title = child
+                break
+        notices = self._read_bundled_text("THIRD-PARTY-NOTICES.txt")
+        self.notices_view = wx.TextCtrl(panel, value=notices, pos=(-1, title.GetPosition()[1] + 30), size=(712, 508),
+                                        style=wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_RICH2 | wx.BORDER_NONE | wx.HSCROLL | wx.VSCROLL | wx.TE_DONTWRAP)
+        self.notices_view.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
+        self.notices_view.SetScrollbar(wx.HORIZONTAL, 0, 600, 1200)
+
+    def _read_bundled_text(self, file_name: str) -> str:
+        """
+        Locate a text file shipped with the patcher (LICENSE.txt, THIRD-PARTY-NOTICES.txt).
 
         Not based on current_path: in the built app that is first Contents/Frameworks
         and, once payloads.dmg is mounted, a temporary directory (reroute_payloads.py),
@@ -579,21 +608,21 @@ Hardware Information:
         payloads.dmg; from source it sits in the repository root. Both are
         original_path, with Contents/Resources checked as well in case the link is missing.
         """
-        candidates = [Path(self.constants.original_path) / "LICENSE.txt"]
+        candidates = [Path(self.constants.original_path) / file_name]
         if self.constants.launcher_binary and not self.constants.launcher_script:
-            candidates.append(Path(self.constants.launcher_binary).resolve().parent.parent / "Resources" / "LICENSE.txt")
+            candidates.append(Path(self.constants.launcher_binary).resolve().parent.parent / "Resources" / file_name)
 
-        for license_path in candidates:
+        for path in candidates:
             try:
-                with open(license_path, "r", encoding="utf-8") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     return f.read()
             except OSError:
                 continue
 
-        logging.error(f"LICENSE.txt not found, looked in: {', '.join(str(c) for c in candidates)}")
+        logging.error(f"{file_name} not found, looked in: {', '.join(str(c) for c in candidates)}")
         return (
-            "LICENSE.txt could not be found in this copy of BridgePatcher.\n\n"
-            "The license is available at https://github.com/bridgepatcher/BridgePatcher/blob/main/LICENSE.txt"
+            f"{file_name} could not be found in this copy of BridgePatcher.\n\n"
+            f"It is available at https://github.com/bridgepatcher/BridgePatcher/blob/main/{file_name}"
         )
 
     def _populate_oc_build_override(self, panel: wx.Panel) -> None:
