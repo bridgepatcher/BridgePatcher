@@ -1,0 +1,40 @@
+# Release checksums
+
+The SHA256 checksum of every file attached to a [release](https://github.com/bridgepatcher/BridgePatcher/releases),
+recorded automatically by a GitHub Actions workflow when the file is uploaded.
+
+Checksums are only ever **added** to this file, never changed or removed. If a file on a
+release is replaced later, its first checksum stays here and the new one is added below
+it with a warning. The file's git history shows when each checksum was recorded, which a
+replaced file can't change. `SHA256SUMS` on a release, in comparison, is regenerated
+whenever the release's files change.
+
+## How to check a download
+
+On macOS, in Terminal:
+
+```sh
+shasum -a 256 ~/Downloads/<file>
+```
+
+The output must match the checksum listed below for that release and file. If it
+doesn't, or if the file is marked as changed below and you didn't expect that, don't
+open it and [report it](https://github.com/bridgepatcher/BridgePatcher/security/advisories/new).
+
+To check every file of a release at once, copy its lines into a file named `sums.txt`
+next to the downloads and run `shasum -a 256 -c sums.txt`.
+
+<!-- releases (newest first) -->
+
+<!-- release: 4.0.0.2000003.4 -->
+## 4.0.0.2000003.4
+
+[Release page](https://github.com/bridgepatcher/BridgePatcher/releases/tag/4.0.0.2000003.4) · published 2026-11-14
+
+Recorded 2026-11-14 22:17 UTC:
+
+```
+65b11f9c2dcd60975ca158d198c10cc3eb3e4a9e6dbe0fbbebcd07ff722be270  AutoPkg-Assets.pkg
+ad064ab2d695786b574c2f490c963939724a8aa5f47ae8d8c3f2fac13106f6b6  BridgePatcher-Uninstaller.pkg
+25d34818a9ca7d557e1d8b728c34c419913707a86e1e25dd0c8df398fe429539  BridgePatcher.pkg
+```
