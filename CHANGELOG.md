@@ -1,6 +1,7 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
 ## 4.0.0.2000003.3 - 4.0.0 alpha 20.3.3
 This version:
+
 - restores audio on macOS Tahoe for the iMac (Retina 5K, 27-inch, 2019) and iMac (Retina 4K, 21.5-inch, 2019) (iMac19,1 and iMac19,2) without root patching. On these Macs the "Modern Audio" root patch could fail on SIP/AMFI or leave the Mac at the "no entry" symbol. OpenCore now injects AppleHDA with [SimpleHDA](https://github.com/laobamac/SimpleHDA) by laobamac (Lilu → AppleALC → SimpleHDA, `alcid=7`), so SIP no longer needs to be lowered for audio. Thx jwx213 for finding and testing this on an iMac19,2 (iMac19,1 is untested so far)
   - SimpleHDA is not bundled with BridgePatcher, because its license doesn't allow redistribution. It is downloaded from laobamac's GitHub releases while building OpenCore and only used if its SHA-256 matches. Without an internet connection OpenCore is built without it, and the Modern Audio root patch stays available
   - AppleALC and SimpleHDA only load on macOS Tahoe, so dual-booted older macOS versions keep their native audio
