@@ -62,5 +62,7 @@ To protect yourself against homoglyph attacks (e.g., lookalike repository names 
 2. Verify downloaded release archives against the published **SHA-256 checksums**:
    shasum -a 256 <Downloaded-File>.zip
 
+   The checksums are listed in the release notes (under "Asset Information") and in [CHECKSUMS.md](CHECKSUMS.md). They're recorded automatically when the files are uploaded. CHECKSUMS.md only ever gets checksums added, never changed, so if a file on a release is ever replaced, its original checksum stays there and the new one is marked as changed.
+
 This is an example of typosquatting:
 <img width="1712" height="910" alt="image" src="https://github.com/user-attachments/assets/cce043f6-90bd-478a-a4dd-edab048cb79e" />

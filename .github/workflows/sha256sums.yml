@@ -18,8 +18,27 @@ name: Publish SHA256SUMS
 # SHA256SUMS is the only checksum file on releases. The old certificates.txt is no
 # longer built or uploaded; the in-app updater only falls back to it for older
 # releases that still carry one.
+#
+# SHA256SUMS is regenerated whenever the assets change, so on its own it would also
+# vouch for a replaced (e.g. malicious) package. The same checksums are therefore
+# also recorded by .github/scripts/record_checksums.py:
+#   - in CHECKSUMS.md on the default branch, append-only: a checksum is never changed
+#     or removed, and git history shows when it was first recorded. If an asset's
+#     SHA256 later differs from the first one, the new one is added under a warning
+#     and this workflow fails, so the maintainer gets notified.
+#   - in the release notes, under "## Asset Information" (the in-app updater cuts the
+#     changelog at that heading, so they don't show up there).
+# The "all-releases" job does this for every release, not only recent ones, using the
+# SHA256 GitHub computed when each asset was uploaded (nothing is downloaded). That
+# backfills releases published before this was added, compares any published
+# SHA256SUMS / certificates.txt with the actual files, and keeps watching old
+# releases for replaced files. It also runs once when this workflow or the script
+# changes on main.
 
 on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/sha256sums.yml, .github/scripts/record_checksums.py]
   release:
     types: [published, released, prereleased, edited]
   schedule:
@@ -40,6 +59,8 @@ concurrency:
 
 jobs:
   sha256sums:
+    # On push only the all-releases job runs (no downloads needed).
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -54,6 +75,20 @@ jobs:
       INSTALLER_ASSETS: "BridgePatcher.pkg"
       PRIMARY_INSTALLER: "BridgePatcher.pkg"
     steps:
+      - name: Find default branch
+        id: repo
+        run: echo "branch=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)" >> "$GITHUB_OUTPUT"
+
+      # CHECKSUMS.md is committed to the default branch, and the recording script is
+      # taken from there too (a release's own tag may predate it). Full history so the
+      # release notes can link the commit that first recorded a release.
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.repo.outputs.branch }}
+          path: repo
+          fetch-depth: 0
+
       - name: Determine target releases
         env:
           EVENT_TAG: ${{ github.event.release.tag_name }}
@@ -73,9 +108,12 @@ jobs:
           echo "Target releases:"
           cat tags.txt
 
-      - name: Generate and upload SHA256SUMS
+      - name: Generate and upload SHA256SUMS, record checksums
         run: |
           set -euo pipefail
+          CHANGED=0
+          MISMATCH=0
+          FAILED=0
 
           process() {
             TAG="$1"
@@ -150,6 +188,20 @@ jobs:
               gh release upload "$TAG" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
             fi
 
+            # Append-only record in CHECKSUMS.md and the release notes (see the top of this file)
+            if [ -s SHA256SUMS ]; then
+              rc=0
+              python3 -I repo/.github/scripts/record_checksums.py \
+                --tag "$TAG" --sums SHA256SUMS --checkout repo \
+                --check-file SHA256SUMS --check-file certificates.txt || rc=$?
+              case "$rc" in
+                0) ;;
+                3) CHANGED=1 ;;
+                5) MISMATCH=1 ;;
+                *) FAILED=1 ;;
+              esac
+            fi
+
             rm -rf work existing.txt SHA256SUMS
             echo "::endgroup::"
           }
@@ -157,3 +209,89 @@ jobs:
           while read -r t; do
             [ -n "$t" ] && process "$t"
           done < tags.txt
+
+          if [ "$CHANGED" -ne 0 ]; then
+            echo "::error::A release asset was replaced after its checksum was first recorded - see the errors above and CHECKSUMS.md."
+            exit 1
+          fi
+          if [ "$MISMATCH" -ne 0 ]; then
+            echo "::error::A published checksum file disagrees with a release asset - see the errors above."
+            exit 1
+          fi
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error::Recording checksums failed for at least one release - see the errors above."
+            exit 1
+          fi
+
+  all-releases:
+    # A tag-specific run only concerns that release; the job above handles it.
+    if: github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.tag == '')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Find default branch
+        id: repo
+        run: echo "branch=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.repo.outputs.branch }}
+          path: repo
+          fetch-depth: 0
+
+      - name: Record checksums of every release
+        run: |
+          set -euo pipefail
+          CHANGED=0
+          MISMATCH=0
+          FAILED=0
+          SCRIPT=repo/.github/scripts/record_checksums.py
+
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.draft == false) | .tag_name' | tac > tags.txt  # oldest first: each new release goes on top
+          echo "Releases:"
+          cat tags.txt
+
+          while read -r TAG; do
+            [ -n "$TAG" ] || continue
+            echo "::group::$TAG"
+            # SHA256SUMS is regenerated when assets change, so it isn't recorded itself;
+            # it is compared with the actual files instead.
+            rc=0
+            python3 -I "$SCRIPT" --tag "$TAG" --from-digests --checkout repo --skip SHA256SUMS \
+              --check-file SHA256SUMS --check-file certificates.txt || rc=$?
+            if [ "$rc" -eq 4 ]; then
+              # Assets uploaded before GitHub computed checksums: download and hash them.
+              rm -rf work && mkdir work
+              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir work --clobber
+              rm -f work/SHA256SUMS
+              (cd work && LC_ALL=C find . -maxdepth 1 -type f -printf '%P\n' \
+                | LC_ALL=C sort | xargs -d '\n' -r sha256sum) > sums.txt
+              rc=0
+              python3 -I "$SCRIPT" --tag "$TAG" --sums sums.txt --checkout repo \
+                --check-file SHA256SUMS --check-file certificates.txt || rc=$?
+              rm -rf work sums.txt
+            fi
+            case "$rc" in
+              0) ;;
+              3) CHANGED=1 ;;
+              5) MISMATCH=1 ;;
+              *) FAILED=1 ;;
+            esac
+            echo "::endgroup::"
+          done < tags.txt
+
+          if [ "$CHANGED" -ne 0 ]; then
+            echo "::error::A release asset was replaced after its checksum was first recorded - see the errors above and CHECKSUMS.md."
+            exit 1
+          fi
+          if [ "$MISMATCH" -ne 0 ]; then
+            echo "::error::A published checksum file disagrees with a release asset - see the errors above."
+            exit 1
+          fi
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error::Recording checksums failed for at least one release - see the errors above."
+            exit 1
+          fi

@@ -1,0 +1,250 @@
+name: Release audit
+
+# Checks every published release for malware, license violations and attribution
+# violations, and DELETES a release together with its git tag if it has any. A deleted
+# release can't be restored. Details and safety rules: .github/scripts/release_audit.py.
+#
+# Per release:
+#   - the build gate's checks on the release's tag: License Guard's full audit against
+#     Dortania's upstream (removed/rewritten copyright, licence and credit notices,
+#     Dortania's artwork, names, Discord links), the BSD license compliance check, the
+#     open-source kext license check, the "high" malware techniques and ClamAV over every
+#     file. Scripts, rules and allowlists come from the default branch, never the tag.
+#   - ClamAV over the release's files (the installer packages).
+#
+# Only definite findings delete. A check that couldn't run never does, and neither does a
+# tag check the default branch currently fails as well (the failure then isn't specific to
+# the release). If more than MAX_DELETIONS releases would go in one run, none are deleted
+# and an issue is opened instead. Every deletion opens an issue (label "release-removed").
+# The build gate's open-issue blockers (attribution-violation, needs-credit, ...) apply to
+# the repository as a whole, not to a release, so they don't delete releases.
+#
+# Runs daily (ClamAV's signatures and the checks themselves change), when a release is
+# published, when its packages have been built and uploaded, and by hand (optionally as a
+# dry run that deletes nothing).
+
+on:
+  schedule:
+    - cron: "37 3 * * *"
+  release:
+    types: [published]
+  workflow_run:
+    workflows: ["CI - Build BridgePatcher"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (leave empty for every release)"
+        required: false
+        type: string
+      dry_run:
+        description: "Only report, delete nothing"
+        required: false
+        type: boolean
+        default: true
+      max_deletions:
+        description: "Most releases deleted in one run (more = none are deleted)"
+        required: false
+        type: string
+        default: "3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-audit
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: dortania/OpenCore-Legacy-Patcher
+
+jobs:
+  releases:
+    # The build also runs on every push; only its release runs upload packages.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.event == 'release'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+      count: ${{ steps.list.outputs.count }}
+      branch: ${{ steps.list.outputs.branch }}
+    steps:
+      - name: List releases
+        id: list
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || github.event.workflow_run.head_branch || inputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "branch=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)" >> "$GITHUB_OUTPUT"
+          if [ -n "$TAG" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq 'select(.draft == false) | .tag_name' > tags.txt
+          else
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              --jq '.[] | select(.draft == false) | .tag_name' > tags.txt
+          fi
+          cat tags.txt
+          echo "count=$(grep -c . tags.txt || true)" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(jq -Rnc '[inputs | select(length > 0)] | to_entries | map({idx: .key, tag: .value})' tags.txt)" >> "$GITHUB_OUTPUT"
+
+  # The same tag checks on the default branch: a check only deletes a release if the
+  # default branch passes it.
+  control:
+    needs: releases
+    if: needs.releases.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.releases.outputs.branch }}
+          path: checker
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install License Guard's tools
+        run: |
+          python -m pip install --disable-pip-version-check "pillow==11.3.0" "opencv-python-headless==4.11.0.86"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-eng
+          docker pull -q clamav/clamav:stable
+
+      - name: Restore OCR cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/license-guard-art-cache.json
+          key: license-guard-art-${{ hashFiles('checker/.github/scripts/license_guard.py') }}-${{ github.run_id }}
+          restore-keys: |
+            license-guard-art-${{ hashFiles('checker/.github/scripts/license_guard.py') }}-
+
+      - name: Run the checks on the default branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ART_CACHE: ${{ runner.temp }}/license-guard-art-cache.json
+        run: python3 checker/.github/scripts/release_audit.py tree --checker checker --target checker --out control.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-audit-control
+          path: control.json
+
+  audit:
+    needs: releases
+    if: needs.releases.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        release: ${{ fromJSON(needs.releases.outputs.matrix) }}
+    name: audit (${{ matrix.release.tag }})
+    steps:
+      - name: Checkout default branch (check scripts)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.releases.outputs.branch }}
+          path: checker
+          persist-credentials: false
+
+      # Only read by the checks, never built or executed.
+      - name: Checkout the release's tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ matrix.release.tag }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install License Guard's tools
+        run: |
+          python -m pip install --disable-pip-version-check "pillow==11.3.0" "opencv-python-headless==4.11.0.86"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-eng
+          docker pull -q clamav/clamav:stable
+
+      # Shares License Guard's OCR cache, so only new or changed images are read again.
+      - name: Restore OCR cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/license-guard-art-cache.json
+          key: license-guard-art-${{ hashFiles('checker/.github/scripts/license_guard.py') }}-${{ github.run_id }}
+          restore-keys: |
+            license-guard-art-${{ hashFiles('checker/.github/scripts/license_guard.py') }}-
+
+      - name: Check the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ART_CACHE: ${{ runner.temp }}/license-guard-art-cache.json
+        run: python3 checker/.github/scripts/release_audit.py tree --checker checker --target target --out tree.json
+
+      - name: Free disk space for the packages
+        run: rm -rf target
+
+      - name: Scan the release's files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ matrix.release.tag }}
+        run: python3 checker/.github/scripts/release_audit.py assets --tag "$TAG" --out assets.json
+
+      - name: Combine results
+        env:
+          TAG: ${{ matrix.release.tag }}
+        run: |
+          jq -n --arg tag "$TAG" --slurpfile tree tree.json --slurpfile assets assets.json \
+            '{tag: $tag, tree: $tree[0], assets: $assets[0]}' > "result-${{ matrix.release.idx }}.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-audit-${{ matrix.release.idx }}
+          path: result-${{ matrix.release.idx }}.json
+
+  decide:
+    needs: [releases, control, audit]
+    # Also runs when some audit jobs failed: their releases count as "couldn't check".
+    if: always() && needs.releases.outputs.count != '0' && needs.control.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # delete releases and tags
+      issues: write     # report deletions
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.releases.outputs.branch }}
+          path: checker
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-audit-*
+          path: results
+          merge-multiple: true
+
+      - name: Mark releases whose audit didn't finish
+        env:
+          MATRIX: ${{ needs.releases.outputs.matrix }}
+        run: |
+          set -euo pipefail
+          echo "$MATRIX" | jq -c '.[]' | while read -r r; do
+            idx=$(jq -r .idx <<<"$r")
+            [ -f "results/result-$idx.json" ] || jq '{tag: .tag}' <<<"$r" > "results/result-$idx.json"
+          done
+          mv results/control.json control.json
+
+      - name: Delete releases with violations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
+          MAX_DELETIONS: ${{ inputs.max_deletions || '3' }}
+        run: |
+          python3 checker/.github/scripts/release_audit.py decide --control control.json --results results \
+            --max-deletions "$MAX_DELETIONS" $DRY_RUN
