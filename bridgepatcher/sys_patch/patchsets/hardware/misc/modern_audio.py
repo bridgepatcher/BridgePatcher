@@ -8,7 +8,7 @@ from ...base import PatchType
 
 from .....constants import Constants
 
-from .....datasets import smbios_data
+from .....datasets import smbios_data, model_array
 from .....datasets.os_data import os_data
 from .....support   import utilities
 
@@ -30,10 +30,14 @@ class ModernAudio(BaseHardware):
         model_data = smbios_data.smbios_dictionary.get(self._computer.real_model)
         if model_data is None or model_data.get("SecureBootModel", "Default") is not None:
             return False
-        # SimpleHDA (injected from the EFI, see BuildGraphicsAudio._simplehda_handling())
-        # already restores AppleHDA: installing it on the system volume too would load
-        # the stack twice
-        return not (self._xnu_major >= os_data.tahoe.value and utilities.check_kext_loaded("cn.laobamac.SimpleHDA") != "")
+        # iMac (2019) only: SimpleHDA (injected from the EFI, see
+        # BuildGraphicsAudio._simplehda_handling()) already restores AppleHDA, so
+        # installing it on the system volume too would load the stack twice
+        return not (
+            self._computer.real_model in model_array.SimpleHDAAudio
+            and self._xnu_major >= os_data.tahoe.value
+            and utilities.check_kext_loaded("cn.laobamac.SimpleHDA") != ""
+        )
 
 
     def native_os(self) -> bool:

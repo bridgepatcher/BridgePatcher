@@ -6,7 +6,7 @@ This version:
   - SimpleHDA is not bundled with BridgePatcher, because its license doesn't allow redistribution. It is downloaded from laobamac's GitHub releases while building OpenCore and only used if its SHA-256 matches. Without an internet connection OpenCore is built without it, and the Modern Audio root patch stays available
   - AppleALC and SimpleHDA only load on macOS Tahoe, so dual-booted older macOS versions keep their native audio
   - if the Modern Audio root patch is already installed, it is kept and SimpleHDA isn't added. To switch, revert root patches and build OpenCore again
-  - can be turned off in Settings → Extras → "SimpleHDA Tahoe Audio"
+  - only applies to these two iMac models, and is on by default. When building for one of them, it can be turned off in Settings → Extras → "SimpleHDA Tahoe Audio" (the setting isn't shown for other Macs)
 - fixes the following vulnerabilities:
   - a vulnerability where BridgePatcher started `open` (to show Software Update after root patching) and `cp` (to back up and replace the EFI from the USB installer window) by name instead of by their full path, so whichever program called `open` or `cp` came first in the PATH was the one that ran. Found by the Security check (bandit B607)
 

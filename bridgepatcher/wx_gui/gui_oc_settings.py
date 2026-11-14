@@ -619,18 +619,20 @@ class OCSettingsFrame(wx.Frame):
                         "a GOP ROM.",
                     ],
                 },
-                "SimpleHDA Tahoe Audio": {
-                    "type": "checkbox",
-                    "value": self.constants.simplehda_audio,
-                    "variable": "simplehda_audio",
-                    "description": [
-                        "macOS Tahoe: restore audio from",
-                        "OpenCore with SimpleHDA instead",
-                        "of the Modern Audio root patch.",
-                        "Downloaded while building.",
-                    ],
-                    "condition": target_uses_simplehda,
-                },
+                # Only listed when building for an iMac (2019): it does nothing on other Macs
+                **({
+                    "SimpleHDA Tahoe Audio": {
+                        "type": "checkbox",
+                        "value": self.constants.simplehda_audio,
+                        "variable": "simplehda_audio",
+                        "description": [
+                            "macOS Tahoe: restore audio from",
+                            "OpenCore with SimpleHDA instead",
+                            "of the Modern Audio root patch.",
+                            "On by default.",
+                        ],
+                    },
+                } if target_uses_simplehda else {}),
                 "NVRAM WriteFlash": {
                     "type": "checkbox",
                     "value": self.constants.nvram_write,
