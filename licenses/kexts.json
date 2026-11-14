@@ -1,0 +1,186 @@
+{
+    "_about": [
+        "Every kext archive (.zip) tracked under payloads/Kexts must be listed here exactly once.",
+        "open_source: shipped under an open-source license. Its license text (licenses/<file>) goes into",
+        "THIRD-PARTY-NOTICES.txt, which is bundled into the app. Checked by .github/scripts/check_kext_licenses.py.",
+        "not_checked: proprietary (Apple), BridgePatcher's/Dortania's own (covered by LICENSE.txt) or published",
+        "without any license. There is no notice to reproduce for these, so they are only classified, not checked.",
+        "After adding or updating a kext: python3 .github/scripts/check_kext_licenses.py --write"
+    ],
+    "open_source": [
+        {
+            "name": "AirportBrcmFixup",
+            "kext": "AirportBrcmFixup.kext",
+            "archives": ["payloads/Kexts/Acidanthera/AirportBrcmFixup-v*.zip"],
+            "license": "BSD-3-Clause",
+            "license_file": "licenses/AirportBrcmFixup.txt",
+            "source": "https://github.com/acidanthera/AirportBrcmFixup"
+        },
+        {
+            "name": "AppleALC",
+            "kext": "AppleALC.kext",
+            "archives": ["payloads/Kexts/Acidanthera/AppleALC-v*.zip"],
+            "license": "BSD-3-Clause",
+            "license_file": "licenses/AppleALC.txt",
+            "source": "https://github.com/acidanthera/AppleALC"
+        },
+        {
+            "name": "BlueToolFixup (BrcmPatchRAM)",
+            "kext": "BlueToolFixup.kext",
+            "archives": ["payloads/Kexts/Acidanthera/BlueToolFixup-v*.zip"],
+            "license": "GPL-2.0",
+            "license_file": "licenses/BrcmPatchRAM.txt",
+            "source": "https://github.com/acidanthera/BrcmPatchRAM",
+            "source_for_version": "https://github.com/acidanthera/BrcmPatchRAM/tree/{version}"
+        },
+        {
+            "name": "CPUFriend",
+            "kext": "CPUFriend.kext",
+            "archives": ["payloads/Kexts/Acidanthera/CPUFriend-v*.zip"],
+            "license": "BSD-3-Clause",
+            "license_file": "licenses/CPUFriend.txt",
+            "source": "https://github.com/acidanthera/CPUFriend"
+        },
+        {
+            "name": "CryptexFixup",
+            "kext": "CryptexFixup.kext",
+            "archives": ["payloads/Kexts/Acidanthera/CryptexFixup-v*.zip"],
+            "license": "BSD-3-Clause",
+            "license_file": "licenses/CryptexFixup.txt",
+            "source": "https://github.com/acidanthera/CryptexFixup"
+        },
+        {
+            "name": "DebugEnhancer",
+            "kext": "DebugEnhancer.kext",
+            "archives": ["payloads/Kexts/Acidanthera/DebugEnhancer-v*.zip"],
+            "license": "BSD-3-Clause",
+            "license_file": "licenses/DebugEnhancer.txt",
+            "source": "https://github.com/acidanthera/DebugEnhancer"
+        },
+        {
+            "name": "FeatureUnlock",
+            "kext": "FeatureUnlock.kext",
+            "archives": ["payloads/Kexts/Acidanthera/FeatureUnlock-v*.zip"],
+            "license": "BSD-3-Clause",
+            "license_file": "licenses/FeatureUnlock.txt",
+            "source": "https://github.com/acidanthera/FeatureUnlock"
+        },
+        {
+            "name": "Innie",
+            "kext": "Innie.kext",
+            "archives": ["payloads/Kexts/Misc/Innie-v*.zip"],
+            "license": "BSD-3-Clause",
+            "license_file": "licenses/Innie.txt",
+            "source": "https://github.com/cdf/Innie"
+        },
+        {
+            "name": "Lilu",
+            "kext": "Lilu.kext",
+            "archives": ["payloads/Kexts/Acidanthera/Lilu-v*.zip"],
+            "license": "BSD-3-Clause",
+            "license_file": "licenses/Lilu.txt",
+            "source": "https://github.com/acidanthera/Lilu"
+        },
+        {
+            "name": "NVMeFix",
+            "kext": "NVMeFix.kext",
+            "archives": ["payloads/Kexts/Acidanthera/NVMeFix-v*.zip"],
+            "license": "BSD-3-Clause",
+            "license_file": "licenses/NVMeFix.txt",
+            "source": "https://github.com/acidanthera/NVMeFix"
+        },
+        {
+            "name": "RestrictEvents",
+            "kext": "RestrictEvents.kext",
+            "archives": ["payloads/Kexts/Acidanthera/RestrictEvents-*.zip"],
+            "license": "BSD-3-Clause",
+            "license_file": "licenses/RestrictEvents.txt",
+            "source": "https://github.com/acidanthera/RestrictEvents"
+        },
+        {
+            "name": "RSRHelper",
+            "kext": "RSRHelper.kext",
+            "archives": ["payloads/Kexts/Acidanthera/RSRHelper-v*.zip"],
+            "license": "BSD-3-Clause",
+            "license_file": "licenses/RSRHelper.txt",
+            "source": "https://github.com/khronokernel/RSRHelper"
+        },
+        {
+            "name": "SimpleMSR",
+            "kext": "SimpleMSR.kext",
+            "archives": ["payloads/Kexts/Misc/SimpleMSR-v*.zip"],
+            "license": "BSD-2-Clause",
+            "license_file": "licenses/SimpleMSR.txt",
+            "source": "https://github.com/arter97/SimpleMSR"
+        },
+        {
+            "name": "WhateverGreen",
+            "kext": "WhateverGreen.kext",
+            "archives": ["payloads/Kexts/Acidanthera/WhateverGreen-v*.zip"],
+            "license": "BSD-3-Clause",
+            "license_file": "licenses/WhateverGreen.txt",
+            "source": "https://github.com/acidanthera/WhateverGreen"
+        }
+    ],
+    "not_checked": [
+        {
+            "reason": "Apple kexts (proprietary), some with Dortania/BridgePatcher modifications",
+            "archives": [
+                "payloads/Kexts/Ethernet/*.zip",
+                "payloads/Kexts/FireWire/*.zip",
+                "payloads/Kexts/Wifi/*.zip",
+                "payloads/Kexts/Misc/AppleCameraInterface-v*.zip",
+                "payloads/Kexts/Misc/AppleCredentialManager-v*.zip",
+                "payloads/Kexts/Misc/AppleHSSPIHIDDriver-v*.zip",
+                "payloads/Kexts/Misc/AppleHSSPISupport-v*.zip",
+                "payloads/Kexts/Misc/AppleIntelCPUPowerManagement-v*.zip",
+                "payloads/Kexts/Misc/AppleIntelCPUPowerManagementClient-v*.zip",
+                "payloads/Kexts/Misc/AppleIntelPIIXATA-v*.zip",
+                "payloads/Kexts/Misc/AppleKeyStore-v*.zip",
+                "payloads/Kexts/Misc/AppleKeyStore-Tahoe-v*.zip",
+                "payloads/Kexts/Misc/AppleRAIDCard-v*.zip",
+                "payloads/Kexts/Misc/AppleSSE-v*.zip",
+                "payloads/Kexts/Misc/AppleUSBMultitouch-v*.zip",
+                "payloads/Kexts/Misc/AppleUSBTopCase-v*.zip",
+                "payloads/Kexts/Misc/AppleUSBTrackpad-v*.zip",
+                "payloads/Kexts/Misc/BigSurSDXC-v*.zip",
+                "payloads/Kexts/Misc/IOS3XeFamily-v*.zip",
+                "payloads/Kexts/Misc/KernelRelayHost-v*.zip",
+                "payloads/Kexts/Misc/MonteAHCIPort-v*.zip",
+                "payloads/Kexts/Misc/NoAVXFSCompressionTypeZlib*.zip",
+                "payloads/Kexts/Misc/corecrypto_T1-v*.zip"
+            ]
+        },
+        {
+            "reason": "Dortania's and BridgePatcher's own kexts (mostly plist-only injectors), covered by LICENSE.txt",
+            "archives": [
+                "payloads/Kexts/Acidanthera/EFICheckDisabler.zip",
+                "payloads/Kexts/Misc/ASPP-Override-v*.zip",
+                "payloads/Kexts/Misc/AppleTopCaseInjector-v*.zip",
+                "payloads/Kexts/Misc/BacklightInjector-v*.zip",
+                "payloads/Kexts/Misc/BacklightInjectorA-v*.zip",
+                "payloads/Kexts/Misc/Bluetooth-Spoof-v*.zip",
+                "payloads/Kexts/Misc/ECM-Override-v*.zip",
+                "payloads/Kexts/Misc/LegacyKeyboardInjector-v*.zip",
+                "payloads/Kexts/Misc/SMC-Spoof-v*.zip",
+                "payloads/Kexts/USB/USB1.1-Injector-v*.zip"
+            ]
+        },
+        {
+            "reason": "Published without a license (no LICENSE in the author's repository, or no public source)",
+            "archives": [
+                "payloads/Kexts/Acidanthera/AMFIPass-v*.zip",
+                "payloads/Kexts/Acidanthera/AutoPkgInstaller-v*.zip",
+                "payloads/Kexts/Misc/AMDGPUWakeHandler-v*.zip",
+                "payloads/Kexts/Misc/AppleMCEReporterDisabler-v*.zip",
+                "payloads/Kexts/Misc/KDKlessWorkaround-v*.zip",
+                "payloads/Kexts/Misc/LegacyUSBVideoSupport-v*.zip",
+                "payloads/Kexts/SSE/AAAMouSSE-v*.zip",
+                "payloads/Kexts/SSE/telemetrap-v*.zip",
+                "payloads/Kexts/T2/AppleANS2Disabler-*.zip",
+                "payloads/Kexts/T2/T2TahoeFixup-*.zip",
+                "payloads/Kexts/T2/libT2Stage2Bypass-*.zip"
+            ]
+        }
+    ]
+}

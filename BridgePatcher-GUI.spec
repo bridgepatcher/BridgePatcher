@@ -30,6 +30,8 @@ if (SPEC_DIR / "DortaniaInternalResources.dmg").exists():
 
 # Include the complete upstream and fork license terms in binary distributions.
 datas.append((str(SPEC_DIR / "LICENSE.txt"), "."))
+# License notices of the bundled open-source kexts (checked by .github/scripts/check_kext_licenses.py)
+datas.append((str(SPEC_DIR / "THIRD-PARTY-NOTICES.txt"), "."))
 
 
 a = Analysis([str(SPEC_DIR / 'BridgePatcher-GUI.command')],

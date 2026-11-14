@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import sys
 import subprocess
 from pathlib import Path
 import requests
@@ -90,6 +91,7 @@ class GenerateKexts:
         self._set_cwd()
         self._iterate_over_kexts()
         self._special_kext_handling()
+        self._update_third_party_notices()
 
 
     def _set_cwd(self):
@@ -266,6 +268,14 @@ class GenerateKexts:
 
             # Move file
             subprocess.run(["/bin/mv", f"{temp_dir}/{Path(file_path).name}", file_path], check=True)
+
+
+    def _update_third_party_notices(self):
+        # Updated kext versions are listed in THIRD-PARTY-NOTICES.txt (shipped in the app),
+        # and the open-source kext license check fails until it's regenerated
+        print("Updating THIRD-PARTY-NOTICES.txt...")
+        repo_root = Path("../..").resolve()
+        subprocess.run([sys.executable, str(repo_root / ".github/scripts/check_kext_licenses.py"), "--write", str(repo_root)], check=True)
 
 
     def _update_constants_file(self, variable_name, old_version, new_version):

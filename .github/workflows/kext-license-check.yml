@@ -1,0 +1,77 @@
+name: Open-source kext licenses
+
+# Checks that the app ships the license notices of the open-source kexts it bundles
+# (.github/scripts/check_kext_licenses.py):
+#   - every kext archive under payloads/Kexts is classified in licenses/kexts.json
+#     (open_source, or not_checked: Apple, BridgePatcher's own, or no license)
+#   - each open-source kext has its license text in licenses/, and GPL ones a source link
+#   - THIRD-PARTY-NOTICES.txt is up to date with the manifest and the kexts' versions
+#   - BridgePatcher-GUI.spec bundles THIRD-PARTY-NOTICES.txt into the app
+# The build gate (build-gate.yml) runs the same check before every build.
+#
+# After adding or updating a kext: python3 .github/scripts/check_kext_licenses.py --write
+#
+# PRs use pull_request_target like the other license checks: the check script comes from
+# the base branch, the PR's files are only read (never imported or executed).
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+    paths:
+      - "payloads/Kexts/**"
+      - "licenses/**"
+      - "THIRD-PARTY-NOTICES.txt"
+      - "BridgePatcher-GUI.spec"
+      - ".github/scripts/check_kext_licenses.py"
+      - ".github/workflows/kext-license-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Runs from other branches (manual dispatches) share ONE group instead of one per
+# branch, so starting this on many branches at once can't fan out into parallel runs.
+concurrency:
+  group: kext-licenses-${{ github.event.pull_request.number || ((github.ref == 'refs/heads/main' || github.ref_type == 'tag') && github.ref) || 'other-branches' }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # On pull_request_target this checks out the BASE branch, never the PR head.
+      - name: Checkout (trusted base code)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Fetch PR files (read only)
+        if: github.event_name == 'pull_request_target'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth 1 origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/origin/pr-head"
+          mkdir pr
+          # Only the files the check reads. git archive writes them as plain files and
+          # directories; nothing from the PR is executed.
+          paths=""
+          for p in payloads/Kexts licenses THIRD-PARTY-NOTICES.txt BridgePatcher-GUI.spec; do
+            if git cat-file -e "origin/pr-head:$p" 2>/dev/null; then paths="$paths $p"; fi
+          done
+          if [ -n "$paths" ]; then
+            # shellcheck disable=SC2086
+            git archive --format=tar origin/pr-head -- $paths | tar -x -C pr
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Check open-source kext licenses
+        run: python3 -I .github/scripts/check_kext_licenses.py "${{ github.event_name == 'pull_request_target' && 'pr' || '.' }}"
