@@ -25,10 +25,16 @@ a cross-check. --from-digests uses GitHub's SHA256 (computed when the asset was
 uploaded) instead, so large assets don't have to be downloaded. Needs GH_TOKEN
 (contents: write) and GITHUB_REPOSITORY.
 
+--check-file NAME (repeatable) compares a checksum file published on the release
+(e.g. SHA256SUMS, certificates.txt, sha256sum.txt) with the actual checksums. A file
+it lists with a different SHA256 is reported in the run and in the release notes.
+
 Exit codes: 0 ok / nothing to do, 1 error, 3 an asset changed after its checksum
 was first recorded (everything is still written), 4 --from-digests only: an asset
 has no SHA256 from GitHub (uploaded before GitHub computed them), so the caller
-has to download and hash the assets and pass --sums instead.
+has to download and hash the assets and pass --sums instead, 5 a published
+checksum file lists a different SHA256 than the actual file (everything is still
+written).
 """
 
 import argparse
@@ -49,6 +55,9 @@ BLOCK_END = "<!-- release-checksums:end -->"
 BODY_LIMIT = 120000
 EXIT_CHANGED = 3
 EXIT_NEED_DOWNLOAD = 4
+EXIT_PUBLISHED_MISMATCH = 5
+# Published checksum files are small; anything bigger isn't one.
+CHECK_FILE_MAX_BYTES = 1024 * 1024
 
 
 def gh_api(*args, input_json=None):
@@ -58,6 +67,45 @@ def gh_api(*args, input_json=None):
     if res.returncode != 0:
         raise RuntimeError(f"gh api {' '.join(args[:3])} failed: {res.stderr.strip()}")
     return json.loads(res.stdout) if res.stdout.strip() else None
+
+
+def download_asset(repo, asset):
+    res = subprocess.run(["gh", "api", "-H", "Accept: application/octet-stream",
+                          f"repos/{repo}/releases/assets/{asset['id']}"],
+                         capture_output=True, check=False)
+    if res.returncode != 0:
+        raise RuntimeError(f"Downloading {asset.get('name')} failed: {res.stderr.decode(errors='replace').strip()}")
+    return res.stdout.decode("utf-8", errors="replace")
+
+
+def published_mismatches(repo, release, sums, check_files):
+    """{name: (checksum file, SHA256s it lists)} for files a published checksum file lists
+    with a different SHA256 than the actual one. The format of older files (certificates.txt)
+    varies, so any line holding one SHA256 and an asset's name counts."""
+    out = {}
+    for asset in release.get("assets", []):
+        cf = asset.get("name", "")
+        if cf not in check_files:
+            continue
+        if (asset.get("size") or 0) > CHECK_FILE_MAX_BYTES:
+            print(f"::warning::{cf} on {release['tag_name']} is too big for a checksum file; not compared.")
+            continue
+        listed = {}
+        for line in download_asset(repo, asset).splitlines():
+            hexes = re.findall(r"(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])", line)
+            if len(hexes) != 1:
+                continue
+            for name in sums:
+                if re.search(r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])", line):
+                    listed.setdefault(name, set()).add(hexes[0].lower())
+        if not listed:
+            print(f"{cf} on {release['tag_name']} lists none of the release's files.")
+        for name, shas in listed.items():
+            if sums[name] in shas:
+                print(f"{cf} on {release['tag_name']} matches {name}.")
+            else:
+                out[name] = (cf, sorted(shas))
+    return out
 
 
 def git(repo, *args, check=True):
@@ -233,7 +281,7 @@ def record_in_ledger(checkout, repo, branch, tag, release, sums):
 
 # ---------- Release notes ----------
 
-def release_block(repo, branch, has_asset_heading, sums, first, ledger_commit):
+def release_block(repo, branch, has_asset_heading, sums, first, ledger_commit, mismatched):
     lines = [BLOCK_START]
     if not has_asset_heading:
         lines += ["## Asset Information", ""]
@@ -254,6 +302,14 @@ def release_block(repo, branch, has_asset_heading, sums, first, ledger_commit):
             lines += [f"> - `{name}`: first `{first[name]}`, now `{replaced[name]}`"]
         lines += [""]
 
+    if mismatched:
+        lines += ["> [!WARNING]",
+                  "> A checksum file on this release lists a different SHA256 than the actual file:"]
+        for name in sorted(mismatched):
+            cf, shas = mismatched[name]
+            lines += [f"> - `{name}`: `{cf}` lists `{'`, `'.join(shas)}`, the file is `{sums[name]}`"]
+        lines += [""]
+
     lines += ["| File | SHA256 |", "| --- | --- |"]
     lines += [f"| `{name}` | `{sha}` |" for name, sha in sorted(sums.items())]
     lines += ["", ("Check a download on macOS with `shasum -a 256 ~/Downloads/<file>`. "
@@ -261,14 +317,14 @@ def release_block(repo, branch, has_asset_heading, sums, first, ledger_commit):
     return "\n".join(lines)
 
 
-def update_release_notes(repo, branch, release, sums, first, ledger_commit):
+def update_release_notes(repo, branch, release, sums, first, ledger_commit, mismatched):
     body = (release.get("body") or "").replace("\r\n", "\n")
     s, e = body.find(BLOCK_START), body.find(BLOCK_END)
     if s != -1 and e > s:
         body = (body[:s] + body[e + len(BLOCK_END):]).rstrip()
     else:
         body = body.rstrip()
-    block = release_block(repo, branch, "## Asset Information" in body, sums, first, ledger_commit)
+    block = release_block(repo, branch, "## Asset Information" in body, sums, first, ledger_commit, mismatched)
     new_body = (body + "\n\n" + block) if body else block
     if new_body == (release.get("body") or "").replace("\r\n", "\n"):
         print("Release notes already list these checksums.")
@@ -297,6 +353,8 @@ def main():
     src.add_argument("--from-digests", action="store_true", help="use GitHub's SHA256 of each asset")
     ap.add_argument("--checkout", required=True, help="git checkout of this repository to commit CHECKSUMS.md in")
     ap.add_argument("--skip", action="append", default=[], help="asset name not to record (repeatable)")
+    ap.add_argument("--check-file", action="append", default=[],
+                    help="published checksum file to compare with the actual checksums (repeatable)")
     a = ap.parse_args()
 
     repo = os.environ["GITHUB_REPOSITORY"]
@@ -338,9 +396,11 @@ def main():
                   f"(GitHub: {digest[7:]}, downloaded: {sums[name]}). Skipping; the next run retries.")
             return 0
 
+    mismatched = published_mismatches(repo, release, sums, a.check_file)
+
     branch = gh_api(f"repos/{repo}")["default_branch"]
     ledger_commit, first, changed = record_in_ledger(a.checkout, repo, branch, a.tag, release, sums)
-    update_release_notes(repo, branch, release, sums, first, ledger_commit)
+    update_release_notes(repo, branch, release, sums, first, ledger_commit, mismatched)
 
     summary(f"### SHA256 checksums of {a.tag}\n\n| File | SHA256 |\n| --- | --- |\n" +
             "".join(f"| `{n}` | `{s}` |\n" for n, s in sorted(sums.items())))
@@ -349,8 +409,14 @@ def main():
             print(f"::error::{name} on {a.tag} was replaced after its checksum was first recorded "
                   f"(first {first[name]}, now {sha}). If this wasn't you, the release may have been tampered with.")
         summary("> [!WARNING]\n> Replaced after first recorded: " + ", ".join(f"`{n}`" for n in sorted(changed)))
+    for name, (cf, shas) in sorted(mismatched.items()):
+        print(f"::error::{cf} on {a.tag} lists {', '.join(shas)} for {name}, but the file's SHA256 is {sums[name]}. "
+              f"Either {cf} is out of date or {name} was replaced.")
+    if mismatched:
+        summary("> [!WARNING]\n> Published checksum file disagrees for: " + ", ".join(f"`{n}`" for n in sorted(mismatched)))
+    if changed:
         return EXIT_CHANGED
-    return 0
+    return EXIT_PUBLISHED_MISMATCH if mismatched else 0
 
 
 if __name__ == "__main__":
