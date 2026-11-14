@@ -5,6 +5,7 @@ and open a tracking issue in this repository for each one."""
 import base64
 import concurrent.futures as cf
 import datetime
+import email.utils
 import html
 import io
 import itertools
@@ -107,6 +108,11 @@ NEWS_MARKETS = os.environ.get("NEWS_MARKETS", "en-US").split()
 ARTICLE_LABEL = "misattributed-article"
 # News sites always searched (through their WordPress search) even when no feed lists them
 NEWS_SITES = [h.lower() for h in os.environ.get("NEWS_SITES", "").split()]
+# Articles published before this date can't be about this fork's T2 support: until macOS Sequoia
+# (announced 2024-06-10) dropped the 2018/2019 MacBook Air, every T2 Mac ran the current macOS
+# officially, so there was no T2 support to report. Older OpenCore Legacy Patcher news (e.g. Ars
+# Technica's 2023 article on Sonoma for 16-year-old Macs) is about Dortania's own releases.
+T2_NEWS_SINCE = datetime.date.fromisoformat(os.environ.get("T2_NEWS_SINCE") or "2024-06-10")
 # Language subdomains of translated editions (en.example.com); see edition_hosts()
 EDITION_PREFIXES = os.environ.get("EDITION_PREFIXES", "en es de fr it pt br").split()
 # Searched on WordPress news sites, through their REST API
@@ -753,6 +759,57 @@ def page_text(page):
     return re.sub(r"\s+", " ", fold(html.unescape(TAG.sub(" ", page))))
 
 
+ISO_DATE = re.compile(r"\b((?:19|20)\d\d)-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])")
+DATE_META = re.compile(r"<meta\b[^>]*\b(?:property|name|itemprop)\s*=\s*[\"']?(?:article:published_time|"
+                       r"og:article:published_time|datepublished|date|pubdate|publishdate|publish[-_]date|"
+                       r"dc\.date(?:\.issued)?|parsely-pub-date|sailthru\.date)[\"'\s>][^>]*>", re.I)
+URL_DATE = re.compile(r"/((?:19|20)\d\d)/(0[1-9]|1[0-2])(?:/(0[1-9]|[12]\d|3[01]))?/")
+
+
+def _iso(text):
+    m = ISO_DATE.search(text or "")
+    try:
+        return datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+    except ValueError:
+        return None
+
+
+def published_date(page, url="", feed_date=""):
+    """When an article was published: the page's metadata (article:published_time, JSON-LD
+    datePublished, ...), else a /YYYY/MM/(DD/) address, else the news feed's date, else the
+    first <time datetime> in the article. None if unknown."""
+    if page:
+        for tag in DATE_META.findall(page[:300_000]):
+            m = re.search(r"\bcontent\s*=\s*[\"']([^\"']+)", tag, re.I)
+            d = _iso(m.group(1)) if m else None
+            if d:
+                return d
+        m = re.search(r"[\"']datePublished[\"']\s*:\s*[\"']([^\"']+)", page)
+        if m and _iso(m.group(1)):
+            return _iso(m.group(1))
+    m = URL_DATE.search(urllib.parse.urlsplit(url).path or "")
+    if m:
+        return datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3) or 1))
+    if feed_date:
+        try:
+            return email.utils.parsedate_to_datetime(feed_date).date()
+        except (TypeError, ValueError):
+            d = _iso(feed_date)
+            if d:
+                return d
+    if page:
+        m = re.search(r"<time\b[^>]*\bdatetime\s*=\s*[\"']([^\"']+)", main_content(page), re.I)
+        if m:
+            return _iso(m.group(1))
+    return None
+
+
+def page_lang(page):
+    """Primary language a page declares in <html lang>, e.g. "en"; "" if none."""
+    m = re.search(r"<html\b[^>]*\blang\s*=\s*[\"']?([A-Za-z]{2,3})", page or "", re.I)
+    return m.group(1).lower() if m else ""
+
+
 def t2_claim(text, context=2):
     """The sentence in which `text` says OpenCore Legacy Patcher (gained) support for T2 Macs, or "":
     one that mentions T2 and a claim word and nothing that negates it or leaves T2 Macs out,
@@ -808,7 +865,7 @@ def false_claim(text, names=None):
 
 
 def bing_news(query, market):
-    """(url, title) pairs from Bing News' RSS feed; links carry the article URL in `url=`."""
+    """(url, title, date) from Bing News' RSS feed; links carry the article URL in `url=`."""
     q = urllib.parse.urlencode({"q": query, "format": "rss", "mkt": market, "setlang": market.split("-")[0]})
     out = []
     try:
@@ -821,12 +878,12 @@ def bing_news(query, market):
     for item in root.iter("item"):
         link = (item.findtext("link") or "").strip()
         real = urllib.parse.parse_qs(urllib.parse.urlsplit(link).query).get("url", [link])[0]
-        out.append((real, (item.findtext("title") or "").strip()))
+        out.append((real, (item.findtext("title") or "").strip(), (item.findtext("pubDate") or "").strip()))
     return out
 
 
 def google_news(query, market):
-    """(url, title, source host) triples from Google News' RSS feed. Its links are Google
+    """(url, title, source host, date) from Google News' RSS feed. Its links are Google
     redirects that need JavaScript, so these items are judged by title and source only."""
     lang, country = (market.split("-") + ["US"])[:2]
     q = urllib.parse.urlencode({"q": query, "hl": market, "gl": country, "ceid": f"{country}:{lang}"})
@@ -844,27 +901,27 @@ def google_news(query, market):
         title = (item.findtext("title") or "").strip()
         if src is not None and src.text and title.endswith(" - " + src.text.strip()):
             title = title[: -len(src.text.strip()) - 3]  # Google appends " - <site name>"
-        out.append(((item.findtext("link") or "").strip(), title, host))
+        out.append(((item.findtext("link") or "").strip(), title, host, (item.findtext("pubDate") or "").strip()))
     return out
 
 
 def article_candidates(site_host):
-    """{host: (url, title, fetchable)} for news and search hits outside allowlisted sites."""
+    """{host: (url, title, fetchable, feed date)} for news and search hits outside allowlisted sites."""
     found = {}
 
-    def add(url, title, host=None, fetchable=True):
+    def add(url, title, host=None, fetchable=True, date=""):
         host = (host or urllib.parse.urlsplit(url).hostname or "").lower()
         if not host or allowed(host, site_host) or any(host == a or host.endswith("." + a) for a in FARM_ALLOWLIST):
             return
         if host not in found or (fetchable and not found[host][2]):
-            found[host] = (url, title, fetchable)
+            found[host] = (url, title, fetchable, date)
 
     for query in NEWS_QUERIES:
         for market in NEWS_MARKETS:
-            for url, title in bing_news(query, market):
-                add(url, title)
-            for url, title, host in google_news(query, market):
-                add(url, title, host, fetchable=False)
+            for url, title, date in bing_news(query, market):
+                add(url, title, date=date)
+            for url, title, host, date in google_news(query, market):
+                add(url, title, host, fetchable=False, date=date)
             time.sleep(1)
         if BRAVE_KEY:
             for url in brave_search(query):
@@ -880,7 +937,10 @@ def article_candidates(site_host):
 
 def article_editions(hit, copycats, site_host, malvertising=False, false_claims=False):
     """Other language editions of a flagged article's site: the same address path on each
-    edition host, and the edition's own WordPress search."""
+    edition host, and the edition's own WordPress search. A page only counts as an edition if
+    that host serves it itself (no redirect to another host, as sites with catch-all subdomains
+    do) and it's in another language than the article (or, without a declared language, has
+    another headline), so www.example.com isn't an "edition" of example.com."""
     parts = urllib.parse.urlsplit(hit["url"])
     path = parts.path or "/"
     if (parts.hostname or "").lower() != hit["host"]:  # a Google News link: guess from the headline
@@ -894,6 +954,8 @@ def article_editions(hit, copycats, site_host, malvertising=False, false_claims=
             tries += wp_search(host, query)
         for url, title in tries:
             r = inspect_article(host, url, title, True, copycats, malvertising, false_claims)
+            if r and not distinct_edition(hit, host, r):
+                r = None
             if r:
                 r["edition_of"] = hit["host"]
                 out.append(r)
@@ -901,7 +963,16 @@ def article_editions(hit, copycats, site_host, malvertising=False, false_claims=
     return out
 
 
-def inspect_article(host, url, title, fetchable, copycats, malvertising=False, false_claims=False):
+def distinct_edition(hit, host, r):
+    """r is really another edition of hit's article, served by `host` (see article_editions)."""
+    if (urllib.parse.urlsplit(r["url"]).hostname or "").lower() != host:
+        return False
+    if hit.get("lang") and r.get("lang"):
+        return hit["lang"] != r["lang"]
+    return fold(r.get("title") or "") != fold(hit.get("title") or "")
+
+
+def inspect_article(host, url, title, fetchable, copycats, malvertising=False, false_claims=False, feed_date=""):
     """An article that presents T2 support as OpenCore Legacy Patcher news without crediting
     this fork. Judged on the page when it can be fetched, otherwise on the headline.
     With malvertising, also any article about the project on a page that loads ad networks
@@ -922,6 +993,9 @@ def inspect_article(host, url, title, fetchable, copycats, malvertising=False, f
     claim = t2_claim(head) or t2_claim(text)
     if claim and any(c in head or c in text for c in CREDITS):
         claim = ""  # names the fork or says it's unofficial
+    published = published_date(page, final or url, feed_date)
+    if claim and published and published < T2_NEWS_SINCE:
+        claim = ""  # older than any T2 support to report: Dortania's own news
     low = fold(page)
     mal = sorted({n.rstrip(".") for n in MALVERTISING if n in low})
     wrong = (false_claim(head) or false_claim(text)) if false_claims else None
@@ -943,6 +1017,7 @@ def inspect_article(host, url, title, fetchable, copycats, malvertising=False, f
         "copycat_links": [r for r in linked if r.lower() in copycats],
         "ads": sorted({a for a in AD_NETWORKS if a in low}),
         "malvertising": mal, "kind": kind, "false_claim": wrong[1] if wrong and kind == "false-claim" else "",
+        "lang": page_lang(page), "published": published.isoformat() if published else "",
         "key": f"article:{host}",
     }
 
@@ -955,10 +1030,10 @@ def find_articles(site_host, copycats, extra=(), malvertising=False, false_claim
     for url, title in extra:
         host = (urllib.parse.urlsplit(url).hostname or "").lower()
         if host and host not in arts:
-            arts[host] = (url, title, True)
+            arts[host] = (url, title, True, "")
     with cf.ThreadPoolExecutor(max_workers=16) as ex:
-        hits = [r for r in ex.map(lambda kv: inspect_article(kv[0], *kv[1], copycats, malvertising,
-                                                             false_claims), arts.items()) if r]
+        hits = [r for r in ex.map(lambda kv: inspect_article(kv[0], *kv[1][:3], copycats, malvertising,
+                                                             false_claims, feed_date=kv[1][3]), arts.items()) if r]
     # Translated editions (en.soydemac.com for soydemac.com) rarely show up in news feeds
     known = {r["host"] for r in hits}
     for hit in list(hits):
