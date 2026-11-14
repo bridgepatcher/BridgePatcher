@@ -378,6 +378,7 @@ class OCSettingsFrame(wx.Frame):
         # not the host's own T2 restrictions.
         target_is_t2_mac = (self.constants.custom_model or self.constants.computer.real_model) in model_array.T2Macs
         target_is_t1_mac = (self.constants.custom_model or self.constants.computer.real_model) in ["MacBookPro13,2", "MacBookPro13,3", "MacBookPro14,2", "MacBookPro14,3"]
+        target_uses_simplehda = (self.constants.custom_model or self.constants.computer.real_model) in model_array.SimpleHDAAudio
 
         settings = {
             "General": {
@@ -617,6 +618,18 @@ class OCSettingsFrame(wx.Frame):
                         "Only disable if your host lacks",
                         "a GOP ROM.",
                     ],
+                },
+                "SimpleHDA Tahoe Audio": {
+                    "type": "checkbox",
+                    "value": self.constants.simplehda_audio,
+                    "variable": "simplehda_audio",
+                    "description": [
+                        "macOS Tahoe: restore audio from",
+                        "OpenCore with SimpleHDA instead",
+                        "of the Modern Audio root patch.",
+                        "Downloaded while building.",
+                    ],
+                    "condition": target_uses_simplehda,
                 },
                 "NVRAM WriteFlash": {
                     "type": "checkbox",

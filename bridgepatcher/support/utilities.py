@@ -318,6 +318,16 @@ def check_kext_loaded(bundle_id: str) -> str:
     return ""
 
 
+def modern_audio_root_patch_installed() -> bool:
+    """
+    Whether the "Modern Audio" root patch is installed on the booted system.
+
+    Only meaningful on macOS Tahoe: Apple removed AppleHDA.kext there, so finding it
+    in /System/Library/Extensions means root patching put it back.
+    """
+    return Path("/System/Library/Extensions/AppleHDA.kext").exists()
+
+
 def check_secure_boot_model():
     sbm_byte = get_nvram("HardwareModel", "94B73556-2197-4702-82A8-3E1337DAFBFB", decode=False)
     if sbm_byte:

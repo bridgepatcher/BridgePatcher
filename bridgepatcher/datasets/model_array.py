@@ -437,3 +437,13 @@ T2Macs = [
     "iMac20,2",
     "iMacPro1,1",
 ]
+
+# Macs whose Tahoe audio is restored from the EFI with SimpleHDA (Lilu plugin that
+# injects Apple's AppleHDA stack) instead of the "Modern Audio" root patch.
+# Value: AppleALC layout ID (alcid) to inject.
+# SimpleHDA is NOT bundled: its license doesn't allow redistribution, so it is
+# downloaded from laobamac/SimpleHDA's GitHub releases while building OpenCore.
+SimpleHDAAudio = {
+    "iMac19,1": 7,  # Untested - same codec family as iMac19,2
+    "iMac19,2": 7,  # Reported working: github.com/orgs/bridgepatcher/discussions/315
+}

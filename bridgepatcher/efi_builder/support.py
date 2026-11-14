@@ -4,14 +4,16 @@ support.py: Utility class for build functions
 
 import shutil
 import typing
+import hashlib
 import logging
 import plistlib
 import zipfile
 import subprocess
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .. import constants
+from ..support import network_handler
 
 
 # ACPI renames enabled by BuildSMBIOS._build() for Moderate/Advanced spoofing
@@ -184,6 +186,127 @@ class BuildSupport:
         if found != expected:
             raise ValueError(f"{kext_name} version mismatch: expected {expected}, got {found or 'unknown'}")
         logging.info(f"- Verified {kext_name} {found} ({zip_path.name})")
+
+
+    @staticmethod
+    def _sha256_of(path: Path) -> str:
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+
+    def _fetch_simplehda(self) -> Path | None:
+        """
+        Returns the path of a SimpleHDA release zip whose SHA-256 matches
+        constants.simplehda_sha256, downloading it first if needed. None if that fails.
+
+        SimpleHDA's license doesn't allow redistribution, so BridgePatcher never ships it:
+        the user's own Mac downloads it from laobamac's GitHub releases, like a user
+        doing it by hand would.
+        """
+        zip_path = Path(self.constants.simplehda_path)
+        expected = self.constants.simplehda_sha256.lower()
+
+        if zip_path.exists():
+            if self._sha256_of(zip_path) == expected:
+                logging.info(f"- Using previously downloaded {zip_path.name}")
+                return zip_path
+            logging.info(f"- Discarding {zip_path.name}: checksum mismatch")
+            zip_path.unlink()
+
+        # Offline builds are normal: skip the download's retry rounds and fall back at once
+        if network_handler.NetworkUtilities(self.constants.simplehda_url).verify_network_connection() is False:
+            logging.info("- No connection to GitHub, can't download SimpleHDA")
+            return None
+
+        partial_path = zip_path.with_name(zip_path.name + ".partial")
+        if partial_path.exists():
+            partial_path.unlink()
+        zip_path.parent.mkdir(parents=True, exist_ok=True)
+
+        logging.info(f"- Downloading SimpleHDA {self.constants.simplehda_version} from {self.constants.simplehda_url}")
+        download = network_handler.DownloadObject(self.constants.simplehda_url, str(partial_path))
+        download.download(spawn_thread=False)
+        if download.download_complete is not True or not partial_path.exists():
+            logging.info(f"- Failed to download SimpleHDA: {download.error_msg or 'unknown error'}")
+            if partial_path.exists():
+                partial_path.unlink()
+            return None
+
+        found = self._sha256_of(partial_path)
+        if found != expected:
+            logging.info(f"- SimpleHDA download rejected: SHA-256 {found}, expected {expected}")
+            partial_path.unlink()
+            return None
+
+        partial_path.rename(zip_path)
+        return zip_path
+
+
+    def enable_simplehda(self) -> bool:
+        """
+        Adds SimpleHDA.kext to the EFI, downloading it if needed (see _fetch_simplehda()).
+
+        Only the SimpleHDA.kext folder is taken from the release zip, straight into the
+        EFI's Kexts folder: no extraction into payloads/Kexts, so a stale copy can never
+        be picked up by enable_kext()'s fallback search.
+
+        Returns True when SimpleHDA.kext is in the EFI and enabled. Never raises: a build
+        without internet access must still succeed (audio then needs the Modern Audio
+        root patch, as before).
+        """
+        kext_name = "SimpleHDA.kext"
+        try:
+            kext = self.get_kext_by_bundle_path(kext_name)
+            if kext["Enabled"] is True:
+                return True
+
+            zip_path = self._fetch_simplehda()
+            if zip_path is None:
+                return False
+
+            destination = Path(self.constants.kexts_path) / kext_name
+            if destination.exists():
+                shutil.rmtree(destination) if destination.is_dir() else destination.unlink()
+
+            copied = 0
+            with zipfile.ZipFile(zip_path) as zip_file:
+                for member in zip_file.infolist():
+                    parts = PurePosixPath(member.filename).parts
+                    if kext_name not in parts or member.is_dir():
+                        continue
+                    relative = parts[parts.index(kext_name) + 1:]
+                    if not relative or any(part in ("", ".", "..") for part in relative) or PurePosixPath(member.filename).is_absolute():
+                        continue
+                    target = destination.joinpath(*relative)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with zip_file.open(member) as source, target.open("wb") as out:
+                        shutil.copyfileobj(source, out)
+                    copied += 1
+
+            info_plist = destination / "Contents" / "Info.plist"
+            executable = destination / "Contents" / "MacOS" / "SimpleHDA"
+            if copied == 0 or not info_plist.exists() or not executable.exists():
+                logging.info(f"- {zip_path.name} doesn't contain a complete {kext_name}")
+                if destination.exists():
+                    shutil.rmtree(destination)
+                return False
+
+            with info_plist.open("rb") as f:
+                version = plistlib.load(f).get("CFBundleShortVersionString", "")
+            if version != self.constants.simplehda_version:
+                logging.info(f"- {kext_name} version mismatch: expected {self.constants.simplehda_version}, got {version or 'unknown'}")
+                shutil.rmtree(destination)
+                return False
+
+            kext["Enabled"] = True
+            logging.info(f"- Adding {kext_name} {version} (downloaded, verified SHA-256)")
+            return True
+        except Exception as e:
+            logging.info(f"- Failed to add {kext_name}: {e}")
+            return False
 
 
     def enable_kext(self, kext_name: str, kext_version: str, kext_path: Path, check: bool = False) -> None:

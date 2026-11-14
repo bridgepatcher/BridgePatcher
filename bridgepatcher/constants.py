@@ -122,6 +122,12 @@ class Constants:
         self.appleans2disabler_version:  str = "1.0.0"  #      AppleANS2Disabler (T2 internal SSD)
         self.t2tahoefixup_version:       str = "1.0.24" #      T2TahoeFixup
 
+        ## laobamac
+        ## https://github.com/laobamac/SimpleHDA
+        ## Not bundled (no redistribution license): downloaded while building OpenCore
+        self.simplehda_version:          str = "1.0.1"  #      SimpleHDA (macOS Tahoe AppleHDA injection)
+        self.simplehda_sha256:           str = "f2fc55da290b2f42cfc2b6fc6415d28fdce5d95c9249d0b689470fe8f75f5982"  # SimpleHDA-Tahoe-v1.0.1-RELEASE.zip
+
         ## Apple
         ## https://www.apple.com
         self.marvel_version:        str = "1.0.1"  #  MarvelYukonEthernet
@@ -335,6 +341,7 @@ class Constants:
         self.disable_mediaanalysisd: bool = False  # Set mediaanalysisd to spawn
         self.set_alc_usage:          bool = True  #  Set AppleALC usage
         self.allow_modern_audio:     bool = True  #  Restore AppleHDA.kext on macOS Tahoe (Apple dropped analog audio for non-T2 audio routing)
+        self.simplehda_audio:        bool = True  #  macOS Tahoe: restore audio from the EFI with SimpleHDA on supported models (model_array.SimpleHDAAudio), instead of the Modern Audio root patch
         self.allow_3rd_party_drives: bool = True  #  Allow ThirdPartyDrives quirk
         self.allow_nvme_fixing:      bool = True  #  Allow NVMe Kernel Space Patches
         self.apfs_trim_timeout:      bool = True  #  Set APFS Trim timeout
@@ -712,6 +719,16 @@ class Constants:
     @property
     def applealc_path(self):
         return self.payload_kexts_path / Path(f"Acidanthera/AppleALC-v{self.applealc_version}-{self.kext_variant}.zip")
+
+    @property
+    def simplehda_url(self):
+        return f"https://github.com/laobamac/SimpleHDA/releases/download/v{self.simplehda_version}/SimpleHDA-Tahoe-v{self.simplehda_version}-RELEASE.zip"
+
+    @property
+    def simplehda_path(self):
+        # Downloaded, never shipped. "downloads/" is git-ignored, so a from-source
+        # checkout can't accidentally commit (and redistribute) it.
+        return self.payload_path / Path(f"downloads/SimpleHDA-Tahoe-v{self.simplehda_version}-RELEASE.zip")
 
     @property
     def piixata_path(self):

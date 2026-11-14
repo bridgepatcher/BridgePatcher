@@ -21,7 +21,8 @@ from . import (
 from ..datasets import (
     smbios_data,
     cpu_data,
-    os_data
+    os_data,
+    model_array
 )
 
 
@@ -54,6 +55,7 @@ class GenerateDefaults:
         self.constants.disallow_cpufriend = False
         self.constants.disable_mediaanalysisd = False
         self.constants.set_alc_usage = True
+        self.constants.simplehda_audio = True
         self.constants.nvram_write = True
         self.constants.allow_nvme_fixing = True
         self.constants.allow_3rd_party_drives = True
@@ -406,6 +408,21 @@ class GenerateDefaults:
                                 break
 
 
+    def _setting_enabled(self, variable: str) -> bool:
+        """
+        Current value of a boolean setting, including the user's stored GUI choice.
+
+        Probes run before _load_gui_defaults(), so self.constants still holds the
+        default at this point.
+        """
+        value = getattr(self.constants, variable)
+        if self.host_is_target and self.ignore_settings_file is False:
+            stored = global_settings.GlobalEnviromentSettings().read_property(f"GUI:{variable}")
+            if isinstance(stored, bool):
+                value = stored
+        return value is True
+
+
     def _modern_audio_probe(self) -> None:
         """
         Modern Audio probe
@@ -436,6 +453,17 @@ class GenerateDefaults:
             "MacBookPro14,3", "MacBookPro14,2", "MacBookPro14,1",
             "MacBookPro13,3", "MacBookPro13,2", "MacBookPro13,1",
         ]:
+            return
+
+        # Audio comes from SimpleHDA in the EFI instead (BuildGraphicsAudio._simplehda_handling()):
+        # no root patch, so SIP stays as it is. Unless the root patch is already installed,
+        # which is kept and needs SIP lowered to be reverted or updated.
+        if (
+            self.model in model_array.SimpleHDAAudio
+            and self._setting_enabled("simplehda_audio")
+            and self._setting_enabled("set_alc_usage")
+            and not utilities.modern_audio_root_patch_installed()
+        ):
             return
 
         self.constants.sip_status    = False
