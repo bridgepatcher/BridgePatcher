@@ -1,0 +1,38 @@
+name: Delete old per-finding lookalike issues
+
+# One-off cleanup: the typosquat, impersonation and lookalike-site watches used to open one issue
+# per finding. They now keep everything in one tracker issue, which imports those issues on its first
+# run. This deletes the old ones whose finding is safely in the tracker (see the script for the rules).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only list what would be deleted"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Delete old per-finding issues
+        env:
+          # Deleting issues needs a repository admin's token; the built-in token can't
+          GH_TOKEN: ${{ secrets.TYPOSQUAT_PAT }}
+          ORIGINAL_REPO: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "::error::TYPOSQUAT_PAT isn't set"; exit 1; fi
+          python .github/scripts/cleanup_old_issues.py

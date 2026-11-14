@@ -8,7 +8,8 @@ name: Sync CHANGELOG security fixes to GHSA
 on:
   push:
     branches: [main]
-    paths: [CHANGELOG.md]
+    # also re-run when the sync itself changes, so a parser fix picks up missed entries right away
+    paths: [CHANGELOG.md, .github/scripts/changelog_to_ghsa.py, .github/workflows/changelog-ghsa-sync.yml]
   schedule:
     - cron: "17 3 * * *"   # daily: picks up entries skipped when the free AI quota ran out
   workflow_dispatch:

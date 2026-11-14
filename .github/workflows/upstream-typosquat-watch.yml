@@ -37,7 +37,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -65,7 +65,9 @@ jobs:
           # too, whether they're GitHub forks (of upstream or of this project) or not
           FORMER_NAMES: "OpenCore-Legacy-Patcher-T2 OCLP-T2"
           # Former official addresses: listed as typosquats whenever something is published there
-          FORMER_HOSTS: "oclp-t2.github.io"
+          # albert-mueller.github.io: the account was renamed and its name is free to register; search
+          # engines still list the address as "OpenCore Legacy Patcher"
+          FORMER_HOSTS: "oclp-t2.github.io albert-mueller.github.io"
           # Spam repositories named after the abbreviation (oclp, oclpu, oclpy, ...) and filled with
           # gambling ads: listed when at least SPAM_MIN_FILES top-level file names contain one of
           # SPAM_TERMS (| separated). Only specific Chinese gambling terms, so an honest repo that
@@ -78,13 +80,42 @@ jobs:
           # malicious ads. One per line: host | what was found | where it's documented
           OTHER_SITES: |
             en.soydemac.com | Machine-written article that falsely claims Dortania's OpenCore Legacy Patcher now supports T2 Macs; its ads led to a fake payment page, a fake Steam login (phishing), notification spam and a browser hijacker | bridgepatcher/BridgePatcher#599
+          # --- Misleading articles and risky-ad sites (found automatically) ---
+          # News and blog posts, often machine-translated editions like en.soydemac.com, that present
+          # an unofficial fork's T2 support as news about OpenCore Legacy Patcher, or that write about
+          # it on pages loading malvertising-prone ad networks, or that claim it supports things it
+          # doesn't (macOS 27, Apple silicon Macs; see FALSE_CLAIMS in typosquat_sites.py). Listed under
+          # "Other sites to avoid", one entry per site with all its language editions. Searched in
+          # Bing News and Google News (no key needed) and, with the Brave key, the web.
+          # The general queries find articles on sites with risky ads (pop-under / push ad networks
+          # that malicious ads come through), listed whatever they claim, like en.soydemac.com's.
+          NEWS_QUERIES: >-
+            "OpenCore Legacy Patcher" T2|
+            OCLP T2 Mac|
+            "OpenCore Legacy Patcher" Tahoe T2|
+            "OpenCore Legacy Patcher" Sequoia T2|
+            "OpenCore Legacy Patcher"|
+            "OpenCore Legacy Patcher" download|
+            OCLP unsupported Mac macOS|
+            "OpenCore Legacy Patcher" "macOS 27"|
+            "OpenCore Legacy Patcher" Golden Gate|
+            "OpenCore Legacy Patcher" "Apple Silicon"|
+            "OpenCore Legacy Patcher" M1
+          NEWS_MARKETS: "en-US es-ES es-MX de-DE fr-FR it-IT pt-BR bg-BG ru-RU ja-JP zh-CN zh-TW zh-HK zh-SG zh-MO zh-Hans zh-Hant lu-LU en-AU en-GB ro-RO hu-HU de-AT sl-SI sk-SK cs-CZ de-CH fr-CH it-CH rm-CH it-IT pt-PT fi-FI sv-SE sv-FI nb-NO nl-NL"
+          # Always searched through their own (WordPress) search, even when no news feed lists them
+          NEWS_SITES: "soydemac.com en.soydemac.com"
+          # --- Websites of listed repositories ---
+          # The homepage link and GitHub Pages site of every listed repository is checked, and listed
+          # while it serves a page, including one hidden behind a fake 404 (the owner's own "not
+          # found" page). Known ones are checked even if their repository disappears (full address).
+          KNOWN_SITES: "https://tea-ching.github.io/OpenCore-Legacy-Patcher-T2/"
           # --- Websites ---
           # Names whose typo variants are checked as domains under each TLD
           KEYWORDS: "opencore-legacy-patcher opencorelegacypatcher oclp opencore-patcher opencore-legacy-patcher-t2 oclp-t2"
-          TLDS: "com net org io app dev info site xyz top online shop pro co cc"
+          TLDS: "com net org io app dev info site xyz top online shop pro co cc de bg us en ro hu at se no ch es pt it nl sk si cz fr ru fi ax mx cn au at 中国 中國"
           # Substrings searched for in certificate-transparency logs (crt.sh)
           # (legacyopencore / opencorepatcher: the same words in another order, e.g. legacyopencorepatcher.com)
-          CT_KEYWORDS: "opencore-legacy-patcher opencorelegacypatcher legacy-patcher legacypatcher legacyopencore legacy-opencore opencorepatcher"
+          CT_KEYWORDS: "opencore-legacy-patcher opencorelegacypatcher legacy-patcher legacypatcher legacyopencore legacy-opencore opencore-legacy opencore-legacy-patcher opencorepatcher"
           # Words lookalike download sites put around the name (getoclp.com, opencorelegacypatcher-download.net)
           AFFIXES: "download get official app mac free install"
           # Hosting platforms where anyone can claim <name>.<platform>; checked directly because
@@ -93,13 +124,12 @@ jobs:
           # Newly registered domains: days to look back, names to match, and how long
           # an empty one keeps being re-checked before it's dropped
           NRD_DAYS: "7"
-          NRD_KEYWORDS: "opencorelegacypatcher legacypatcher legacyopencorepatcher opencorepatcher"
+          NRD_KEYWORDS: "opencorelegacypatcher legacypatcher legacyopencorepatcher opencorepatcher patcheropencorelegacy oclp-patcher oclp"
           WATCH_DAYS: "60"
           # A site is only listed if its page mentions one of these (case-insensitive, | separated)
           CONTENT_MARKERS: "opencore legacy patcher|opencore-legacy-patcher|opencorelegacypatcher"
           # Hosts (and their subdomains) that are never listed
-          # oclp.net: possibly a Chinese community site, not verified as a fake
-          ALLOWLIST: "github.com githubusercontent.com dortania.github.io bridgepatcher.github.io oclp.net"
+          ALLOWLIST: "github.com githubusercontent.com dortania.github.io bridgepatcher.github.io"
           # --- Web search (optional) ---
           # With a free Brave Search API key (https://api-dashboard.search.brave.com) stored as repo
           # secret BRAVE_SEARCH_API_KEY (or BRAVE_API_KEY), search results are checked too. Only pages
