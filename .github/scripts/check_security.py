@@ -62,6 +62,13 @@ subprocess call, try/except/pass, asserts, ...) are off. Each enabled rule:
                 (/bin/cp, /usr/bin/open, /usr/sbin/diskutil, ...).
   bandit:B609   A wildcard (*) in a command run through a shell - file names
                 can inject options. Use glob in Python and pass the list.
+  ast:B607      Same weakness as bandit:B607, in a form Bandit can't see: the
+                program name is an expression - "cls" if ... else "clear",
+                a or b, or a local variable holding a fixed name - that can
+                evaluate to a name instead of an absolute path. Rewriting a
+                bandit:B605/B607 call into such a form only hides the finding
+                (an auto-fix did exactly that), so it is reported here.
+                Same fix: an absolute path, or no extra process at all.
 
 Findings that were reviewed and are accepted stay listed in
 .github/security-accepted.txt (one "<rule> <file>::<function>  # reason" per
@@ -95,6 +102,9 @@ FIX_GUIDANCE = (
     "Harden the code without changing what it does for the user: same commands, same files, same results. "
     "Use only the standard library and what the file already imports - no new dependencies. "
     "Never add `# nosec` or anything else that only hides a finding: it is ignored, and hiding is not fixing. "
+    "Restructuring a call so the analyzer can't read it (a conditional or variable program name, splitting a command up) "
+    "is hiding too, and is reported as ast:B607. A program must be started by its absolute path "
+    "(/usr/bin/clear, /bin/cp, ...) - or not started at all when Python can do the job. "
     "If a finding is a false positive, or the only fix would change behaviour, propose no edits and say so - a human will review it."
 )
 
@@ -212,10 +222,179 @@ def run_tree(root: Path, accepted: set) -> dict:
     for e in data.get("errors", []):
         result["errors"].append({"case": "bandit:parse", "subject": Path(e.get("filename", "?")).as_posix(),
                                  "message": str(e.get("reason", "could not be scanned"))[:300]})
+    bandit_lines = {(Path(r["filename"]).as_posix().removeprefix("./"), r["line_number"])
+                    for r in data.get("results", []) if r["test_id"] in ("B605", "B607")}
+    for item in program_name_expressions(root, targets, cache, bandit_lines):
+        rule = item["case"].split(":", 1)[1]
+        c = result["cases"].setdefault(item["case"], {"checked": scanned, "problems": 0, "accepted": 0, "errors": 0})
+        if (rule, item["subject"].removesuffix("()")) in accepted:
+            c["accepted"] += 1
+            result["accepted"].append(item)
+        else:
+            c["problems"] += 1
+            result["problems"].append(item)
+
     if not scanned and not result["errors"]:
         result["fatal"] = "bandit scanned no files"
     result["scanned"] = {"files": scanned, "loc": files}
     return result
+
+
+# ----------------------------------------------------------------------------
+# ast:B607 - programs started by name through an expression Bandit can't read
+# ----------------------------------------------------------------------------
+
+PROCESS_FUNCS = {
+    "subprocess": {"run", "Popen", "call", "check_call", "check_output", "getoutput", "getstatusoutput"},
+    "os": {"execl", "execle", "execlp", "execlpe", "execv", "execve", "execvp", "execvpe",
+           "spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe",
+           "posix_spawn", "posix_spawnp"},   # os.system/os.popen: always Bandit B605
+}
+# os.spawn*/posix_spawn take the program after the mode / as the first argument
+PROGRAM_ARG = {name: 1 for name in ("spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe")}
+
+
+def _possible_strings(node, names: dict, depth: int = 0):
+    """Every string `node` can evaluate to, or None if that can't be known statically."""
+    if depth > 8:
+        return None
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return [node.value]
+    if isinstance(node, ast.IfExp):
+        a, b = _possible_strings(node.body, names, depth + 1), _possible_strings(node.orelse, names, depth + 1)
+        return a + b if a is not None and b is not None else None
+    if isinstance(node, ast.BoolOp):
+        out = []
+        for value in node.values:
+            vals = _possible_strings(value, names, depth + 1)
+            if vals is None:
+                return None
+            out += vals
+        return out
+    if isinstance(node, ast.Name) and node.id in names:
+        out = []
+        for value in names[node.id]:
+            vals = _possible_strings(value, names, depth + 1)
+            if vals is None:
+                return None
+            out += vals
+        return out
+    return None
+
+
+def _assigned_names(scope) -> dict:
+    """{name: [value nodes]} for simple `name = ...` assignments in a function or module body
+    (not descending into nested functions). A name that is also bound any other way
+    (augmented assignment, loop, with, parameter...) is left out: its value isn't known."""
+    values, unknown = {}, set()
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        args = scope.args
+        unknown.update(a.arg for a in args.posonlyargs + args.args + args.kwonlyargs)
+        unknown.update(a.arg for a in (args.vararg, args.kwarg) if a)
+
+    def visit(node):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                continue
+            if isinstance(child, ast.Assign) and len(child.targets) == 1 and isinstance(child.targets[0], ast.Name):
+                values.setdefault(child.targets[0].id, []).append(child.value)
+                visit(child.value)
+                continue
+            if isinstance(child, ast.AnnAssign) and isinstance(child.target, ast.Name) and child.value is not None:
+                values.setdefault(child.target.id, []).append(child.value)
+                visit(child.value)
+                continue
+            # Any other binding (tuple unpacking, for/with targets, :=, +=, except ... as, import)
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+                unknown.add(child.id)
+            elif isinstance(child, ast.ExceptHandler) and child.name:
+                unknown.add(child.name)
+            elif isinstance(child, (ast.Import, ast.ImportFrom)):
+                unknown.update((a.asname or a.name).split(".")[0] for a in child.names)
+            visit(child)
+
+    visit(scope)
+    return {k: v for k, v in values.items() if k not in unknown}
+
+
+def _calls_in_scope(scope) -> list:
+    """Calls in a function or module body, without those inside nested functions (their own scope)."""
+    calls = []
+
+    def collect(node):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if isinstance(child, ast.Call):
+                calls.append(child)
+            collect(child)
+
+    collect(scope)
+    return calls
+
+
+def program_name_expressions(root: Path, targets: list, cache: dict, bandit_lines: set) -> list:
+    found, seen = [], Counter()
+    for target in targets:
+        for path in sorted((root / target).rglob("*.py")):
+            rel = path.relative_to(root).as_posix()
+            try:
+                source = path.read_text(errors="replace")
+                tree = ast.parse(source)
+            except (SyntaxError, ValueError, OSError):
+                continue
+            lines = source.splitlines()
+            # `from subprocess import run` / `import subprocess as sp`
+            aliases = {}
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for a in node.names:
+                        if a.name in PROCESS_FUNCS:
+                            aliases[a.asname or a.name] = (a.name, None)
+                elif isinstance(node, ast.ImportFrom) and node.module in PROCESS_FUNCS:
+                    for a in node.names:
+                        if a.name in PROCESS_FUNCS[node.module]:
+                            aliases[a.asname or a.name] = (node.module, a.name)
+
+            scopes = [tree] + [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+            for scope in scopes:
+                names = _assigned_names(scope)
+                for call in _calls_in_scope(scope):
+                    func = call.func
+                    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id in aliases \
+                            and aliases[func.value.id][1] is None:
+                        module, name = aliases[func.value.id][0], func.attr
+                    elif isinstance(func, ast.Name) and func.id in aliases and aliases[func.id][1] is not None:
+                        module, name = aliases[func.id]
+                    else:
+                        continue
+                    if name not in PROCESS_FUNCS.get(module, ()):
+                        continue
+                    index = PROGRAM_ARG.get(name, 0)
+                    arg = call.args[index] if len(call.args) > index else next(
+                        (k.value for k in call.keywords if k.arg in ("args", "cmd", "command", "path", "file")), None)
+                    if arg is None:
+                        continue
+                    program = arg.elts[0] if isinstance(arg, (ast.List, ast.Tuple)) and arg.elts else arg
+                    if isinstance(program, ast.Constant) and (rel, call.lineno) in bandit_lines:
+                        continue   # Bandit already reported this call
+                    vals = _possible_strings(program, names)
+                    if not vals:
+                        continue
+                    relative = sorted({v.split()[0] if v.split() else v for v in vals if not v.split()[:1] or not v.split()[0].startswith("/")})
+                    if not relative:
+                        continue
+                    subject = where(root, rel, call.lineno, cache)
+                    code = lines[call.lineno - 1].strip() if call.lineno <= len(lines) else ""
+                    how = "through an import alias" if isinstance(program, ast.Constant) else "through an expression"
+                    message = (f"Program started by name ({', '.join(relative)}) {how} Bandit can't read, "
+                               f"so the first match on $PATH runs. `{code[:160]}`")
+                    seen[(subject, message)] += 1
+                    if seen[(subject, message)] > 1:
+                        message += f" (occurrence {seen[(subject, message)]})"
+                    found.append({"case": "ast:B607", "subject": subject, "message": message,
+                                  "severity": "LOW", "confidence": "HIGH", "line": call.lineno, "more": ""})
+    return found
 
 
 # ----------------------------------------------------------------------------
@@ -227,7 +406,7 @@ def esc(s) -> str:
 
 
 def summary(result: dict, baseline: bool) -> str:
-    out = ["## Security check (Bandit)", ""]
+    out = ["## Security check (Bandit + ast:B607)", ""]
     if result["fatal"]:
         out += [f"❌ The check could not run: `{esc(result['fatal'])}`", ""]
     elif result["new"]:

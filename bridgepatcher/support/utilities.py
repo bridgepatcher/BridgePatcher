@@ -4,6 +4,7 @@ utilities.py: Utility functions for BridgePatcher
 
 import os
 import re
+import sys
 import math
 import atexit
 import shutil
@@ -396,7 +397,12 @@ def cls():
     if check_cli_args() is None:
         # Our GUI does not support clear screen
         if not check_recovery():
-            os.system("cls" if os.name == "nt" else "clear")
+            # Clear the terminal with the ANSI "erase screen, cursor home" sequence instead
+            # of os.system("clear"): no shell and no program looked up on $PATH (Bandit
+            # B605/B607). Only when there is a terminal - the GUI's output has none.
+            if sys.stdout is not None and sys.stdout.isatty():
+                sys.stdout.write("\033[2J\033[H")
+                sys.stdout.flush()
         else:
             logging.info("\u001Bc")
             
