@@ -2,6 +2,9 @@
 ## 4.0.0.2000003.4 - 4.0.0 alpha 20.3.4
 This release fixes a bug where the updater may not show properly the bullet points, hyphens in the changelog in the updater and also not render the new rows properly at all.
 
+Inside the GitHub repository, a vulnerability is fixed that lets attackers bypass GitHub Actions and upload releases built locally on their own Mac that contain malware, license violations or attribution violations.
+Impact: an attacker could upload a malicious release built locally on their Mac to bypass GitHub Actions and distribute malware anyways. Or worse, an attacker could upload a release that violates the license or attribution. This vulnerability is fixed by ensuring if there is malware, a license violation or contribution violation and the attacker has built the release on their Mac, GitHub Actions audits the release and removes it if any violations found. 
+
 ## 4.0.0.2000003.3 - 4.0.0 alpha 20.3.3
 This version:
 
