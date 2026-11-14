@@ -570,7 +570,16 @@ Hardware Information:
         self.license_view.SetScrollbar(wx.HORIZONTAL, 0, 600, 1200)
     def _read_license(self) -> str:
         """
-        Locate the LICENSE.txt shipped with the patcher.
+        BridgePatcher's LICENSE.txt, followed by THIRD-PARTY-NOTICES.txt (the licenses of
+        the bundled open-source kexts).
+        """
+        text = self._read_bundled_text("LICENSE.txt")
+        notices = self._read_bundled_text("THIRD-PARTY-NOTICES.txt")
+        return f"{text.rstrip()}\n\n\n{'=' * 78}\n\n{notices}"
+
+    def _read_bundled_text(self, file_name: str) -> str:
+        """
+        Locate a text file shipped with the patcher (LICENSE.txt, THIRD-PARTY-NOTICES.txt).
 
         Not based on current_path: in the built app that is first Contents/Frameworks
         and, once payloads.dmg is mounted, a temporary directory (reroute_payloads.py),
@@ -579,21 +588,21 @@ Hardware Information:
         payloads.dmg; from source it sits in the repository root. Both are
         original_path, with Contents/Resources checked as well in case the link is missing.
         """
-        candidates = [Path(self.constants.original_path) / "LICENSE.txt"]
+        candidates = [Path(self.constants.original_path) / file_name]
         if self.constants.launcher_binary and not self.constants.launcher_script:
-            candidates.append(Path(self.constants.launcher_binary).resolve().parent.parent / "Resources" / "LICENSE.txt")
+            candidates.append(Path(self.constants.launcher_binary).resolve().parent.parent / "Resources" / file_name)
 
-        for license_path in candidates:
+        for path in candidates:
             try:
-                with open(license_path, "r", encoding="utf-8") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     return f.read()
             except OSError:
                 continue
 
-        logging.error(f"LICENSE.txt not found, looked in: {', '.join(str(c) for c in candidates)}")
+        logging.error(f"{file_name} not found, looked in: {', '.join(str(c) for c in candidates)}")
         return (
-            "LICENSE.txt could not be found in this copy of BridgePatcher.\n\n"
-            "The license is available at https://github.com/bridgepatcher/BridgePatcher/blob/main/LICENSE.txt"
+            f"{file_name} could not be found in this copy of BridgePatcher.\n\n"
+            f"It is available at https://github.com/bridgepatcher/BridgePatcher/blob/main/{file_name}"
         )
 
     def _populate_oc_build_override(self, panel: wx.Panel) -> None:
