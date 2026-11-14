@@ -1,4 +1,7 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000003.4 - 4.0.0 alpha 20.3.4
+This release fixes a bug where the updater may not show properly the bullet points, hyphens in the changelog in the updater and also not render the new rows properly at all.
+
 ## 4.0.0.2000003.3 - 4.0.0 alpha 20.3.3
 This version:
 
