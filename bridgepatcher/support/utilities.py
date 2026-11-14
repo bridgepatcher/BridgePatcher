@@ -396,7 +396,7 @@ def cls():
     if check_cli_args() is None:
         # Our GUI does not support clear screen
         if not check_recovery():
-            os.system("cls" if os.name == "nt" else "clear")
+            subprocess.run(["cls" if os.name == "nt" else "clear"])
         else:
             logging.info("\u001Bc")
             
