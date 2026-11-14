@@ -172,7 +172,7 @@ class DownloadFrame(wx.Frame):
         try:
             # safe_mode="escape": the release notes come from GitHub (remote input),
             # so raw HTML in them is shown as text instead of being rendered.
-            html_markdown = markdown2.markdown(self.changelog, extras=["tables"], safe_mode="escape")
+            html_markdown = markdown2.markdown(self.changelog, extras=["tables", "cuddled-lists"], safe_mode="escape")
             html_code = f'''
 <html>
     <head>
