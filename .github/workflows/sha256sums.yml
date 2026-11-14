@@ -250,7 +250,7 @@ jobs:
           SCRIPT=repo/.github/scripts/record_checksums.py
 
           gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-            --jq '.[] | select(.draft == false) | .tag_name' > tags.txt
+            --jq '.[] | select(.draft == false) | .tag_name' | tac > tags.txt  # oldest first: each new release goes on top
           echo "Releases:"
           cat tags.txt
 
