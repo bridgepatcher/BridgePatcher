@@ -241,17 +241,23 @@ def hidden_work(full, cand, our_authors, check_branches=True):
 
     - it publishes its own installers in releases: 2 points. That is what reaches users: builds
       downloaded from a repo named like this project, outside its fork network.
+    - those installers are built from commits that aren't on its default branch (the release's
+      tag points off it): 2 more points. That is deliberate hiding: the default branch, which is
+      what visitors and reviewers look at, stays a clean copy, while what users actually
+      download comes from work kept on other branches.
     - its default branch has nothing of its own, but other branches carry commits by people who
-      never committed to this project, or have a history of their own: 0 points, listed for
-      context only. Work on a side branch ships to nobody, and forks keeping research or fix
-      branches next to an untouched default branch is normal. It only matters together with
-      installers, and those score on their own.
+      never committed to this project, or have a history of their own: 1 point when it also
+      publishes installers (the same pattern, even if no release tag proves it), else 0 points,
+      listed for context only. Work on a side branch alone ships to nobody, and forks keeping
+      research or fix branches next to an untouched default branch is normal.
     Branches whose newest commit is in this project are this project's own work, and commits
     by people who committed here (current name or GitHub login) or by bots never count."""
     signals = []
     default = cand.get("default_branch") or "main"
+    q = lambda ref: urllib.parse.quote(ref, safe="")
+    branches = paginate(f"/repos/{full}/branches?per_page=100")[:30]
     hidden = []
-    for b in (paginate(f"/repos/{full}/branches?per_page=100")[:30] if check_branches else []):
+    for b in (branches if check_branches else []):
         if b["name"] == default:
             continue
         head = (b.get("commit") or {}).get("sha")
@@ -270,15 +276,40 @@ def hidden_work(full, cand, our_authors, check_branches=True):
             names = sorted({((c.get("commit") or {}).get("author") or {}).get("name") or "?" for c in theirs})
             hidden.append(f"`{b['name']}` ({len(theirs)} commit{'s' if len(theirs) != 1 else ''} of their own, "
                           f"by {', '.join(names[:3])})")
-    if hidden:
-        signals.append((0, "its default branch looks like an untouched copy, other branches carry their own "
-                           "work (not counted on its own): " + "; ".join(hidden[:4])))
-    assets = []
+
+    assets, off_default = [], []
     for rel in (get(f"/repos/{full}/releases?per_page=20") or []):
-        assets += [a["name"] for a in rel.get("assets", []) if re.search(r"\.(dmg|pkg|zip|app|exe|iso)$", a["name"], re.I)]
+        installers = [a["name"] for a in rel.get("assets", [])
+                      if re.search(r"\.(dmg|pkg|zip|app|exe|iso)$", a["name"], re.I)]
+        assets += installers
+        tag = rel.get("tag_name")
+        if not installers or not tag or len(off_default) >= 3:
+            continue
+        # Commits in the release's tag that its default branch doesn't have: built off the default branch
+        status, cmp, _ = request("GET", f"/repos/{full}/compare/{q(default)}...{q(tag)}")
+        if status >= 300 or not cmp or not cmp.get("ahead_by"):
+            continue
+        # Which branches carry the tagged commit (the tag is behind or at their head)
+        sources = []
+        for name in [b["name"] for b in branches if b["name"] != default][:10]:
+            s, c, _ = request("GET", f"/repos/{full}/compare/{q(tag)}...{q(name)}")
+            if s < 300 and c and c.get("status") in ("identical", "ahead"):
+                sources.append(name)
+        off_default.append(f"`{tag}` ({cmp['ahead_by']} commit{'s' if cmp['ahead_by'] != 1 else ''} not on "
+                           f"`{default}`" + (f", from {', '.join(f'`{s}`' for s in sources[:3])}" if sources else "")
+                           + ")")
+
+    if hidden:
+        signals.append((1 if assets else 0,
+                        "its default branch looks like an untouched copy, other branches carry their own work"
+                        + (" while it publishes installers" if assets else " (not counted on its own)")
+                        + ": " + "; ".join(hidden[:4])))
     if assets:
         signals.append((2, f"publishes its own installers in releases ({', '.join(sorted(set(assets))[:4])}"
                            + (", …" if len(set(assets)) > 4 else "") + ")"))
+    if off_default:
+        signals.append((2, f"builds its releases off its default branch, so `{default}` looks clean while the "
+                           f"installers come from work kept elsewhere: " + "; ".join(off_default)))
     return signals
 
 
