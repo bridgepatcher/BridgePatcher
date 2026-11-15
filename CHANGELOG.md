@@ -4,7 +4,7 @@ This release:
 - fixes a bug where the changelog may appear like this:
 The Credits in the README now list laobamac for SimpleHDA (→ github.com), which restores audio on macOS Tahoe for the iMac19,1 and iMac19,2 since 4.0.0.2000003.3. laobamac was missing from the Credits: they were only listed through links to their mirror of Moraea's patch repos, which were changed back to Moraea's own repos.
 
-<!-- release-checksums:start -->
+release-checksums:start
 
 Now starting with the latest version, it should show up properly:
 <img width="762" height="612" alt="Bildschirmfoto 2026-11-15 um 23 32 25" src="https://github.com/user-attachments/assets/e130f052-6608-4865-922c-48cd5da3c884" />
