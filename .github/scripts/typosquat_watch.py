@@ -225,19 +225,38 @@ def describe_copy(sha, own):
 
 # ------------------------------------------------------------ assessment --
 
-def hidden_work(full, cand, our_authors):
+def commit_identities(c):
+    """Lowercased author name and GitHub login of a commit from the API."""
+    name = ((c.get("commit") or {}).get("author") or {}).get("name") or ""
+    login = (c.get("author") or {}).get("login") or ""
+    return {s.lower() for s in (name, login) if s}
+
+
+def is_bot(name):
+    return name.endswith("[bot]") or name.endswith("-bot")
+
+
+def hidden_work(full, cand, our_authors, check_branches=True):
     """Signs of a copy hiding what it really ships: (points, reason) pairs.
 
+    - it publishes its own installers in releases: 2 points. That is what reaches users: builds
+      downloaded from a repo named like this project, outside its fork network.
     - its default branch has nothing of its own, but other branches carry commits by people who
-      never committed to this project, or have a history of their own (the untouched default
-      branch makes the repo look like a plain copy, while the changes live elsewhere): 2 points
-    - it publishes its own installers in releases: 1 point"""
+      never committed to this project, or have a history of their own: 0 points, listed for
+      context only. Work on a side branch ships to nobody, and forks keeping research or fix
+      branches next to an untouched default branch is normal. It only matters together with
+      installers, and those score on their own.
+    Branches whose newest commit is in this project are this project's own work, and commits
+    by people who committed here (current name or GitHub login) or by bots never count."""
     signals = []
     default = cand.get("default_branch") or "main"
     hidden = []
-    for b in paginate(f"/repos/{full}/branches?per_page=100")[:30]:
+    for b in (paginate(f"/repos/{full}/branches?per_page=100")[:30] if check_branches else []):
         if b["name"] == default:
             continue
+        head = (b.get("commit") or {}).get("sha")
+        if head and get(f"/repos/{ORIGINAL}/commits/{head}"):
+            continue  # the whole branch is a copy of one of ours
         status, cmp, _ = request("GET", f"/repos/{full}/compare/{urllib.parse.quote(default, safe='')}..."
                                         f"{urllib.parse.quote(b['name'], safe='')}")
         if status == 404:
@@ -245,28 +264,40 @@ def hidden_work(full, cand, our_authors):
             continue
         if status >= 300 or not cmp or not cmp.get("ahead_by"):
             continue
-        authors = {((c.get("commit") or {}).get("author") or {}).get("name") or "?" for c in cmp.get("commits", [])}
-        others = sorted(a for a in authors - our_authors if a)
-        if others:
-            hidden.append(f"`{b['name']}` ({cmp['ahead_by']} commits, by {', '.join(others[:3])})")
+        theirs = [c for c in cmp.get("commits", [])
+                  if not commit_identities(c) & our_authors and not any(map(is_bot, commit_identities(c)))]
+        if theirs:
+            names = sorted({((c.get("commit") or {}).get("author") or {}).get("name") or "?" for c in theirs})
+            hidden.append(f"`{b['name']}` ({len(theirs)} commit{'s' if len(theirs) != 1 else ''} of their own, "
+                          f"by {', '.join(names[:3])})")
     if hidden:
-        signals.append((2, "its default branch looks like an untouched copy, but other branches carry their own "
-                           "work: " + "; ".join(hidden[:4])))
+        signals.append((0, "its default branch looks like an untouched copy, other branches carry their own "
+                           "work (not counted on its own): " + "; ".join(hidden[:4])))
     assets = []
     for rel in (get(f"/repos/{full}/releases?per_page=20") or []):
         assets += [a["name"] for a in rel.get("assets", []) if re.search(r"\.(dmg|pkg|zip|app|exe|iso)$", a["name"], re.I)]
     if assets:
-        signals.append((1, f"publishes its own installers in releases ({', '.join(sorted(set(assets))[:4])}"
+        signals.append((2, f"publishes its own installers in releases ({', '.join(sorted(set(assets))[:4])}"
                            + (", …" if len(set(assets)) > 4 else "") + ")"))
     return signals
 
 
 def our_authors():
-    """Names of people who committed to this project (recent history)."""
-    names = set()
-    for c in get(f"/repos/{ORIGINAL}/commits?per_page=100") or []:
-        names.add(((c.get("commit") or {}).get("author") or {}).get("name") or "")
-    return {n for n in names if n}
+    """Lowercased names and GitHub logins of everyone who committed to this project.
+
+    The contributors list covers the whole history (with anon=1, also authors whose email isn't
+    linked to a GitHub account, by name); the newest commits of every branch add authors the
+    contributors list hasn't caught up with yet. The newest 100 commits of the default branch
+    alone are not enough: they can all be by a few people, so long-time authors would count as
+    strangers in copies of older history."""
+    ids = set()
+    for c in paginate(f"/repos/{ORIGINAL}/contributors?anon=1&per_page=100"):
+        ids |= {s.lower() for s in (c.get("login"), c.get("name")) if s}
+    for b in paginate(f"/repos/{ORIGINAL}/branches?per_page=100")[:30]:
+        sha = urllib.parse.quote(b["name"], safe="")
+        for c in get(f"/repos/{ORIGINAL}/commits?sha={sha}&per_page=100") or []:
+            ids |= commit_identities(c)
+    return ids
 
 
 def assess(cand, owner_squat, our_owner, extra=()):
@@ -561,7 +592,8 @@ def main():
             continue  # similar name, but not a copy of this project
 
         seen.add(full.lower())
-        extra = hidden_work(full, cand, authors) if own == 0 or own is None else []
+        # Installers count for every copy; side branches only matter when the default branch is untouched
+        extra = hidden_work(full, cand, authors, check_branches=own == 0 or own is None)
         suspicious, reasons = assess(cand, owner_sq, owner, extra)
         if named == "current":
             reasons.insert(0, f"uses this project's name ({name}) outside its fork network"
