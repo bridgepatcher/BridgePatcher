@@ -315,6 +315,10 @@ _CHECKSUM_BLOCK_START = "<!-- release-checksums:start -->"
 _CHECKSUM_BLOCK_END = "<!-- release-checksums:end -->"
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _CHECKSUM_HEADING = re.compile(r"^### SHA256 checksums?\s*$", re.MULTILINE)
+# The release notes tell the reader to check a download in Terminal. In the updater
+# nobody sees the downloaded file, so that line is replaced with what the updater
+# does with the checksum.
+_MANUAL_CHECK_HINT = re.compile(r"^Check a download on macOS with .*$", re.MULTILINE)
 # GitHub's alert syntax ("> [!WARNING]"), which markdown2 shows as plain text.
 _GITHUB_ALERT = re.compile(r"^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$", re.MULTILINE | re.IGNORECASE)
 
@@ -342,7 +346,10 @@ def changelog_from_release_notes(body: Optional[str], sha256: Optional[str] = No
         checksums = text[start + len(_CHECKSUM_BLOCK_START):end]
         checksums = checksums.replace(_ASSET_INFORMATION_HEADING, "")
         checksums = _HTML_COMMENT.sub("", checksums)
-        checksums = _GITHUB_ALERT.sub(lambda m: f"> **{m.group(1).capitalize()}**  ", checksums).strip()
+        checksums = _GITHUB_ALERT.sub(lambda m: f"> **{m.group(1).capitalize()}**  ", checksums)
+        checksums = _MANUAL_CHECK_HINT.sub("", checksums).strip()
+        if checksums:
+            checksums += "\n\n" + _automatic_check_note(asset)
 
     cuts = [i for i in (text.find(_ASSET_INFORMATION_HEADING), start) if i != -1]
     notes = _HTML_COMMENT.sub("", text[:min(cuts)] if cuts else text).strip()
@@ -359,12 +366,29 @@ def _package_checksum_note(sha256: Optional[str], asset: Optional[str]) -> str:
     sha256 = str(sha256 or "").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{64}", sha256):
         return ""
-    name = unquote(str(asset or "").rsplit("/", 1)[-1]).replace("`", "").replace("|", "").strip() or constants.INSTALLER_PKG_NAME
     return (
         "### SHA256 checksum\n\n"
         "| File | SHA256 |\n| --- | --- |\n"
-        f"| `{name}` | `{sha256}` |\n\n"
-        "The update is checked against this checksum before it's installed."
+        f"| `{_asset_name(asset)}` | `{sha256}` |\n\n"
+        + _automatic_check_note(asset)
+    )
+
+
+def _asset_name(asset: Optional[str]) -> str:
+    """
+    File name of the package being offered, from its name or download URL
+    """
+    name = unquote(str(asset or "").rsplit("/", 1)[-1]).replace("`", "").replace("|", "").strip()
+    return name or constants.INSTALLER_PKG_NAME
+
+
+def _automatic_check_note(asset: Optional[str]) -> str:
+    """
+    What the updater does with the checksum, in place of the release notes' Terminal hint
+    """
+    return (
+        f"{constants.APP_NAME} checks the downloaded `{_asset_name(asset)}` against its checksum "
+        "before installing it, and stops the update if they don't match."
     )
 
 
