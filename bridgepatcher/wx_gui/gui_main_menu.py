@@ -497,7 +497,9 @@ class MainFrame(wx.Frame):
         # updates.py picked - /releases/latest of the official repo could describe a
         # completely different build than the one being offered.
         if update_dict.get("Changelog"):
-            changelog = updates.changelog_from_release_notes(update_dict["Changelog"]) or changelog
+            changelog = updates.changelog_from_release_notes(
+                update_dict["Changelog"], update_dict.get("SHA256"), update_dict.get("Name")
+            ) or changelog
 
         if not getattr(self, 'exiting_app', False) and not gui_support.is_app_exiting():
             self._report_manual_check(manual, str(remote_version_str), None, include_prerelease)
@@ -597,12 +599,7 @@ class MainFrame(wx.Frame):
         ID_GITHUB = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
         ID_UPDATE = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
 
-        # The package's SHA256 goes below the changelog, in place of the release's
-        # checksum table (cut off by updates.changelog_from_release_notes()).
-        html_markdown = markdown2.markdown(
-            changelog_text + updates.changelog_checksum_note(sha256, update_url),
-            extras=["tables", "cuddled-lists"]
-        )
+        html_markdown = markdown2.markdown(changelog_text, extras=["tables", "cuddled-lists"])
         html_css = css_data.updater_css
 
         # Parent auf self gesetzt zur sauberen Speicherhierarchie

@@ -166,7 +166,7 @@ class StartAutomaticPatching:
         return True
 
 
-    def _fetch_changelog(self, remote_version_str: str) -> str:
+    def _fetch_changelog(self, remote_version_str: str, sha256: str = None, asset: str = None) -> str:
         """
         Fetch the release notes for the version we are about to offer
 
@@ -211,7 +211,7 @@ class StartAutomaticPatching:
                 continue
 
             body = release.get("body") or ""
-            return updates.changelog_from_release_notes(body) or fallback
+            return updates.changelog_from_release_notes(body, sha256, asset) or fallback
 
         return fallback
 
@@ -232,7 +232,7 @@ class StartAutomaticPatching:
         ID_UPDATE = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
 
         html_markdown = markdown2.markdown(
-            self._fetch_changelog(remote_version_str) + updates.changelog_checksum_note(update_dict.get("SHA256"), update_dict.get("Name")),
+            self._fetch_changelog(remote_version_str, update_dict.get("SHA256"), update_dict.get("Name")),
             extras=["tables", "cuddled-lists"]
         )
         html_css = css_data.updater_css
