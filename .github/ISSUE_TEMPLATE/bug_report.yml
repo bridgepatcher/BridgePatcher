@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting an issue. Please fill in as much detail as you can — panic strings and logs help the most.
+        Thanks for reporting your issue. Please fill in as much detail as you can — panic strings and logs help the most.
         Vielen Dank für Ihre Fehlermeldung. Bitte geben Sie so viele Details wie möglich an – Panikmeldungen und Protokolle sind dabei besonders hilfreich.
 
   - type: dropdown
