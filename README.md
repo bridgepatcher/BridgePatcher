@@ -159,6 +159,8 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
     * [fix graphics accelaration on Intel UHD Graphics 630 on unsupported T2 Macs](https://github.com/GUTY345/OpenCore-Legacy-patcher-t2chip-fixBugs/tree/main)
     * [fix your Mac is not supported by macOS 26 Tahoe](https://github.com/GUTY345/OpenCore-Legacy-patcher-t2chip-fixBugs/tree/main)
     * [fix Unsupported Mantissa speed kernel panics on T2 MacBooks](https://github.com/GUTY345/OpenCore-Legacy-patcher-t2chip-fixBugs/tree/main)
+* [laobamac](https://github.com/laobamac)
+    * [SimpleHDA](https://github.com/laobamac/SimpleHDA), which restores audio on macOS 26 Tahoe for the iMac19,1 and iMac19,2 without root patching (downloaded from laobamac's releases while building OpenCore, not bundled)
 * [EduCovas](https://github.com/covasedu)
   * macOS Tahoe patch set
   * [non-Metal patch set](https://github.com/flagersgit/non-metal-frameworks) for nVidia Tesla/Fermi/Maxwell/Pascal, AMD TeraScale 1/2, and Intel Core 1st/2nd Generation GPUs
