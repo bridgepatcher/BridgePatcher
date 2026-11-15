@@ -1,4 +1,7 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000003.5 - 4.0.0 alpha 20.3.5
+The Credits in the README now list laobamac for [SimpleHDA](https://github.com/laobamac/SimpleHDA), which restores audio on macOS Tahoe for the iMac19,1 and iMac19,2 since 4.0.0.2000003.3. laobamac was missing from the Credits: they were only listed through links to their mirror of Moraea's patch repos, which were changed back to Moraea's own repos.
+
 ## 4.0.0.2000003.4 - 4.0.0 alpha 20.3.4
 This release fixes a bug where the updater may not show properly the bullet points, hyphens in the changelog in the updater and also not render the new rows properly at all.
 
