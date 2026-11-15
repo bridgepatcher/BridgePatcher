@@ -1,17 +1,18 @@
 # AGENTS.md - rules for AI coding assistants
 
-BridgePatcher is a fork of Dortania's OpenCore Legacy Patcher. AI tools are welcome
+BridgePatcher is an independent app based on Dortania's OpenCore Legacy Patcher. AI tools are welcome
 here, for brainstorming, debugging and writing code, but the rules below apply to
 every change an AI makes or suggests. A human reviews and tests every change before
 it lands on `main`.
 
-## 1. Stay close to upstream Dortania
+## 1. Follow Dortania's coding style
 
 - Match the coding style of the surrounding code and of upstream Dortania: structure,
   logging, comments, file layout. If upstream solves a similar problem, reuse its
-  pattern instead of inventing a new one.
+  pattern instead of inventing a new one. That keeps the code familiar to anyone who
+  knows Dortania's code and makes porting their fixes easier.
 - **Names are the exception.** This project is BridgePatcher, not Dortania's app, and
-  the upstream licence forbids using its name to promote this fork. Never bring back
+  the upstream licence forbids using its name to promote BridgePatcher. Never bring back
   upstream names or identifiers (app name or its abbreviation, `com.dortania.*`,
   Dortania folders, old NVRAM keys or plist names). Use the BridgePatcher equivalents
   (`bridgepatcher` package, `BridgePatcher-*` NVRAM keys, `BridgePatcher.plist`, the
@@ -19,9 +20,9 @@ it lands on `main`.
   cleans up legacy installs, marked as described in `.github/scripts/branding_check.py`.
   Run that script before handing over.
 - Don't reformat, rename or reorder code you aren't changing. Unrelated diffs make
-  upstream merges harder and hide the real change.
+  porting upstream fixes harder and hide the real change.
 - Areas kept on Dortania's upstream state (GPU, wireless, audio root patches, etc.)
-  should only change when you are syncing with upstream or fixing a confirmed bug.
+  should only change when you are porting an upstream change or fixing a confirmed bug.
 
 ## 2. Don't write WET code
 

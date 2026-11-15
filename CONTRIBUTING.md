@@ -1,7 +1,7 @@
 # Contributing to BridgePatcher
 
-Thanks for helping out! A few ground rules keep the codebase healthy and easy to
-merge with upstream Dortania OpenCore Legacy Patcher.
+Thanks for helping out! A few ground rules keep the codebase healthy and close
+to the code of Dortania's OpenCore Legacy Patcher, which BridgePatcher is based on.
 
 ## Code style
 
