@@ -1,0 +1,84 @@
+# .github/workflows/credit-autofix.yml
+#
+# Credits everyone whose work is on main in README.md ("## Credits"), and adds the parts
+# of their work their entry doesn't mention yet, by committing the fix to main itself.
+# Missing credit is usually an oversight by whoever brought the work in, not a violation
+# worth an issue, so nothing is reported: README.md just gets fixed.
+# See .github/scripts/credit_autofix.py for what counts and what gets written; reword the
+# added bullets freely, or list an area in .github/credit-areas.txt to keep it out.
+#
+# Runs on main only (pushes, daily, manual) and only reads main's history with git: no
+# pull request code is checked out or run. Its own commit is pushed with the built-in
+# token, which doesn't start other workflows, so it can't trigger itself.
+
+name: Credit auto-fix
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "53 3 * * *"   # daily, after the Credit guard's audit
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only show what would be added, don't commit"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: credit-autofix
+  cancel-in-progress: false
+
+jobs:
+  credit:
+    # Not in forks: their Credits follow this repository's through syncing
+    if: ${{ !github.event.repository.fork }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # Their own project: never added
+      MAINTAINERS: "albert-steinhof albert-robert-schumann albert-mueller p8bpg9zrw7-collab"
+      # An existing entry gets a bullet for an area once this many of the person's commits are in it
+      MIN_AREA_COMMITS: "5"
+      DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Credit missing work on main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The script is taken from the commit being checked, so a newer main may bring a newer one
+          for attempt in 1 2 3 4 5; do
+            git fetch --quiet origin main
+            git checkout --quiet -B main origin/main
+            if [ "$DRY_RUN" = "true" ]; then
+              python .github/scripts/credit_autofix.py .
+              exit 0
+            fi
+            rm -f credit-commit-msg.txt
+            python .github/scripts/credit_autofix.py --write .
+            if git diff --quiet -- README.md; then
+              exit 0
+            fi
+            git add README.md
+            git commit --quiet -F credit-commit-msg.txt
+            if git push --quiet origin HEAD:main; then
+              echo "Pushed $(git rev-parse --short HEAD) to main."
+              exit 0
+            fi
+            echo "Push attempt $attempt failed (main moved?), retrying on the newest main."
+            sleep $((attempt * 5))
+          done
+          echo "::warning::Could not push the Credits fix to main (branch protection?). Allow github-actions[bot] to push to main."

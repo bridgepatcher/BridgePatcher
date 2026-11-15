@@ -1,10 +1,11 @@
 # .github/workflows/credit-guard.yml
 #
 # Makes sure contributors are credited in README.md ("## Credits").
-#   - PR whose author/commit authors are not in Credits:
-#       comment + label "needs-credit" (the PR is NOT closed)
-#   - Such a PR gets merged and they are still not credited:
-#       an issue is opened as a reminder
+#   - PR whose author/commit authors are not in Credits: a friendly note that they'll be
+#       credited automatically once it's merged (they can write their own entry in the PR)
+#   - Missing credit for work that is on main is not reported: the Credit auto-fix
+#       (credit-autofix.yml) adds it to README.md on main, including work of people who are
+#       credited for only part of what they did
 #   - PR that removes someone from Credits: warning comment (the PR is NOT closed)
 #   - Intended removals (contribution reverted/replaced, or at the contributor's request)
 #       are listed in .github/retired-credits.txt and not reported.
@@ -157,14 +158,6 @@ jobs:
               else await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
 
-            async function openIssueOnce(title, body) {
-              const open = await github.paginate(github.rest.issues.listForRepo, {
-                owner, repo, state: 'open', labels: LABEL, per_page: 100,
-              });
-              if (open.some(i => i.title === title)) return;
-              await github.rest.issues.create({ owner, repo, title, body, labels: [LABEL] });
-            }
-
             const list = arr => arr.map(l => `- @${l}`).join('\n');
 
             // ---------- Pull requests ----------
@@ -184,23 +177,12 @@ jobs:
               const headCredits = creditedLogins(creditsSection(await readFile(headOwner, headRepo, pr.head.sha)));
               const people = await prContributors(pr);
 
-              // Merged: remind if someone is still not credited on the target branch
+              // Merged: nothing to remind about. The Credit auto-fix credits them on main
+              // (credit-autofix.yml runs on the push the merge makes); clear the label left over
+              // from before
               if (action === 'closed') {
-                if (!pr.merged) return;
-                const nowCredits = creditedLogins(creditsSection(await readFile(owner, repo, pr.base.ref)));
-                const missing = people.filter(l => !isCredited(l, nowCredits));
-                if (!missing.length) return;
-                await openIssueOnce(`Credit missing for PR #${pr.number}`, [
-                  MARK_MISSING,
-                  `PR #${pr.number} (**${pr.title}**) was merged, but these contributors are not listed in the **Credits** section of \`${README}\`:`,
-                  '',
-                  list(missing),
-                  '',
-                  `Please add them with a short description of what they contributed, e.g.:`,
-                  '```md',
-                  ...missing.map(l => `* [${l}](https://github.com/${l})\n    * <what they did> (#${pr.number})`),
-                  '```',
-                ].join('\n'));
+                try { await github.rest.issues.removeLabel({ owner, repo, issue_number: pr.number, name: LABEL }); }
+                catch (e) { if (e.status !== 404) core.warning(`Label update failed: ${e.message}`); }
                 return;
               }
 
@@ -222,24 +204,19 @@ jobs:
               await upsertComment(pr.number, MARK_MISSING, missing.length ? [
                 MARK_MISSING,
                 '> [!NOTE]',
-                '> **Thanks for contributing! The following contributors are not yet listed in the Credits section of `README.md`:**',
+                '> **Thanks for contributing!** Once this is merged, these contributors are added to the Credits section of `README.md` automatically:',
                 '',
                 list(missing),
                 '',
-                'You can add yourself in this pull request, for example:',
+                'Nothing to do here. If you\'d like to describe your contribution in your own words, you can add your entry in this pull request, for example:',
                 '```md',
                 ...missing.map(l => `* [${l}](https://github.com/${l})\n    * <what you contributed>`),
                 '```',
-                'Otherwise a maintainer will add you when merging. This is only a reminder, the pull request stays open.',
               ].join('\n') : null);
 
-              try {
-                if (missing.length) {
-                  await github.rest.issues.addLabels({ owner, repo, issue_number: pr.number, labels: [LABEL] });
-                } else {
-                  await github.rest.issues.removeLabel({ owner, repo, issue_number: pr.number, name: LABEL });
-                }
-              } catch (e) { if (e.status !== 404) core.warning(`Label update failed: ${e.message}`); }
+              // No "needs-credit" label any more (missing credit is fixed on main); clear an old one
+              try { await github.rest.issues.removeLabel({ owner, repo, issue_number: pr.number, name: LABEL }); }
+              catch (e) { if (e.status !== 404) core.warning(`Label update failed: ${e.message}`); }
               return;
             }
             // Pushes to main are checked by the "audit" job below.
