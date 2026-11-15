@@ -47,8 +47,38 @@ it lands on `main`.
 - Root patching, EFI building and secure-boot code can brick or lock a Mac. Flag any
   change there clearly and never claim it works without a hardware test.
 
-## 5. Check before handing over
+## 5. No vulnerable code
+
+BridgePatcher runs commands as root, writes to the system volume and changes the
+EFI, so one weak spot can hand an attacker root on the user's Mac. Working code with
+a security hole is not done.
+
+- **Commands:** argument lists with absolute paths (`/usr/bin/...`), never
+  `shell=True`, `os.system()` or `os.popen()`. Never build a command from text that
+  came from a file, the network or the user.
+- **No running data:** no `eval()`, `exec()`, `pickle` or `marshal` on anything
+  from outside. Use `plistlib`, JSON or `ast.literal_eval()`.
+- **Downloads:** HTTPS only, certificate checks on, a `timeout=` on every request,
+  and verify a checksum or signature before anything downloaded gets used,
+  extracted or installed.
+- **Archives:** `tarfile` with `filter="data"`; check zip entries for `..`, absolute
+  paths and symlinks before extracting.
+- **Files and temp dirs:** no fixed paths in `/tmp`; use `tempfile.mkdtemp()` /
+  `NamedTemporaryFile()`. Narrowest permissions that work (0o644 data, 0o755 tools,
+  0o600/0o700 private). Watch for symlink tricks when running as root.
+- **Hashes:** SHA-256 where integrity matters, not MD5/SHA-1.
+- **Secrets:** no tokens, keys or passwords in code, logs or error messages.
+- **Security settings:** don't disable or weaken SIP, AMFI, secure boot or Gatekeeper
+  beyond what a patch strictly needs, and say exactly what is lowered and why.
+- Don't silence a finding to make the check pass (hiding a call behind another form,
+  adding entries to `.github/security-accepted.txt`). Fix it or flag it for a
+  maintainer.
+- If you're unsure whether something is safe, say so in the PR.
+
+## 6. Check before handing over
 
 - Run `python3 .github/scripts/check_python.py --root .` and `ruff check .` on what you changed.
+- Run `python3 .github/scripts/check_security.py --root . --json "$(mktemp)"`
+  (needs `bandit`) and fix every new finding.
 - Say what you tested and what still needs a test on a real T2/T1 Mac. "Untested" is
   an acceptable answer; pretending isn't.

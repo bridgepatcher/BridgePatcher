@@ -21,6 +21,8 @@ about who typed the code:
   booting or the EFI. Say which Mac and macOS version you tested on.
 - **AI tools must follow [AGENTS.md](AGENTS.md)**: most assistants read it
   automatically.
+- **No vulnerable code.** BridgePatcher runs as root, so security holes count as
+  bugs even when the feature works. See the security rules in AGENTS.md.
 - **Every PR gets a human review** before it lands on `main`.
 
 ## Pull requests
