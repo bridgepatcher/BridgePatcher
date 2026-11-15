@@ -26,6 +26,19 @@ next to the downloads and run `shasum -a 256 -c sums.txt`.
 
 <!-- releases (newest first) -->
 
+<!-- release: 4.0.0.2000003.6 -->
+## 4.0.0.2000003.6
+
+[Release page](https://github.com/bridgepatcher/BridgePatcher/releases/tag/4.0.0.2000003.6) · published 2026-11-15
+
+Recorded 2026-11-15 23:57 EET (UTC+2):
+
+```
+61218a25ea5361e4fc11383e1409b7bd399d7536c54e908583331f17db4b0edc  AutoPkg-Assets.pkg
+a0b4e77ff70aa17c3bb20c50b3d9c33e7fa8684e7d5b90e43371ce86c2d6fe28  BridgePatcher-Uninstaller.pkg
+fd939de7e292b51a86684d9b4471b1ee9807f761383b460cc1e2308c686e68da  BridgePatcher.pkg
+```
+
 <!-- release: 4.0.0.2000003.5 -->
 ## 4.0.0.2000003.5
 
