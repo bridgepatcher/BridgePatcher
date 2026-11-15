@@ -300,6 +300,19 @@ class GenerateDiskImages:
         """
         Generate disk images
         """
-        self._delete_extra_binaries()
-        self._generate_payloads_dmg()
-        self._download_resources()
+        # hier steckte eine Sicherheitslücke, indem beim Generieren von die Ressourcen keine Fehlerbehebung steckte. Einen Angreifer könnte davon ausnutzen, um das Bauen zu unterbrechen über nicht korrekter Syntax und sogar beliebiges Code ausführen
+        try:
+            self._delete_extra_binaries()
+        except Exception as e:
+            rich.print(f"[red] Deleting the extra binaries failed unexpectedly.[/red]")
+            return
+        try:
+            self._generate_payloads_dmg()
+        except Exception as e:
+            rich.print(f"[red] Generating the necessary dmg files have failed unexpectedly.[/red]")
+            return
+        try:
+            self._download_resources()
+        except Exception as e:
+            rich.print(f"[red] Downloading the necessary ressources have failed.[/red]")
+            return
