@@ -304,15 +304,15 @@ class GenerateDiskImages:
         try:
             self._delete_extra_binaries()
         except Exception as e:
-            rich.print(f"[red] Deleting the extra binaries failed unexpectedly.[/red]")
+            rich.print("[red] Deleting the extra binaries failed unexpectedly.[/red]")
             return
         try:
             self._generate_payloads_dmg()
         except Exception as e:
-            rich.print(f"[red] Generating the necessary dmg files have failed unexpectedly.[/red]")
+            rich.print("[red] Generating the necessary dmg files have failed unexpectedly.[/red]")
             return
         try:
             self._download_resources()
         except Exception as e:
-            rich.print(f"[red] Downloading the necessary ressources have failed.[/red]")
+            rich.print("[red] Downloading the necessary ressources have failed.[/red]")
             return
