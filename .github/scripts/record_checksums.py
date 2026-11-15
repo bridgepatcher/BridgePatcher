@@ -8,8 +8,9 @@ quietly rewrite:
      first seen. If an asset's SHA256 later differs from the one recorded first, the
      new one is added under a "changed" warning, and the run fails so the maintainer
      gets notified.
-  2. The release notes, under "## Asset Information". The in-app updater cuts the
-     release notes at that heading, so the checksums don't show up in its changelog.
+  2. The release notes, under "## Asset Information". The in-app updater shows the
+     part between BLOCK_START and BLOCK_END below its changelog and leaves out the
+     heading (bridgepatcher/support/updates.py, changelog_from_release_notes()).
 
 SHA256SUMS on the release is regenerated whenever the assets change, so on its own it
 would also vouch for a replaced (e.g. malicious) package. The ledger keeps the
@@ -308,10 +309,12 @@ def record_in_ledger(checkout, repo, branch, tag, release, sums):
 # ---------- Release notes ----------
 
 def release_block(repo, branch, has_asset_heading, sums, first, ledger_commit, mismatched):
-    lines = [BLOCK_START]
-    if not has_asset_heading:
-        lines += ["## Asset Information", ""]
-    lines += ["### SHA256 checksums", ""]
+    # The heading goes above BLOCK_START, so the block holds only what the in-app
+    # updater shows (older app versions cut the release notes at the heading and
+    # showed the marker as text when it was above it). Rerunning only replaces
+    # what's between the markers, so the heading stays put.
+    lines = [] if has_asset_heading else ["## Asset Information", ""]
+    lines += [BLOCK_START, "### SHA256 checksums", ""]
     if ledger_commit:
         lines += [(f"Recorded automatically when the files were uploaded. The same checksums are kept in "
                    f"[`{LEDGER}`](https://github.com/{repo}/blob/{branch}/{LEDGER}) "

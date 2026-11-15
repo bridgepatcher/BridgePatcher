@@ -99,8 +99,8 @@ class UpdateFrame(wx.Frame):
         # download starts and against the downloaded file before installing.
         self.expected_sha256: str = str(sha256 or "").lower()
         # Release notes of the version being installed, shown in the download window.
-        # Same cut as gui_main_menu.py: the asset table at the end is not useful here.
-        self.changelog = str(changelog).split("## Asset Information")[0] if changelog else ""
+        # gui_main_menu.py passes them already prepared; that's a no-op then.
+        self.changelog = updates.changelog_from_release_notes(changelog, self.expected_sha256, self.url)
 
         # Our own releases ship a raw "BridgePatcher.pkg" asset (the only name
         # updates.py accepts, see there),

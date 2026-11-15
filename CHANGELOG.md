@@ -1,4 +1,26 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000003.6 - 4.0.0 alpha 20.3.6
+This release:
+- fixes a bug where the changelog may appear like this:
+The Credits in the README now list laobamac for SimpleHDA (→ github.com), which restores audio on macOS Tahoe for the iMac19,1 and iMac19,2 since 4.0.0.2000003.3. laobamac was missing from the Credits: they were only listed through links to their mirror of Moraea's patch repos, which were changed back to Moraea's own repos.
+
+release-checksums:start
+
+Now starting with the latest version, it should show up properly:
+<img width="762" height="612" alt="Bildschirmfoto 2026-11-15 um 23 32 25" src="https://github.com/user-attachments/assets/e130f052-6608-4865-922c-48cd5da3c884" />
+- fixes a vulnerability where an attacker could launch a DoS attack during the build process of the patcher to crash the builder of the patcher mid-way or interrupt the builder to execute arbitary code instead:
+
+    def generate(self) -> None:
+            """
+            Generate disk images
+            """
+            # <- an attacker could trick the victim into disabling temporarily WiFi to execute some arbitary code by wrapping the code into try/except loop and under a caught exception by the attacker to execute code instead of building the dmg
+            self._delete_extra_binaries()
+            self._generate_payloads_dmg()
+            self._download_resources()
+
+Impact: an attacker could intentionally interrupt the build process to crash the builder by supplying these functions with invalid syntax or execute arbitary code by intentionally making these functions not execute properly in a caught exception by the attacker.
+
 ## 4.0.0.2000003.5 - 4.0.0 alpha 20.3.5
 The Credits in the README now list laobamac for [SimpleHDA](https://github.com/laobamac/SimpleHDA), which restores audio on macOS Tahoe for the iMac19,1 and iMac19,2 since 4.0.0.2000003.3. laobamac was missing from the Credits: they were only listed through links to their mirror of Moraea's patch repos, which were changed back to Moraea's own repos.
 
