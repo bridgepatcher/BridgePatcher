@@ -5,7 +5,9 @@ merge with upstream Dortania OpenCore Legacy Patcher.
 
 ## Code style
 
-- Follow the style of upstream OCLP and the code around your change.
+- Follow the coding style of upstream Dortania and the code around your change.
+- But keep BridgePatcher's own names: no upstream app names, bundle IDs, NVRAM keys
+  or folders (see `.github/scripts/branding_check.py`).
 - Avoid duplicated (WET) code; reuse or extend existing helpers.
 - Keep PRs small and focused on one topic.
 

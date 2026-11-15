@@ -7,9 +7,17 @@ it lands on `main`.
 
 ## 1. Stay close to upstream Dortania
 
-- Match the style of the surrounding code and of upstream OCLP: naming, structure,
+- Match the coding style of the surrounding code and of upstream Dortania: structure,
   logging, comments, file layout. If upstream solves a similar problem, reuse its
   pattern instead of inventing a new one.
+- **Names are the exception.** This project is BridgePatcher, not Dortania's app, and
+  the upstream licence forbids using its name to promote this fork. Never bring back
+  upstream names or identifiers (app name or its abbreviation, `com.dortania.*`,
+  Dortania folders, old NVRAM keys or plist names). Use the BridgePatcher equivalents
+  (`bridgepatcher` package, `BridgePatcher-*` NVRAM keys, `BridgePatcher.plist`, the
+  project's own folders). Old names may only appear in code that detects, migrates or
+  cleans up legacy installs, marked as described in `.github/scripts/branding_check.py`.
+  Run that script before handing over.
 - Don't reformat, rename or reorder code you aren't changing. Unrelated diffs make
   upstream merges harder and hide the real change.
 - Areas kept on Dortania's upstream state (GPU, wireless, audio root patches, etc.)
