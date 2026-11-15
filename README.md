@@ -123,12 +123,22 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
     * Adding support for T1 Macs on Tahoe
     * writing patches for T1 and non-T1 Macs for macOS 26 Tahoe
     * fixing some bugs, testing and documenting issues
+    * work on the GUI
+    * work on kexts: T2TahoeFixup, RestrictEvents, libT2Stage2Bypass
+    * work on the build pipeline and packaging
+    * work on payload tools
 * [zkennedy137](https://github.com/zkennedy137)
     * testing, documenting, and fixing issues with unsupported T2 Macs
     * writing the Spoof-VMM kext so unsupported T2 Macs can get further at booting macOS 26 and 15 on unsupported hardware
 * [gandolf243](https://github.com/gandolf243)
     * UI redesign
     * fixing some bugs, testing and documenting issues
+    * work on the build pipeline and packaging
+    * work on documentation
+    * work on CI workflows and repository automation
+    * work on the OpenCore EFI builder and config
+    * work on the Privileged Helper Tool
+    * work on kexts: RestrictEvents, WhateverGreen
 * [DrDonk](https://github.com/DrDonk)
     * for helping to write a valid patch for AppleKeyStore
     * testing and troubleshooting
