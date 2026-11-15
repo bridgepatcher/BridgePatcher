@@ -308,10 +308,12 @@ def record_in_ledger(checkout, repo, branch, tag, release, sums):
 # ---------- Release notes ----------
 
 def release_block(repo, branch, has_asset_heading, sums, first, ledger_commit, mismatched):
-    lines = [BLOCK_START]
-    if not has_asset_heading:
-        lines += ["## Asset Information", ""]
-    lines += ["### SHA256 checksums", ""]
+    # The heading goes above BLOCK_START: the in-app updater cuts the release notes at
+    # the heading, so anything above it ends up in its changelog. The marker used to be
+    # above it, and the updater's download window showed it as text. Rerunning only
+    # replaces what's between the markers, so the heading stays put.
+    lines = [] if has_asset_heading else ["## Asset Information", ""]
+    lines += [BLOCK_START, "### SHA256 checksums", ""]
     if ledger_commit:
         lines += [(f"Recorded automatically when the files were uploaded. The same checksums are kept in "
                    f"[`{LEDGER}`](https://github.com/{repo}/blob/{branch}/{LEDGER}) "

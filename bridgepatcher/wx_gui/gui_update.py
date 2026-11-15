@@ -100,7 +100,7 @@ class UpdateFrame(wx.Frame):
         self.expected_sha256: str = str(sha256 or "").lower()
         # Release notes of the version being installed, shown in the download window.
         # Same cut as gui_main_menu.py: the asset table at the end is not useful here.
-        self.changelog = str(changelog).split("## Asset Information")[0] if changelog else ""
+        self.changelog = updates.changelog_from_release_notes(changelog)
 
         # Our own releases ship a raw "BridgePatcher.pkg" asset (the only name
         # updates.py accepts, see there),
@@ -215,7 +215,8 @@ class UpdateFrame(wx.Frame):
             download_obj=download_obj,
             item_name=self.version_label,
             download_icon=str(self.constants.app_icon_path),
-            changelog=self.changelog,
+            # The SHA256 the download is verified against, below the release notes.
+            changelog=(self.changelog + updates.changelog_checksum_note(self.expected_sha256, self.url)) if self.changelog else "",
             allow_cancel=not self.mandatory,
             cancel_message=(
                 "Are you sure you want to cancel the update?\n\n"

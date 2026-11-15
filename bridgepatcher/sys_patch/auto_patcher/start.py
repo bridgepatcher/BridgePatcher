@@ -211,7 +211,7 @@ class StartAutomaticPatching:
                 continue
 
             body = release.get("body") or ""
-            return body.split("## Asset Information")[0] if body else fallback
+            return updates.changelog_from_release_notes(body) or fallback
 
         return fallback
 
@@ -231,7 +231,10 @@ class StartAutomaticPatching:
         ID_GITHUB = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
         ID_UPDATE = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
 
-        html_markdown = markdown2.markdown(self._fetch_changelog(remote_version_str), extras=["tables", "cuddled-lists"])
+        html_markdown = markdown2.markdown(
+            self._fetch_changelog(remote_version_str) + updates.changelog_checksum_note(update_dict.get("SHA256"), update_dict.get("Name")),
+            extras=["tables", "cuddled-lists"]
+        )
         html_css = css_data.updater_css
 
         frame = wx.Dialog(None, -1, title="", size=(650, 500))

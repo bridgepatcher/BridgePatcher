@@ -306,6 +306,47 @@ def published_sha256(download_url: str, release: Optional[dict] = None) -> tuple
     return digests.pop(), ""
 
 
+# The release notes end with the asset information: the checksum table that
+# .github/scripts/record_checksums.py adds, wrapped in these HTML comments. The
+# updater shows only what comes before it. Older runs of that script put the start
+# marker above the "## Asset Information" heading, so cutting at the heading alone
+# left the marker in, and the download window (which shows raw HTML as text)
+# displayed "<!-- release-checksums:start -->" at the end of the changelog.
+_ASSET_INFORMATION_HEADING = "## Asset Information"
+_CHECKSUM_BLOCK_START = "<!-- release-checksums:start -->"
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
+def changelog_from_release_notes(body: Optional[str]) -> str:
+    """
+    The part of a release's notes the updater shows: everything before the asset
+    information, without HTML comments
+    """
+    text = str(body or "").replace("\r\n", "\n")
+    cuts = [i for i in (text.find(_ASSET_INFORMATION_HEADING), text.find(_CHECKSUM_BLOCK_START)) if i != -1]
+    if cuts:
+        text = text[:min(cuts)]
+    return _HTML_COMMENT.sub("", text).strip()
+
+
+def changelog_checksum_note(sha256: Optional[str], asset: Optional[str] = None) -> str:
+    """
+    Markdown listing the SHA256 of the package being offered, for the end of the
+    changelog in place of the release's full checksum table. Empty without a SHA256.
+
+    asset: the package's file name or download URL
+    """
+    sha256 = str(sha256 or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+        return ""
+    name = unquote(str(asset or "").rsplit("/", 1)[-1]).replace("`", "").strip() or constants.INSTALLER_PKG_NAME
+    return (
+        "\n\n### SHA256 checksum\n\n"
+        f"`{name}`: `{sha256}`\n\n"
+        "The update is checked against this checksum before it's installed."
+    )
+
+
 def sha256_of_file(path: Union[str, Path]) -> str:
     """
     SHA256 of a local file, lowercase hex
