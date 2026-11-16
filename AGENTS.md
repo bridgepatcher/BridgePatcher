@@ -69,6 +69,7 @@ a security hole is not done.
   0o600/0o700 private). Watch for symlink tricks when running as root.
 - **Hashes:** SHA-256 where integrity matters, not MD5/SHA-1.
 - **Secrets:** no tokens, keys or passwords in code, logs or error messages.
+- **Other arbitary code execution vulnerabilities** don’t make a flaw that lets attackers execute arbitary code
 - **Security settings:** don't disable or weaken SIP, AMFI, secure boot or Gatekeeper
   beyond what a patch strictly needs, and say exactly what is lowered and why.
 - Don't silence a finding to make the check pass (hiding a call behind another form,
