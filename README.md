@@ -123,12 +123,22 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
     * Adding support for T1 Macs on Tahoe
     * writing patches for T1 and non-T1 Macs for macOS 26 Tahoe
     * fixing some bugs, testing and documenting issues
+    * work on the GUI
+    * work on kexts: T2TahoeFixup, RestrictEvents, libT2Stage2Bypass
+    * work on the build pipeline and packaging
+    * work on payload tools
 * [zkennedy137](https://github.com/zkennedy137)
     * testing, documenting, and fixing issues with unsupported T2 Macs
     * writing the Spoof-VMM kext so unsupported T2 Macs can get further at booting macOS 26 and 15 on unsupported hardware
 * [gandolf243](https://github.com/gandolf243)
     * UI redesign
     * fixing some bugs, testing and documenting issues
+    * work on the build pipeline and packaging
+    * work on documentation
+    * work on CI workflows and repository automation
+    * work on the OpenCore EFI builder and config
+    * work on the Privileged Helper Tool
+    * work on kexts: RestrictEvents, WhateverGreen
 * [DrDonk](https://github.com/DrDonk)
     * for helping to write a valid patch for AppleKeyStore
     * testing and troubleshooting
@@ -149,8 +159,8 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
 * [stephandeutsch](https://github.com/stephandeutsch)
     * for fixing USB1.1 compatibility with Sequoia and Tahoe
 * [vytska69](https://github.com/vytska69)
-    * [developing patches for the T2 chip](https://github.com/vytska69/OpenCore-Legacy-Patcher)
-    * [Developing Secure Enclave Processor (SEP) timeout patches](https://github.com/vytska69/OpenCore-Legacy-Patcher)
+    * [some boot arguments for the T2 chip](https://github.com/vytska69/OpenCore-Legacy-Patcher)
+    * [some Secure Enclave Processor (SEP) timeout fixes](https://github.com/vytska69/OpenCore-Legacy-Patcher)
     * [workflow files](https://github.com/vytska69/OpenCore-Legacy-Patcher)
 * [kodeaqua](https://github.com/kodeaqua)
     * for research on MacBook Air 2018-2019 hardware to fix boot issues
@@ -159,6 +169,9 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
     * [fix graphics accelaration on Intel UHD Graphics 630 on unsupported T2 Macs](https://github.com/GUTY345/OpenCore-Legacy-patcher-t2chip-fixBugs/tree/main)
     * [fix your Mac is not supported by macOS 26 Tahoe](https://github.com/GUTY345/OpenCore-Legacy-patcher-t2chip-fixBugs/tree/main)
     * [fix Unsupported Mantissa speed kernel panics on T2 MacBooks](https://github.com/GUTY345/OpenCore-Legacy-patcher-t2chip-fixBugs/tree/main)
+* [laobamac](https://github.com/laobamac)
+    * [SimpleHDA](https://github.com/laobamac/SimpleHDA), which restores audio on macOS 26 Tahoe for the iMac19,1 and iMac19,2 without root patching (downloaded from laobamac's releases while building OpenCore, not bundled)
+<!-- credit-autofix: new contributors are added above this line -->
 * [EduCovas](https://github.com/covasedu)
   * macOS Tahoe patch set
   * [non-Metal patch set](https://github.com/flagersgit/non-metal-frameworks) for nVidia Tesla/Fermi/Maxwell/Pascal, AMD TeraScale 1/2, and Intel Core 1st/2nd Generation GPUs

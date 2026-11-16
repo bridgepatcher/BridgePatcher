@@ -1212,4 +1212,22 @@ body {
   zoom: 80%;
 }
 
+/* The checksum table at the end of the release notes. At the normal code size
+   it is a few pixels wider than the updater's windows, so the end of every
+   SHA256 was cut off behind a horizontal scroll bar. A slightly smaller font
+   keeps each checksum on one line; only in a window narrower than that does
+   the checksum column wrap, and file names never do. */
+.markdown-body table td {
+  padding: 6px 8px;
+}
+.markdown-body table code {
+  font-size: 11px;
+}
+.markdown-body table td:first-child code {
+  white-space: nowrap;
+}
+.markdown-body table td:last-child code {
+  word-break: break-all;
+}
+
 """

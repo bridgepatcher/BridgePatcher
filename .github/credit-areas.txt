@@ -1,0 +1,7 @@
+# Credit auto-fix: work that is credited enough, so .github/scripts/credit_autofix.py doesn't add it
+# to the person's Credits entry in README.md (it adds a bullet for each area of their work on main
+# that their entry doesn't mention yet).
+# One line per person and area: "<github-login or name> <area>", optionally followed by "# reason".
+# Areas: pht build ci gui rootpatch efi kexts models installer tools docs core
+# Example:
+#   gandolf243 docs   # only typo fixes, covered by "documenting issues"

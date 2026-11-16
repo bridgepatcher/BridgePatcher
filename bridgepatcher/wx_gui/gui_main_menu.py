@@ -542,7 +542,9 @@ class MainFrame(wx.Frame):
         # updates.py picked - /releases/latest of the official repo could describe a
         # completely different build than the one being offered.
         if update_dict.get("Changelog"):
-            changelog = str(update_dict["Changelog"]).split("## Asset Information")[0]
+            changelog = updates.changelog_from_release_notes(
+                update_dict["Changelog"], update_dict.get("SHA256"), update_dict.get("Name")
+            ) or changelog
 
         if not getattr(self, 'exiting_app', False) and not gui_support.is_app_exiting():
             self._report_manual_check(manual, str(remote_version_str), None, include_prerelease)

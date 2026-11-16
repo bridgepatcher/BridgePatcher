@@ -26,8 +26,9 @@ name: Publish SHA256SUMS
 #     or removed, and git history shows when it was first recorded. If an asset's
 #     SHA256 later differs from the first one, the new one is added under a warning
 #     and this workflow fails, so the maintainer gets notified.
-#   - in the release notes, under "## Asset Information" (the in-app updater cuts the
-#     changelog at that heading, so they don't show up there).
+#   - in the release notes, under "## Asset Information". The in-app updater shows
+#     them below the changelog, without that heading (updates.py,
+#     changelog_from_release_notes()).
 # The "all-releases" job does this for every release, not only recent ones, using the
 # SHA256 GitHub computed when each asset was uploaded (nothing is downloaded). That
 # backfills releases published before this was added, compares any published
