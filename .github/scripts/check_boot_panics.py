@@ -60,9 +60,12 @@ Unlike a grep, this script runs the real code:
                         (e.g. KernelRelayHost from 24) is left to macOS before.
   payload:root-patches  the root patches themselves, in the PatcherSupportPkg
                         release the app ships with (the bundled source's tag in
-                        constants.py): every file any patchset installs on Big
-                        Sur .. Tahoe, looked up like sys_patch.py's preflight
-                        check, must exist; every Mach-O in it needs an x86_64
+                        constants.py): every file any patchset installs on any
+                        supported Mac (simulated with its model, stock GPUs -
+                        socketed upgrades included - and CPU features, since
+                        some patchsets pick files by those) and any macOS from
+                        Big Sur to Tahoe, looked up like sys_patch.py's
+                        preflight check, must exist; every Mach-O in it needs an x86_64
                         slice; every kext needs an Info.plist with a
                         CFBundleIdentifier and the executable it names. Only
                         those files are fetched (blob-less clone + sparse
@@ -91,6 +94,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 import zipfile
 from pathlib import Path
 
@@ -210,7 +214,13 @@ def _worker(root: str, case: str, out_path: str) -> None:
     sys.argv = sys.argv[:1]  # Constants() parses the command line
 
     from bridgepatcher import constants
-    from bridgepatcher.datasets import example_data, model_array, os_data, smbios_data
+    from bridgepatcher.datasets import (
+        cpu_data,
+        example_data,
+        model_array,
+        os_data,
+        smbios_data,
+    )
     from bridgepatcher.support import utilities
 
     try:
@@ -496,12 +506,33 @@ def _worker(root: str, case: str, out_path: str) -> None:
         repo_url = f"https://github.com/{match.group(1)}/PatcherSupportPkg.git"
         notes.append(f"PatcherSupportPkg {version} from {match.group(1)}/PatcherSupportPkg")
 
-        # Every file a patchset installs, for every macOS - the same lookup as
-        # sys_patch.py _preflight_checks(): Universal-Binaries/<source><directory>/<file>
+        # Every file a patchset installs, for every root-patchable Mac and every
+        # macOS - the same lookup as sys_patch.py _preflight_checks():
+        # Universal-Binaries/<source><directory>/<file>
         install_types = [PatchType.OVERWRITE_SYSTEM_VOLUME, PatchType.OVERWRITE_DATA_VOLUME,
                          PatchType.MERGE_SYSTEM_VOLUME, PatchType.MERGE_DATA_VOLUME]
         detect.HardwarePatchsetDetection._detect = lambda self: None
-        needed = {}   # path in the repo -> {"patchset / patch": {macOS, ...}}
+
+        # Some patchsets pick their files by model, GPU or CPU (legacy audio, the
+        # Polaris/GCN/Skylake/Vega Metal drivers, ...), so each Mac is simulated
+        # with its own stock hardware from smbios_data - socketed upgrade GPUs
+        # (e.g. Polaris in a MacPro5,1) included.
+        hosts = {}
+        for model in model_array.SupportedSMBIOS:
+            if model not in smbios_data.smbios_dictionary:
+                continue
+            spec = smbios_data.smbios_dictionary[model]
+            computer = copy.deepcopy(example_data.iMac.iMac201_Stock)
+            computer.real_model = model
+            computer.rosetta_active = False
+            computer.gpus = [types.SimpleNamespace(arch=arch, class_code=0x030000) for arch in spec.get("Stock GPUs", [])]
+            leafs = [leaf for leaf in computer.cpu.leafs if leaf != "AVX2"]
+            if spec["CPU Generation"] >= cpu_data.CPUGen.haswell.value:
+                leafs.append("AVX2")
+            computer.cpu.leafs = leafs
+            hosts[model] = computer
+
+        needed = {}   # path in the repo -> {"patchset / patch": {"macos": {...}, "models": {...}}}
         for xnu, minor in ROOT_PATCH_XNU:
             macos = f"{xnu - 9}.{minor}" if xnu < 25 else f"26.{minor}"
             c = constants.Constants()
@@ -515,21 +546,28 @@ def _worker(root: str, case: str, out_path: str) -> None:
             except Exception as e:
                 errors.append({"case": case, "subject": f"macOS {macos}", "message": f"couldn't list patchsets: {e!r}"[:300]})
                 continue
-            for hw in variants:
-                label = hw.__name__
-                try:
-                    patches = hw(xnu_major=xnu, xnu_minor=minor, os_build="SIM1", global_constants=c).patches()
-                except Exception as e:
-                    errors.append({"case": case, "subject": f"{label} on macOS {macos}", "message": f"patches() raised {e!r}"[:300]})
-                    continue
-                for patch_name, body in patches.items():
-                    for install_type in install_types:
-                        for directory, files in (body.get(install_type) or {}).items():
-                            for name, src in files.items():
-                                if not isinstance(src, str) or src in list(DynamicPatchset) or src.startswith("/"):
-                                    continue   # resolved at patch time / taken from the booted system
-                                path = f"Universal-Binaries/{src}{directory}/{name}"
-                                needed.setdefault(path, {}).setdefault(f"{label} / {patch_name}", set()).add(macos)
+            for model, computer in hosts.items():
+                c.computer = computer
+                for hw in variants:
+                    label = hw.__name__
+                    try:
+                        patches = hw(xnu_major=xnu, xnu_minor=minor, os_build="SIM1", global_constants=c).patches()
+                    except Exception as e:
+                        errors.append({"case": case, "subject": f"{label} on {model}, macOS {macos}",
+                                       "message": f"patches() raised {e!r}"[:300]})
+                        continue
+                    for patch_name, body in patches.items():
+                        for install_type in install_types:
+                            for directory, files in (body.get(install_type) or {}).items():
+                                for name, src in files.items():
+                                    if not isinstance(src, str) or src in list(DynamicPatchset) or src.startswith("/"):
+                                        continue   # resolved at patch time / taken from the booted system
+                                    path = f"Universal-Binaries/{src}{directory}/{name}"
+                                    use = needed.setdefault(path, {}).setdefault(f"{label} / {patch_name}",
+                                                                                  {"macos": set(), "models": set()})
+                                    use["macos"].add(macos)
+                                    use["models"].add(model)
+        notes.append(f"{len(hosts)} Macs x {len(ROOT_PATCH_XNU)} macOS releases, {len(needed)} source paths")
 
         # Only the needed files are fetched: a blob-less clone of the tag plus a
         # sparse checkout, instead of the whole repository
@@ -549,7 +587,14 @@ def _worker(root: str, case: str, out_path: str) -> None:
             raise SystemExit(f"couldn't fetch PatcherSupportPkg {version}: {e.stderr.decode(errors='replace')[-300:]}") from None
 
         def used_by(path):
-            return "; ".join(f"{who} (macOS {', '.join(sorted(oses))})" for who, oses in sorted(needed[path].items()))
+            parts = []
+            for who, use in sorted(needed[path].items()):
+                models = sorted(use["models"])
+                macs = "every checked Mac" if len(models) == len(hosts) else (
+                    ", ".join(models[:6]) + (f" and {len(models) - 6} more" if len(models) > 6 else ""))
+                oses = sorted(use["macos"], key=lambda v: tuple(int(x) for x in v.split(".")))
+                parts.append(f"{who} on {macs} (macOS {oses[0]} - {oses[-1]})")
+            return "; ".join(parts)
 
         try:
             for path in sorted(needed):
