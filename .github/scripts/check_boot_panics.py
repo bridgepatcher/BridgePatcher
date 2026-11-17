@@ -5,7 +5,8 @@ after root patching - a kernel panic, or a boot that never reaches the desktop.
 
 Root patching itself (KC rebuilds, sealing, boot-critical files) is covered by
 check_root_patching.py, and Apple Secure Boot by check_secure_boot_model.py.
-This check covers what the EFI does to the patched system:
+This check covers what the EFI does to the patched system, and the root
+patch files PatcherSupportPkg provides:
 
   - AMFI rejecting BridgePatcher's root patches (Issue #788, see below)
   - kernel patches that OpenCore would reject or apply to the wrong bytes - a
@@ -14,6 +15,8 @@ This check covers what the EFI does to the patched system:
   - kexts that are missing from the built EFI, injected twice for the same
     kernel, or injected before a kext they depend on (OpenCore links kexts in
     Kernel > Add order, so a dependency has to come first)
+  - root patch files that are missing from PatcherSupportPkg, can't run on an
+    Intel Mac, or are kexts kmutil can't link
 
 AMFIPass lets binaries signed by one specific code signing CA through AMFI.
 The AMFIPass bundled in payloads/Kexts only trusts Dortania's CA (it is
@@ -55,6 +58,16 @@ Unlike a grep, this script runs the real code:
                         comes after it in Kernel > Add whenever both load. A
                         dependency injected only from a later Darwin version
                         (e.g. KernelRelayHost from 24) is left to macOS before.
+  payload:root-patches  the root patches themselves, in the PatcherSupportPkg
+                        release the app ships with (the bundled source's tag in
+                        constants.py): every file any patchset installs on Big
+                        Sur .. Tahoe, looked up like sys_patch.py's preflight
+                        check, must exist; every Mach-O in it needs an x86_64
+                        slice; every kext needs an Info.plist with a
+                        CFBundleIdentifier and the executable it names. Only
+                        those files are fetched (blob-less clone + sparse
+                        checkout). Code signatures aren't checked - the release
+                        DMG is signed by PatcherSupportPkg's CI, not this repo.
 
 Usage:
   check_boot_panics.py --root DIR [--baseline DIR] --json OUT [--summary OUT.md]
@@ -84,10 +97,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from check_secure_boot_model import _install_stubs, _key, _problem, _use_package
 
-CASES = ["payload:amfipass-ca", "build:host", "gate:amfipass", "efi:kernel-patches", "efi:kexts"]
+CASES = ["payload:amfipass-ca", "build:host", "gate:amfipass", "efi:kernel-patches", "efi:kexts", "payload:root-patches"]
 
 # Darwin versions efi:kexts evaluates MinKernel/MaxKernel against (High Sierra .. Tahoe)
 DARWIN_MAJORS = range(17, 26)
+
+# macOS releases payload:root-patches enumerates the patchsets for: Big Sur .. Tahoe,
+# with every xnu minor a patchset branches on (see sys_patch/patchsets/base.py)
+ROOT_PATCH_XNU = [(major, minor) for major in range(20, 26) for minor in range(7)]
+
+CPU_TYPE_X86_64 = 0x01000007
+GIT = "/usr/bin/git"
+GIT_TIMEOUT = 20 * 60
 
 WORKER_TIMEOUT = 30 * 60
 
@@ -130,6 +151,32 @@ def _kernel_version(value: str):
     if not 1 <= len(parts) <= 3:
         raise ValueError(value)
     return tuple(parts + [0] * (3 - len(parts)))
+
+
+def _macho_archs(path: Path):
+    """CPU types of a Mach-O file (thin or universal), or None if it isn't one."""
+    import struct
+    with path.open("rb") as f:
+        header = f.read(8)
+        if len(header) < 8:
+            return None
+        magic_be = struct.unpack(">I", header[:4])[0]
+        magic_le = struct.unpack("<I", header[:4])[0]
+        if magic_le in (0xFEEDFACE, 0xFEEDFACF):
+            return [struct.unpack("<i", header[4:8])[0]]
+        if magic_be in (0xCAFEBABE, 0xCAFEBABF):
+            count = struct.unpack(">I", header[4:8])[0]
+            if count > 32:   # a Java class file shares the universal magic
+                return None
+            entry_size = 32 if magic_be == 0xCAFEBABF else 20
+            archs = []
+            for _ in range(count):
+                entry = f.read(entry_size)
+                if len(entry) < entry_size:
+                    return None
+                archs.append(struct.unpack(">i", entry[:4])[0])
+            return archs
+    return None
 
 
 def _loads_on(entry: dict, major: int) -> bool:
@@ -431,6 +478,120 @@ def _worker(root: str, case: str, out_path: str) -> None:
                     report(f"{model}: {bundle}",
                            f"depends on {dependency}, which is injected after it ({provider}) on Darwin "
                            f"{', '.join(map(str, majors))} - OpenCore links kexts in Kernel > Add order")
+
+    elif case == "payload:root-patches":
+        import re
+        import shutil
+
+        from bridgepatcher.sys_patch.patchsets import detect
+        from bridgepatcher.sys_patch.patchsets.base import DynamicPatchset, PatchType
+
+        # The PatcherSupportPkg the app ships with (Universal-Binaries.dmg is built
+        # from this repo at this tag by its CI)
+        source = constants.Constants().patcher_support_pkg_sources["bridgepatcher"]
+        match = re.fullmatch(r"https://github\.com/([A-Za-z0-9-]+)/PatcherSupportPkg/releases/download/", source["url"])
+        version = source["version"]
+        if not match or not re.fullmatch(r"[0-9][0-9A-Za-z.\-]*", version):
+            raise SystemExit(f"unexpected bundled PatcherSupportPkg source: {source['url']!r} {version!r}")
+        repo_url = f"https://github.com/{match.group(1)}/PatcherSupportPkg.git"
+        notes.append(f"PatcherSupportPkg {version} from {match.group(1)}/PatcherSupportPkg")
+
+        # Every file a patchset installs, for every macOS - the same lookup as
+        # sys_patch.py _preflight_checks(): Universal-Binaries/<source><directory>/<file>
+        install_types = [PatchType.OVERWRITE_SYSTEM_VOLUME, PatchType.OVERWRITE_DATA_VOLUME,
+                         PatchType.MERGE_SYSTEM_VOLUME, PatchType.MERGE_DATA_VOLUME]
+        detect.HardwarePatchsetDetection._detect = lambda self: None
+        needed = {}   # path in the repo -> {"patchset / patch": {macOS, ...}}
+        for xnu, minor in ROOT_PATCH_XNU:
+            macos = f"{xnu - 9}.{minor}" if xnu < 25 else f"26.{minor}"
+            c = constants.Constants()
+            c.computer = copy.deepcopy(example_data.iMac.iMac201_Stock)
+            c.detected_os, c.detected_os_minor = xnu, minor
+            c.detected_os_build, c.detected_os_version = "SIM1", macos
+            try:
+                variants = list(detect.HardwarePatchsetDetection(
+                    c, xnu_major=xnu, xnu_minor=minor, os_build="SIM1", os_version=macos, validation=True
+                )._hardware_variants)
+            except Exception as e:
+                errors.append({"case": case, "subject": f"macOS {macos}", "message": f"couldn't list patchsets: {e!r}"[:300]})
+                continue
+            for hw in variants:
+                label = hw.__name__
+                try:
+                    patches = hw(xnu_major=xnu, xnu_minor=minor, os_build="SIM1", global_constants=c).patches()
+                except Exception as e:
+                    errors.append({"case": case, "subject": f"{label} on macOS {macos}", "message": f"patches() raised {e!r}"[:300]})
+                    continue
+                for patch_name, body in patches.items():
+                    for install_type in install_types:
+                        for directory, files in (body.get(install_type) or {}).items():
+                            for name, src in files.items():
+                                if not isinstance(src, str) or src in list(DynamicPatchset) or src.startswith("/"):
+                                    continue   # resolved at patch time / taken from the booted system
+                                path = f"Universal-Binaries/{src}{directory}/{name}"
+                                needed.setdefault(path, {}).setdefault(f"{label} / {patch_name}", set()).add(macos)
+
+        # Only the needed files are fetched: a blob-less clone of the tag plus a
+        # sparse checkout, instead of the whole repository
+        checkout = Path(tempfile.mkdtemp(prefix="psp-"))
+        try:
+            subprocess.run([GIT, "clone", "--quiet", "--filter=blob:none", "--no-checkout", "--depth", "1",
+                            "--branch", version, repo_url, str(checkout)],
+                           check=True, timeout=GIT_TIMEOUT, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            patterns = "".join(f"/{p}\n" for p in sorted(needed))
+            subprocess.run([GIT, "-C", str(checkout), "sparse-checkout", "set", "--no-cone", "--stdin"],
+                           input=patterns.encode(), check=True, timeout=GIT_TIMEOUT,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            subprocess.run([GIT, "-C", str(checkout), "checkout", "--quiet", version],
+                           check=True, timeout=GIT_TIMEOUT, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        except subprocess.CalledProcessError as e:
+            shutil.rmtree(checkout, ignore_errors=True)
+            raise SystemExit(f"couldn't fetch PatcherSupportPkg {version}: {e.stderr.decode(errors='replace')[-300:]}") from None
+
+        def used_by(path):
+            return "; ".join(f"{who} (macOS {', '.join(sorted(oses))})" for who, oses in sorted(needed[path].items()))
+
+        try:
+            for path in sorted(needed):
+                target = checkout / path
+                checked += 1
+                if not target.exists() and not target.is_symlink():
+                    problems.append(_problem(case, path,
+                        f"is missing from PatcherSupportPkg {version} - root patching stops at the preflight check. "
+                        f"Used by {used_by(path)}"))
+                    continue
+                files = [target] if target.is_file() else [p for p in target.rglob("*") if p.is_file() and not p.is_symlink()]
+                for file in files:
+                    archs = _macho_archs(file)
+                    if archs is not None and CPU_TYPE_X86_64 not in archs:
+                        problems.append(_problem(case, str(file.relative_to(checkout)),
+                            f"is a Mach-O without an x86_64 slice ({', '.join(hex(a) for a in archs)}) - it can't load on "
+                            f"an Intel Mac. Used by {used_by(path)}"))
+                kexts = [target] if target.suffix == ".kext" else []
+                kexts += [p for p in target.rglob("*.kext") if p.is_dir()] if target.is_dir() else []
+                for kext in kexts:
+                    subject = str(kext.relative_to(checkout))
+                    # Some older kexts are flat bundles (Info.plist and executable at the
+                    # top level, no Contents/) - Dortania ships them that way too
+                    flat = not (kext / "Contents").is_dir() and (kext / "Info.plist").is_file()
+                    info_path = kext / "Info.plist" if flat else kext / "Contents" / "Info.plist"
+                    executable_dir = kext if flat else kext / "Contents" / "MacOS"
+                    try:
+                        with info_path.open("rb") as f:
+                            info = plistlib.load(f)
+                    except (OSError, plistlib.InvalidFileException, ValueError) as e:
+                        problems.append(_problem(case, subject, f"has no readable Info.plist ({e}) - kmutil can't "
+                                                                f"build the Kernel Collections with it. Used by {used_by(path)}"))
+                        continue
+                    if not info.get("CFBundleIdentifier"):
+                        problems.append(_problem(case, subject, f"Info.plist has no CFBundleIdentifier. Used by {used_by(path)}"))
+                    executable = info.get("CFBundleExecutable")
+                    if executable and not (executable_dir / executable).is_file():
+                        problems.append(_problem(case, subject,
+                            f"Info.plist names the executable {executable}, which isn't in the bundle - kmutil can't "
+                            f"link it. Used by {used_by(path)}"))
+        finally:
+            shutil.rmtree(checkout, ignore_errors=True)
 
     else:
         raise SystemExit(f"unknown case {case}")

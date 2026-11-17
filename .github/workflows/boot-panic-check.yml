@@ -7,6 +7,10 @@ name: Check EFI builds for boot panics
 #     root-patch gate must not rely on AMFIPass (Issue #788).
 #   - kernel patches OpenCore would reject or apply to the wrong bytes
 #   - kexts missing from the EFI, injected twice, or before a dependency
+#   - root patch files in the bundled PatcherSupportPkg release that are
+#     missing, have no x86_64 code, or are kexts kmutil can't link. That
+#     repo's tag is fetched by the script (only the files the patchsets use);
+#     a new PatcherSupportPkg release is picked up by the weekly run.
 #
 # .github/scripts/check_boot_panics.py runs the real GenerateDefaults(), EFI
 # builder and root-patch AMFI gate for every supported model (see the script
@@ -267,14 +271,16 @@ jobs:
               `Updated on every push to \`main\`, every release and every Monday; closed automatically once everything passes.\n\n` +
               `**Why this matters:** each problem below is a way for the EFI to stop a root-patched Mac from booting: AMFI rejecting the ` +
               `patched frameworks because \`amfi=0x80\` is missing (AMFIPass only trusts Dortania-signed binaries, BridgePatcher's aren't - #788), ` +
-              `a kernel patch that writes over the wrong code, or a kext that is missing, injected twice or before a dependency - all of which ` +
+              `a kernel patch that writes over the wrong code, a kext that is missing, injected twice or before a dependency, or a root patch file ` +
+              `in PatcherSupportPkg that is missing or can't run on an Intel Mac - all of which ` +
               `end in a kernel panic or a Mac that never reaches the desktop.\n\n` +
               `<details><summary>Deutsch</summary>\n\n` +
               `Automatischer Bericht des Boot-Panic-Checks auf ${where}. Wird bei jedem Push auf \`main\`, jedem Release und jeden Montag aktualisiert ` +
               `und automatisch geschlossen, sobald alles besteht.\n\n` +
               `**Warum das wichtig ist:** Jedes Problem unten ist ein Weg, wie das EFI einen root-gepatchten Mac am Starten hindert: AMFI lehnt die ` +
               `gepatchten Frameworks ab, weil \`amfi=0x80\` fehlt (AMFIPass vertraut nur von Dortania signierten Binärdateien, BridgePatchers nicht - #788), ` +
-              `ein Kernel-Patch überschreibt den falschen Code, oder ein Kext fehlt, wird doppelt oder vor einer Abhängigkeit geladen - das endet in ` +
+              `ein Kernel-Patch überschreibt den falschen Code, ein Kext fehlt, wird doppelt oder vor einer Abhängigkeit geladen, oder eine Root-Patch-Datei ` +
+              `in PatcherSupportPkg fehlt oder läuft nicht auf einem Intel-Mac - das endet in ` +
               `einer Kernel Panic oder einem Mac, der nie den Schreibtisch erreicht.\n` +
               (isRelease ? `\n**Release \`${tag}\` ist betroffen** - ggf. zurückziehen oder als defekt markieren.\n` : '') +
               `</details>\n\n`;
