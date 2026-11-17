@@ -1,0 +1,327 @@
+name: Check EFI builds for boot panics
+
+# Fails when an EFI build could stop a root-patched Mac from booting:
+#   - AMFI rejecting BridgePatcher's root patches. AMFIPass only trusts binaries
+#     signed by Dortania's CA, while BridgePatcher's patches aren't - so wherever
+#     the patches need AMFI disabled, the EFI must carry amfi=0x80 and the
+#     root-patch gate must not rely on AMFIPass (Issue #788).
+#   - kernel patches OpenCore would reject or apply to the wrong bytes
+#   - kexts missing from the EFI, injected twice, or before a dependency
+#   - root patch files in the bundled PatcherSupportPkg release that are
+#     missing, have no x86_64 code, or are kexts kmutil can't link. That
+#     repo's tag is fetched by the script (only the files the patchsets use);
+#     a new PatcherSupportPkg release is picked up by the weekly run.
+#
+# .github/scripts/check_boot_panics.py runs the real GenerateDefaults(), EFI
+# builder and root-patch AMFI gate for every supported model (see the script
+# for the cases). It shares its stubs with check_secure_boot_model.py. Root
+# patching itself is covered by root-patching-check.yml.
+#
+# Pull requests:
+#   This workflow runs on `pull_request`, so it has a read-only token and no
+#   write access - it has to, because the check imports and runs the PR's
+#   code. The check script always comes from the base branch, so a PR can't
+#   change what is checked. The result is uploaded as an artifact;
+#   boot-panic-comment.yml (workflow_run, trusted) reads it as data and
+#   posts/updates the PR comment. Problems that already exist on the base
+#   branch are listed separately and don't fail the PR.
+#
+# Outside pull requests (push to main, releases, weekly, manual):
+#   The whole tree is checked and the result is kept in one tracking issue
+#   ("Boot panic check: EFI builds that can stop a Mac from booting on main").
+#   It is updated on every run and closed automatically once everything
+#   passes, and assigned to gandolf243 when it is opened or reopened. A check
+#   that can't run at all is reported too.
+#
+# Unlike the SecureBootModel and root patching checks there is no AI auto-fix
+# job: a wrong "fix" here could quietly weaken AMFI on users' Macs.
+
+on:
+  # No `paths` filter for PRs: with one, PRs that don't touch the patcher get
+  # no check at all (nothing on the PR, and a required check would wait
+  # forever). The "Decide what to check" step skips the expensive part instead.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+    paths:
+      - "bridgepatcher/**"
+      - "payloads/Config/**"
+      - "payloads/Kexts/Acidanthera/AMFIPass-*"
+      - "requirements.txt"
+      - ".github/scripts/check_boot_panics.py"
+      - ".github/scripts/check_secure_boot_model.py"
+      - ".github/workflows/boot-panic-check.yml"
+  release:
+    types: [published]
+  schedule:
+    - cron: "15 7 * * 1"   # Mondays 07:15 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Runs from other branches (manual dispatches) share ONE group instead of one per
+# branch, so starting this on many branches at once can't fan out into parallel runs.
+concurrency:
+  group: boot-panic-${{ github.event.pull_request.number || ((github.ref == 'refs/heads/main' || github.ref_type == 'tag') && github.ref) || 'other-branches' }}
+  cancel-in-progress: true
+
+env:
+  # What the patcher imports besides the macOS-only modules (pyobjc, wx, ...),
+  # which the script replaces with inert stubs on Linux.
+  CHECK_DEPS: "requests packaging py_sip_xnu markdown markdown2"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # PRs that change nothing the patcher or the check depends on pass right
+      # away - their behaviour is identical to main's, which is checked on push.
+      - name: Decide what to check
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename'); then
+            echo "::warning::Couldn't list the PR's files - checking everything"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          relevant=$(printf '%s\n' "$files" | grep -E '^(bridgepatcher/|payloads/Config/|payloads/Kexts/Acidanthera/AMFIPass-|requirements\.txt$|\.github/scripts/check_boot_panics\.py$|\.github/scripts/check_secure_boot_model\.py$|\.github/workflows/boot-panic-check\.yml$)' || true)
+          if [ -n "$relevant" ]; then
+            echo "Relevant changes:"; printf '  %s\n' $relevant
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "This PR doesn't change the patcher, payloads/Config, AMFIPass or the check - nothing to check"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Nothing to check
+        if: steps.scope.outputs.run != 'true'
+        run: |
+          out="$RUNNER_TEMP/boot-panic"
+          mkdir -p "$out"
+          # A clean result, so an earlier complaint on this PR is resolved
+          echo '{"fatal": null, "cases": {}, "new": [], "known": [], "errors": [], "not_relevant": true}' > "$out/result.json"
+          echo "rc=0" > "$out/rc"
+          echo "## Boot panic check" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ This PR doesn't change the patcher, \`payloads/Config\`, AMFIPass or the check - nothing to check." >> "$GITHUB_STEP_SUMMARY"
+
+      # Trusted copy: the base branch for PRs, otherwise the pushed/released commit.
+      # The check script is always taken from here.
+      - uses: actions/checkout@v4
+        if: steps.scope.outputs.run == 'true'
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: trusted
+          persist-credentials: false
+
+      # The PR (merged with its base, as GitHub tests it). Its code is executed
+      # by the check - fine here, this job can't write anything.
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request' && steps.scope.outputs.run == 'true'
+        with:
+          path: pr
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        if: steps.scope.outputs.run == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        if: steps.scope.outputs.run == 'true'
+        run: python3 -m pip install --quiet --disable-pip-version-check $CHECK_DEPS
+
+      - name: Check EFI builds for boot panics
+        id: check
+        if: steps.scope.outputs.run == 'true'
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set +e
+          out="$RUNNER_TEMP/boot-panic"
+          mkdir -p "$out"
+          script="trusted/.github/scripts/check_boot_panics.py"
+
+          if [ ! -f "$script" ]; then
+            # The base branch doesn't have the check yet (e.g. the PR that adds it)
+            echo "::notice::$script doesn't exist on the base branch yet - nothing to check"
+            echo "skipped" > "$out/skipped"
+            echo "rc=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$EVENT" = "pull_request" ]; then
+            python3 "$script" --root pr --baseline trusted \
+              --json "$out/result.json" --summary "$out/summary.md"
+            rc=$?
+            # Only used to find the PR again - the commenter re-checks it against the API
+            printf '{"number": %s, "head_sha": "%s"}\n' "$PR_NUMBER" "$PR_HEAD_SHA" > "$out/pr.json"
+          else
+            python3 "$script" --root trusted \
+              --json "$out/result.json" --summary "$out/summary.md"
+            rc=$?
+          fi
+          echo "rc=$rc" > "$out/rc"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          [ -f "$out/summary.md" ] && cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-panic-result
+          path: ${{ runner.temp }}/boot-panic/
+          # The repo caps artifact retention at 1 day; the commenter reads it right away
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Fail if an EFI build can stop a Mac from booting
+        if: steps.check.outputs.rc != '' && steps.check.outputs.rc != '0'
+        run: |
+          if [ "${{ steps.check.outputs.rc }}" = "2" ]; then
+            echo "::error::The boot panic check could not run - see the log above"
+          else
+            echo "::error::An EFI build can stop a root-patched Mac from booting - see the summary"
+          fi
+          exit 1
+
+  # Outside PRs: keep the result in one tracking issue.
+  report:
+    needs: check
+    if: >-
+      always() && needs.check.result != 'skipped' && needs.check.result != 'cancelled' &&
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' || github.event_name == 'release')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: boot-panic-result
+          path: ${{ runner.temp }}/result
+
+      - name: Update tracking issue
+        uses: actions/github-script@v8
+        env:
+          CHECK_RESULT: ${{ needs.check.result }}
+        with:
+          script: |
+            const fs = require('fs');
+            const MARKER = '<!-- boot-panic-main-report -->';
+            const TITLE = 'Boot panic check: EFI builds that can stop a Mac from booting on main';
+            const MAX = 150;
+            // Who looks after the tracking issue. Assigned on creation and whenever it reopens.
+            const ASSIGNEE = 'gandolf243';
+            const { owner, repo } = context.repo;
+            const dir = `${process.env.RUNNER_TEMP}/result`;
+            const sha = context.sha, short = sha.slice(0, 7);
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const isRelease = context.eventName === 'release';
+            const tag = isRelease ? context.payload.release.tag_name : null;
+            const where = isRelease ? `release \`${tag}\` (${short})` : `\`main\` (at ${short})`;
+
+            if (fs.existsSync(`${dir}/skipped`)) return;
+
+            let result = null;
+            try { result = JSON.parse(fs.readFileSync(`${dir}/result.json`, 'utf8')); } catch {}
+            const fatal = !result ? `no result was produced (check job: ${process.env.CHECK_RESULT})` : result.fatal;
+            const problems = result && Array.isArray(result.new) ? result.new : [];
+            const errors = result && Array.isArray(result.errors) ? result.errors : [];
+
+            const esc = s => String(s).replace(/[|`<>\[\]]/g, c => ({ '|': '\\|', '`': "'", '<': '&lt;', '>': '&gt;', '[': '\\[', ']': '\\]' }[c])).replace(/@/g, '@​').slice(0, 500);
+
+            // Only our own issue - anybody can paste the marker into an issue
+            const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'all', creator: 'github-actions[bot]', per_page: 100 });
+            const ours = issues.filter(i => !i.pull_request && i.body && i.body.includes(MARKER));
+            const existing = ours.find(i => i.state === 'open') || ours[0];
+
+            if (!fatal && !problems.length) {
+              if (existing && existing.state === 'open') {
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body:
+                  `✅ ${where}: no checked EFI build can stop a root-patched Mac from booting anymore ([run](${runUrl})). Closing.\n\n` +
+                  `✅ ${where}: Kein geprüfter EFI-Build kann einen root-gepatchten Mac mehr am Starten hindern. Wird geschlossen.` });
+                await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed', state_reason: 'completed' });
+              }
+              return;
+            }
+
+            let body =
+              `${MARKER}\n` +
+              (isRelease ? `> [!CAUTION]\n> **Release \`${tag}\` is affected.** Consider pulling it or marking it as broken before people root patch with it.\n\n` : '') +
+              `Automatic report of the boot panic check on ${where}, [run](${runUrl}). ` +
+              `Updated on every push to \`main\`, every release and every Monday; closed automatically once everything passes.\n\n` +
+              `**Why this matters:** each problem below is a way for the EFI to stop a root-patched Mac from booting: AMFI rejecting the ` +
+              `patched frameworks because \`amfi=0x80\` is missing (AMFIPass only trusts Dortania-signed binaries, BridgePatcher's aren't - #788), ` +
+              `a kernel patch that writes over the wrong code, a kext that is missing, injected twice or before a dependency, or a root patch file ` +
+              `in PatcherSupportPkg that is missing or can't run on an Intel Mac - all of which ` +
+              `end in a kernel panic or a Mac that never reaches the desktop.\n\n` +
+              `<details><summary>Deutsch</summary>\n\n` +
+              `Automatischer Bericht des Boot-Panic-Checks auf ${where}. Wird bei jedem Push auf \`main\`, jedem Release und jeden Montag aktualisiert ` +
+              `und automatisch geschlossen, sobald alles besteht.\n\n` +
+              `**Warum das wichtig ist:** Jedes Problem unten ist ein Weg, wie das EFI einen root-gepatchten Mac am Starten hindert: AMFI lehnt die ` +
+              `gepatchten Frameworks ab, weil \`amfi=0x80\` fehlt (AMFIPass vertraut nur von Dortania signierten Binärdateien, BridgePatchers nicht - #788), ` +
+              `ein Kernel-Patch überschreibt den falschen Code, ein Kext fehlt, wird doppelt oder vor einer Abhängigkeit geladen, oder eine Root-Patch-Datei ` +
+              `in PatcherSupportPkg fehlt oder läuft nicht auf einem Intel-Mac - das endet in ` +
+              `einer Kernel Panic oder einem Mac, der nie den Schreibtisch erreicht.\n` +
+              (isRelease ? `\n**Release \`${tag}\` ist betroffen** - ggf. zurückziehen oder als defekt markieren.\n` : '') +
+              `</details>\n\n`;
+
+            if (fatal) {
+              body += `## ❌ The check could not run\n\n\`${esc(fatal)}\`\n\n` +
+                      `Until it runs again, nothing protects against this bug. See the [run log](${runUrl}).\n\n` +
+                      `Der Check konnte nicht laufen - bis er wieder läuft, schützt nichts vor diesem Fehler.\n\n`;
+            }
+            if (problems.length) {
+              body += `## ❌ ${problems.length} problem(s)\n\n| Case | Where | Problem |\n|---|---|---|\n` +
+                      problems.slice(0, MAX).map(p => `| \`${esc(p.case)}\` | \`${esc(p.subject)}\` | ${esc(p.message)} |`).join('\n') +
+                      (problems.length > MAX ? `\n\n…and ${problems.length - MAX} more - see the [run log](${runUrl}).` : '') + `\n\n`;
+            }
+            if (result && result.cases) {
+              body += `<details><summary>Cases</summary>\n\n| Case | Checked | Problems | Couldn't check |\n|---|---|---|---|\n` +
+                      Object.entries(result.cases).map(([k, c]) => `| \`${esc(k)}\` | ${+c.checked || 0} | ${+c.problems || 0} | ${+c.errors || 0} |`).join('\n') +
+                      `\n</details>\n`;
+            }
+            if (errors.length) {
+              body += `\n<details><summary>${errors.length} scenario(s) couldn't be checked</summary>\n\n| Case | Where | Error |\n|---|---|---|\n` +
+                      errors.slice(0, 50).map(e => `| \`${esc(e.case)}\` | \`${esc(e.subject)}\` | ${esc(e.message)} |`).join('\n') + `\n</details>\n`;
+            }
+            if (body.length > 65000) body = body.slice(0, 64000) + `\n\n…truncated - see the [run log](${runUrl}).`;
+
+            const assign = async (issue_number) => {
+              try {
+                await github.rest.issues.addAssignees({ owner, repo, issue_number, assignees: [ASSIGNEE] });
+              } catch (e) {
+                core.warning(`Couldn't assign ${ASSIGNEE} to #${issue_number}: ${e.message}`);
+              }
+            };
+
+            if (existing) {
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, title: TITLE, body, state: 'open' });
+              if (existing.state === 'closed') await assign(existing.number);
+              if (existing.state === 'closed' || isRelease) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body:
+                  `⚠️ ${isRelease ? `Release \`${tag}\` is affected` : 'Back on main'} (${short}, [run](${runUrl})) - see the updated description.` });
+              }
+            } else {
+              const { data: created } = await github.rest.issues.create({ owner, repo, title: TITLE, body });
+              await assign(created.number);
+            }
