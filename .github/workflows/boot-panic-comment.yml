@@ -1,0 +1,155 @@
+name: Comment boot panic check result
+
+# Posts the result of "Check EFI builds for boot panics" on the PR.
+#
+# The check itself runs on `pull_request` with a read-only token because it
+# executes the PR's patcher code. This workflow runs afterwards via
+# workflow_run, from the default branch, with permission to comment - and it
+# never checks out or runs anything from the PR. The artifact it reads was
+# produced by PR code, so everything in it is treated as untrusted data:
+# the PR is looked up through the API (not taken from the artifact), and every
+# string is escaped before it goes into the comment.
+
+on:
+  workflow_run:
+    workflows: ["Check EFI builds for boot panics"]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  comment:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion != 'cancelled' &&
+      github.event.workflow_run.conclusion != 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: boot-panic-result
+          path: ${{ runner.temp }}/result
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Comment on the PR
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const MARKER = '<!-- boot-panic-bot -->';
+            const MAX = 40;
+            const { owner, repo } = context.repo;
+            const run = context.payload.workflow_run;
+            const headSha = run.head_sha, short = headSha.slice(0, 7);
+            const dir = `${process.env.RUNNER_TEMP}/result`;
+
+            // --- Find the PR through the API, never from the artifact ---
+            // run.pull_requests can also list PRs from *other* repos (forks, the
+            // pre-move repo) that share this head SHA - their numbers 404 here.
+            const repoId = context.payload.repository.id;
+            let number = null;
+            for (const p of run.pull_requests || []) {
+              if (p.base && p.base.repo && p.base.repo.id === repoId &&
+                  p.head && p.head.sha === headSha) number = p.number;
+            }
+            if (!number && run.head_repository) {
+              const pulls = await github.paginate(github.rest.pulls.list, {
+                owner, repo, state: 'open', per_page: 100,
+                head: `${run.head_repository.owner.login}:${run.head_branch}` });
+              const match = pulls.find(p => p.head.sha === headSha);
+              if (match) number = match.number;
+            }
+            if (!number) { core.info(`No open PR at ${headSha} - nothing to comment on`); return; }
+            let pr;
+            try {
+              ({ data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number }));
+            } catch (e) {
+              if (e.status === 404) { core.info(`#${number} is not a PR in ${owner}/${repo} - nothing to comment on`); return; }
+              throw e;
+            }
+            if (pr.state !== 'open' || pr.head.sha !== headSha) {
+              core.info(`PR #${number} has moved on from ${short} - the newer run will comment`);
+              return;
+            }
+
+            // --- Read the result (untrusted data) ---
+            if (fs.existsSync(`${dir}/skipped`)) return;
+            let result = null;
+            try { result = JSON.parse(fs.readFileSync(`${dir}/result.json`, 'utf8')); } catch {}
+            if (!result && run.conclusion === 'success') return;   // nothing ran, nothing to say
+
+            const arr = v => Array.isArray(v) ? v : [];
+            const fatal = !result ? 'no result was produced' : (result.fatal ? String(result.fatal) : null);
+            const problems = result ? arr(result.new) : [];
+            const known = result ? arr(result.known) : [];
+            const errors = result ? arr(result.errors) : [];
+            const esc = s => String(s ?? '').replace(/[|`<>\[\]\\]/g, c => '&#' + c.charCodeAt(0) + ';')
+                                            .replace(/@/g, '@\u200b').replace(/\s+/g, ' ').slice(0, 400);
+            const rows = list => `| Case | Where | Problem |\n|---|---|---|\n` +
+              list.slice(0, MAX).map(p => `| <code>${esc(p.case)}</code> | <code>${esc(p.subject)}</code> | ${esc(p.message)} |`).join('\n') +
+              (list.length > MAX ? `\n\n…and ${list.length - MAX} more - see the [workflow run](${run.html_url}).` : '');
+
+            const knownSection = known.length
+              ? `\n\n<details><summary>ℹ️ Already broken on <code>main</code> - ${known.length} problem(s), not caused by this PR</summary>\n\n` +
+                `These don't fail this check, but they are just as dangerous - fixing them here is welcome.\n\n${rows(known)}\n</details>`
+              : '';
+            const errorSection = errors.length
+              ? `\n\n<details><summary>${errors.length} scenario(s) couldn't be checked</summary>\n\n` +
+                `The EFI builder or the root-patch gate failed for these, so they weren't checked at all.\n\n| Case | Where | Error |\n|---|---|---|\n` +
+                errors.slice(0, MAX).map(e => `| <code>${esc(e.case)}</code> | <code>${esc(e.subject)}</code> | ${esc(e.message)} |`).join('\n') +
+                `\n</details>`
+              : '';
+
+            // Only our own comments - anybody can paste the marker into a comment
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
+            const existing = comments.find(c => c.body && c.body.includes(MARKER) && c.user && c.user.type === 'Bot' && c.user.login === 'github-actions[bot]');
+
+            let body;
+            if (!fatal && !problems.length) {
+              if (!existing) return;   // never complained - stay quiet
+              body = `${MARKER}\n### ✅ Boot panic check OK\n\n` +
+                `No checked EFI build from this PR can stop a root-patched Mac from booting anymore (checked at ${short}). Thanks!\n\n` +
+                `<details><summary>Deutsch</summary>\n\nKein geprüfter EFI-Build aus diesem PR kann einen root-gepatchten Mac mehr am Starten hindern (geprüft bei ${short}). Danke!\n</details>` +
+                knownSection + errorSection;
+            } else if (fatal) {
+              body = `${MARKER}\n### ⚠️ The boot panic check could not run\n\n` +
+                `The check couldn't build EFIs or run the root-patch gate from this PR (at ${short}), so it can't tell whether a root-patched Mac would still boot:\n\n` +
+                `> ${esc(fatal)}\n\n` +
+                `This usually means the PR breaks \`efi_builder\`, \`support/defaults.py\`, \`detect.py\`, a patchset or an import they need - or PatcherSupportPkg couldn't be fetched. See the [workflow run](${run.html_url}) for the log. ` +
+                `This comment updates automatically on every push.\n\n` +
+                `<details><summary>Deutsch</summary>\n\n` +
+                `Der Check konnte aus diesem PR (bei ${short}) keine EFIs bauen bzw. die Root-Patch-Prüfung nicht ausführen und kann daher nicht sagen, ob ein root-gepatchter Mac noch startet. ` +
+                `Meist bricht der PR \`efi_builder\`, \`support/defaults.py\`, \`detect.py\` oder einen benötigten Import. Details im Workflow-Log. Dieser Kommentar aktualisiert sich bei jedem Push automatisch.\n</details>` +
+                knownSection + errorSection;
+            } else {
+              body = `${MARKER}\n### 🛑 This PR can stop root-patched Macs from booting\n\n` +
+                `With this PR (at ${short}), the EFI builder or the root-patch gate produces a setup that ends in a kernel panic or a Mac that never reaches the desktop:\n\n${rows(problems)}\n\n` +
+                `**What the cases mean:**\n` +
+                `- \`build:host\` / \`gate:amfipass\`: AMFIPass only trusts binaries signed by Dortania's CA, and BridgePatcher's root patches aren't. ` +
+                `Wherever the patches need AMFI disabled, the EFI built on that Mac must carry \`amfi=0x80\`, and detect.py must not let patching run just because AMFIPass is loaded - ` +
+                `otherwise AMFI rejects the patched frameworks ("code signature validation failed"), as in #788.\n` +
+                `- \`efi:kernel-patches\`: a kernel patch OpenCore would reject or apply to the wrong bytes - corrupted kernel code panics at boot.\n` +
+                `- \`efi:kexts\`: a kext missing from the EFI, injected twice for the same macOS, or injected before a kext it depends on (OpenCore links them in \`Kernel > Add\` order).\n` +
+                `- \`payload:root-patches\`: a root patch file the patchsets install that is missing from the bundled PatcherSupportPkg release (patching stops at the preflight check), ` +
+                `a Mach-O without x86_64 code, or a kext kmutil can't link.\n\n` +
+                `Only problems introduced by this PR are listed above. This comment updates automatically on every push.\n\n` +
+                `<details><summary>Deutsch</summary>\n\n` +
+                `Mit diesem PR (bei ${short}) erzeugen EFI-Builder oder Root-Patch-Prüfung eine Konfiguration, die in einer Kernel Panic oder einem Mac endet, der nie den Schreibtisch erreicht (siehe Tabelle oben).\n\n` +
+                `- \`build:host\` / \`gate:amfipass\`: AMFIPass vertraut nur von Dortania signierten Binärdateien, BridgePatchers Root-Patches sind das nicht. ` +
+                `Wo die Patches AMFI deaktiviert brauchen, muss das EFI \`amfi=0x80\` enthalten, und detect.py darf das Patchen nicht nur wegen AMFIPass zulassen (#788).\n` +
+                `- \`efi:kernel-patches\`: ein Kernel-Patch, den OpenCore ablehnt oder an die falschen Bytes schreibt.\n` +
+                `- \`efi:kexts\`: ein Kext fehlt im EFI, wird doppelt oder vor einer Abhängigkeit geladen.\n` +
+                `- \`payload:root-patches\`: eine Root-Patch-Datei fehlt im mitgelieferten PatcherSupportPkg, hat keinen x86_64-Code, oder ein Kext lässt sich von kmutil nicht linken.\n\n` +
+                `Aufgeführt sind nur Fehler, die dieser PR neu einführt. Dieser Kommentar aktualisiert sich bei jedem Push automatisch.\n</details>` +
+                knownSection + errorSection;
+            }
+
+            if (body.length > 65000) body = body.slice(0, 64000) + `\n\n…truncated - see the [workflow run](${run.html_url}).`;
+            if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
