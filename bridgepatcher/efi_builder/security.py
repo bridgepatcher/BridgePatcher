@@ -437,12 +437,13 @@ class BuildSecurity:
                 self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-oas_skip_attestation")
                 self._set_nvram_value(APPLE_NVRAM_UUID, "IAS_ENV_SKIP_ATTESTATION", "1", overwrite=True)
 
-                # amfi=0x80 is decided by defaults.py (_check_amfipass_supported), not by
-                # whether AMFIPass gets injected: AMFIPass only trusts root patches signed
-                # with the patcher certificate. disable_amfi stays True for external builds
-                # and for ad-hoc-signed patches, and those still need AMFI disabled next to
-                # AMFIPass - same as Dortania. Gating this on 'not needs_amfipass' dropped
-                # amfi=0x80 for every pre-Sonoma Mac (e.g. MacBookPro7,1).
+                # amfi=0x80 is decided by the hardware probes in defaults.py (disable_amfi),
+                # not by whether AMFIPass gets injected: AMFIPass only trusts root patches
+                # signed by Dortania's CA, and BridgePatcher signs them with its own
+                # certificate, so AMFIPass alone can't load them (issue #788). That is also
+                # why defaults.py _check_amfipass_supported() no longer resets disable_amfi.
+                # Gating this on 'not needs_amfipass' dropped amfi=0x80 for every
+                # pre-Sonoma Mac (e.g. MacBookPro7,1).
                 if self.constants.disable_cs_lv is True and self.constants.disable_amfi is True:
                     logging.info("- Disabling AMFI (non-T2)")
                     self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "amfi=0x80")

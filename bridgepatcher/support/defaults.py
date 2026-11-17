@@ -606,24 +606,28 @@ class GenerateDefaults:
         - Root volume doesn't have adhoc signed binaries
 
         If all of these conditions are met, it is safe to disable AMFI and CS_LV. Otherwise, for safety, leave it be.
+
+        BridgePatcher never meets them: AMFIPass only trusts binaries signed by
+        Dortania's code signing CA (the CA is embedded in AMFIPass itself), while
+        BridgePatcher's PatcherSupportPkg signs its root patches with the
+        BridgePatcher certificate. 'Custom Signature' in the root patch manifest
+        (sys_patch_signed) only says the payload was signed by our CI, not that
+        AMFIPass accepts it - and an unpatched root volume reports it as True too.
+
+        Resetting disable_amfi / disable_cs_lv here dropped amfi=0x80 from every
+        non-T2 Mac that needs root patches (e.g. MacBookPro7,1, issue #788): AMFI
+        then rejected the patched QuartzCore, CoreDisplay, CoreWLAN and IO80211
+        ("code signature validation failed") and the Mac never reached the desktop.
+        So the values set by the hardware probes are kept as they are. Users who
+        need AMFI enabled can still untick "Disable AMFI" in the settings.
+
+        T2 Macs are not affected: they get amfi=0x80 from misc.py _t2_handling()
+        and do not read disable_amfi.
         """
 
-        if not self.host_is_target:
-            # Unknown whether the host is using old binaries
-            # Rebuild it once you are on the host
-            return
-
-        # Check for adhoc signed binaries
-        if self.constants.computer.sys_patch_signed is False:
-            # Root patch with new binaries, then reboot
-            return
-
-        # Note: simply checking the authority is not enough, as the authority can be spoofed
-        # (but do we really care? this is just a simple check)
-        # Note: the cert will change
-
-        self.constants.disable_amfi = False
-        self.constants.disable_cs_lv = False
+        # Restore the Dortania behaviour below only if BridgePatcher's root patches
+        # are ever signed with a certificate AMFIPass trusts.
+        return
 
 
     def _enforce_secure_boot_consistency(self) -> None:
