@@ -10,9 +10,11 @@ name: Comment boot panic check result
 # the PR is looked up through the API (not taken from the artifact), and every
 # string is escaped before it goes into the comment.
 #
-# It comments when the PR adds problems, when the check can't run, when the PR
-# fixes problems that are on main, and to resolve an earlier complaint -
-# otherwise it stays quiet.
+# Like the tracking issue on main, the comment lists every problem that can
+# stop a root-patched Mac from booting with the PR's code - the PR's new ones
+# and the ones already on main - plus what the PR fixes and a check that
+# couldn't run. Only new problems fail the check. A PR with nothing to report
+# gets no comment (an earlier one is updated to ✅).
 
 on:
   workflow_run:
@@ -100,10 +102,6 @@ jobs:
               list.slice(0, MAX).map(p => `| <code>${esc(p.case)}</code> | <code>${esc(p.subject)}</code> | ${esc(p.message)} |`).join('\n') +
               (list.length > MAX ? `\n\n…and ${list.length - MAX} more - see the [workflow run](${run.html_url}).` : '');
 
-            const knownSection = known.length
-              ? `\n\n<details><summary>ℹ️ Already broken on <code>main</code> - ${known.length} problem(s), not caused by this PR</summary>\n\n` +
-                `These don't fail this check, but they are just as dangerous - fixing them here is welcome.\n\n${rows(known)}\n</details>`
-              : '';
             const errorSection = errors.length
               ? `\n\n<details><summary>${errors.length} scenario(s) couldn't be checked</summary>\n\n` +
                 `The EFI builder or the root-patch gate failed for these, so they weren't checked at all.\n\n| Case | Where | Error |\n|---|---|---|\n` +
@@ -115,57 +113,66 @@ jobs:
             const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
             const existing = comments.find(c => c.body && c.body.includes(MARKER) && c.user && c.user.type === 'Bot' && c.user.login === 'github-actions[bot]');
 
-            let body;
-            const fixedSection = fixed.length
-              ? `\n\n<details><summary>🎉 Fixed by this PR - ${fixed.length} problem(s) that are on <code>main</code></summary>\n\n${rows(fixed)}\n</details>`
-              : '';
+            // Like the tracking issue on main: every problem that can stop a
+            // root-patched Mac from booting with this PR's code is listed - new
+            // ones and the ones that are already on main. Only new ones fail the check.
+            const total = problems.length + known.length;
+            if (!fatal && !total && !fixed.length && !existing) return;   // nothing to report, never commented
 
-            if (!fatal && !problems.length && fixed.length) {
-              // Fixes problems that are on main - worth saying, even without an earlier complaint
-              body = `${MARKER}\n### 🎉 This PR fixes ${fixed.length} boot panic problem(s) on \`main\`\n\n` +
-                `With this PR (at ${short}), these problems that are on \`main\` are gone, and it adds no new ones. ` +
-                `Once it's merged, the tracking issue on \`main\` updates (or closes) on its own.\n\n` +
-                `<details><summary>Deutsch</summary>\n\nMit diesem PR (bei ${short}) verschwinden ${fixed.length} Probleme, die auf \`main\` bestehen, ` +
-                `und es kommen keine neuen hinzu. Nach dem Merge aktualisiert (oder schließt) sich das Tracking-Issue auf \`main\` von selbst.\n</details>` +
-                fixedSection + knownSection + errorSection;
-            } else if (!fatal && !problems.length) {
-              if (!existing) return;   // never complained, nothing fixed - stay quiet
-              body = `${MARKER}\n### ✅ Boot panic check OK\n\n` +
-                `No checked EFI build from this PR can stop a root-patched Mac from booting anymore (checked at ${short}). Thanks!\n\n` +
-                `<details><summary>Deutsch</summary>\n\nKein geprüfter EFI-Build aus diesem PR kann einen root-gepatchten Mac mehr am Starten hindern (geprüft bei ${short}). Danke!\n</details>` +
-                knownSection + errorSection;
-            } else if (fatal) {
-              body = `${MARKER}\n### ⚠️ The boot panic check could not run\n\n` +
-                `The check couldn't build EFIs or run the root-patch gate from this PR (at ${short}), so it can't tell whether a root-patched Mac would still boot:\n\n` +
-                `> ${esc(fatal)}\n\n` +
-                `This usually means the PR breaks \`efi_builder\`, \`support/defaults.py\`, \`detect.py\`, a patchset or an import they need - or PatcherSupportPkg couldn't be fetched. See the [workflow run](${run.html_url}) for the log. ` +
-                `This comment updates automatically on every push.\n\n` +
-                `<details><summary>Deutsch</summary>\n\n` +
-                `Der Check konnte aus diesem PR (bei ${short}) keine EFIs bauen bzw. die Root-Patch-Prüfung nicht ausführen und kann daher nicht sagen, ob ein root-gepatchter Mac noch startet. ` +
-                `Meist bricht der PR \`efi_builder\`, \`support/defaults.py\`, \`detect.py\` oder einen benötigten Import. Details im Workflow-Log. Dieser Kommentar aktualisiert sich bei jedem Push automatisch.\n</details>` +
-                knownSection + errorSection;
+            let headline, intro, introDe;
+            if (fatal) {
+              headline = `### ⚠️ The boot panic check could not run`;
+              intro = `The check couldn't build EFIs or run the root-patch gate from this PR (at ${short}), so it can't tell whether a root-patched Mac would still boot:\n\n> ${esc(fatal)}\n\n` +
+                `This usually means the PR breaks \`efi_builder\`, \`support/defaults.py\`, \`detect.py\`, a patchset or an import they need - or PatcherSupportPkg couldn't be fetched. See the [workflow run](${run.html_url}) for the log.`;
+              introDe = `Der Check konnte aus diesem PR (bei ${short}) keine EFIs bauen bzw. die Root-Patch-Prüfung nicht ausführen und kann daher nicht sagen, ob ein root-gepatchter Mac noch startet. ` +
+                `Meist bricht der PR \`efi_builder\`, \`support/defaults.py\`, \`detect.py\`, ein Patchset oder einen benötigten Import - oder PatcherSupportPkg konnte nicht geladen werden. Details im Workflow-Log.`;
+            } else if (problems.length) {
+              headline = `### 🛑 This PR adds ${problems.length} way(s) to stop root-patched Macs from booting`;
+              intro = `With this PR (at ${short}), ${total} problem(s) can end in a kernel panic or a Mac that never reaches the desktop. ` +
+                `**${problems.length} of them are new in this PR** and fail this check` + (known.length ? `; ${known.length} are already on \`main\`.` : '.');
+              introDe = `Mit diesem PR (bei ${short}) können ${total} Probleme in einer Kernel Panic oder einem Mac enden, der nie den Schreibtisch erreicht. ` +
+                `**${problems.length} davon führt dieser PR neu ein** (der Check schlägt fehl)` + (known.length ? `, ${known.length} bestehen schon auf \`main\`.` : '.');
+            } else if (known.length) {
+              headline = `### ⚠️ ${known.length} problem(s) can still stop root-patched Macs from booting`;
+              intro = `With this PR (at ${short}), these problems that are already on \`main\` can still end in a kernel panic or a Mac that never reaches the desktop. ` +
+                `This PR doesn't add any, so the check passes - but they are just as dangerous, and fixing them here is welcome.` +
+                (fixed.length ? ` It does fix ${fixed.length} other one(s) 🎉.` : '');
+              introDe = `Mit diesem PR (bei ${short}) können diese Probleme, die schon auf \`main\` bestehen, weiterhin in einer Kernel Panic oder einem Mac enden, der nie den Schreibtisch erreicht. ` +
+                `Der PR führt keine neuen ein, daher besteht der Check - gefährlich sind sie trotzdem.` + (fixed.length ? ` ${fixed.length} andere behebt er 🎉.` : '');
+            } else if (fixed.length) {
+              headline = `### 🎉 This PR fixes ${fixed.length} boot panic problem(s) on \`main\``;
+              intro = `With this PR (at ${short}), no checked EFI build or root patch can stop a root-patched Mac from booting: it fixes ${fixed.length} problem(s) that are on \`main\` and adds none. ` +
+                `Once it's merged, the tracking issue on \`main\` updates (or closes) on its own.`;
+              introDe = `Mit diesem PR (bei ${short}) kann kein geprüfter EFI-Build und kein Root-Patch einen root-gepatchten Mac mehr am Starten hindern: er behebt ${fixed.length} Probleme auf \`main\` und führt keine neuen ein.`;
             } else {
-              body = `${MARKER}\n### 🛑 This PR can stop root-patched Macs from booting\n\n` +
-                `With this PR (at ${short}), the EFI builder or the root-patch gate produces a setup that ends in a kernel panic or a Mac that never reaches the desktop:\n\n${rows(problems)}\n\n` +
-                `**What the cases mean:**\n` +
+              headline = `### ✅ Boot panic check OK`;
+              intro = `No checked EFI build or root patch from this PR can stop a root-patched Mac from booting (checked at ${short}). Thanks!`;
+              introDe = `Kein geprüfter EFI-Build und kein Root-Patch aus diesem PR kann einen root-gepatchten Mac am Starten hindern (geprüft bei ${short}). Danke!`;
+            }
+
+            let body = `${MARKER}\n${headline}\n\n${intro}`;
+            if (problems.length) body += `\n\n#### 🛑 New in this PR (${problems.length})\n\n${rows(problems)}`;
+            if (known.length) body += `\n\n#### ⚠️ Already on \`main\` (${known.length})\n\n${rows(known)}`;
+            if (total) {
+              body += `\n\n**What the cases mean:**\n` +
                 `- \`build:host\` / \`gate:amfipass\`: AMFIPass only trusts binaries signed by Dortania's CA, and BridgePatcher's root patches aren't. ` +
                 `Wherever the patches need AMFI disabled, the EFI built on that Mac must carry \`amfi=0x80\`, and detect.py must not let patching run just because AMFIPass is loaded - ` +
                 `otherwise AMFI rejects the patched frameworks ("code signature validation failed"), as in #788.\n` +
                 `- \`efi:kernel-patches\`: a kernel patch OpenCore would reject or apply to the wrong bytes - corrupted kernel code panics at boot.\n` +
                 `- \`efi:kexts\`: a kext missing from the EFI, injected twice for the same macOS, or injected before a kext it depends on (OpenCore links them in \`Kernel > Add\` order).\n` +
                 `- \`payload:root-patches\`: a root patch file the patchsets install that is missing from the bundled PatcherSupportPkg release (patching stops at the preflight check), ` +
-                `a Mach-O without x86_64 code, or a kext kmutil can't link.\n\n` +
-                `Only problems introduced by this PR are listed above. This comment updates automatically on every push.\n\n` +
-                `<details><summary>Deutsch</summary>\n\n` +
-                `Mit diesem PR (bei ${short}) erzeugen EFI-Builder oder Root-Patch-Prüfung eine Konfiguration, die in einer Kernel Panic oder einem Mac endet, der nie den Schreibtisch erreicht (siehe Tabelle oben).\n\n` +
-                `- \`build:host\` / \`gate:amfipass\`: AMFIPass vertraut nur von Dortania signierten Binärdateien, BridgePatchers Root-Patches sind das nicht. ` +
+                `a Mach-O without x86_64 code, or a kext kmutil can't link.`;
+            }
+            if (fixed.length) body += `\n\n<details><summary>🎉 Fixed by this PR - ${fixed.length} problem(s) that are on <code>main</code></summary>\n\n${rows(fixed)}\n</details>`;
+            body += errorSection;
+            body += `\n\n<details><summary>Deutsch</summary>\n\n${introDe}` +
+              (total ? `\n\n- \`build:host\` / \`gate:amfipass\`: AMFIPass vertraut nur von Dortania signierten Binärdateien, BridgePatchers Root-Patches sind das nicht. ` +
                 `Wo die Patches AMFI deaktiviert brauchen, muss das EFI \`amfi=0x80\` enthalten, und detect.py darf das Patchen nicht nur wegen AMFIPass zulassen (#788).\n` +
                 `- \`efi:kernel-patches\`: ein Kernel-Patch, den OpenCore ablehnt oder an die falschen Bytes schreibt.\n` +
                 `- \`efi:kexts\`: ein Kext fehlt im EFI, wird doppelt oder vor einer Abhängigkeit geladen.\n` +
-                `- \`payload:root-patches\`: eine Root-Patch-Datei fehlt im mitgelieferten PatcherSupportPkg, hat keinen x86_64-Code, oder ein Kext lässt sich von kmutil nicht linken.\n\n` +
-                `Aufgeführt sind nur Fehler, die dieser PR neu einführt. Dieser Kommentar aktualisiert sich bei jedem Push automatisch.\n</details>` +
-                knownSection + errorSection;
-            }
+                `- \`payload:root-patches\`: eine Root-Patch-Datei fehlt im mitgelieferten PatcherSupportPkg, hat keinen x86_64-Code, oder ein Kext lässt sich von kmutil nicht linken.` : '') +
+              `\n\nDieser Kommentar aktualisiert sich bei jedem Push automatisch.\n</details>`;
+            body += `\n\n<sub>Updates automatically on every push.</sub>`;
 
             if (body.length > 65000) body = body.slice(0, 64000) + `\n\n…truncated - see the [workflow run](${run.html_url}).`;
             if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
