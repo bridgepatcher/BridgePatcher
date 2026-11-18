@@ -77,7 +77,8 @@ Usage:
 
 --root      the tree to check (a PR checkout, or the repo itself)
 --baseline  optional tree to compare against (main). Problems that also exist
-            there are reported as "already broken on main" and don't fail.
+            there are reported as "already broken on main" and don't fail;
+            problems that exist only there are reported as fixed.
 
 Exit code: 0 = OK, 1 = problems (new ones, if --baseline is given),
            2 = the check itself could not run against --root.
@@ -694,12 +695,15 @@ def write_summary(path: str, result: dict) -> None:
         lines.append(f"❌ {len(result['new'])} new problem(s)")
     else:
         lines.append("✅ No new way for the EFI to stop a root-patched Mac from booting in any checked scenario.")
+        if result.get("fixed"):
+            lines.append(f"🎉 Fixes {len(result['fixed'])} problem(s) that are on the base branch.")
     lines += ["", "| Case | Checked | Problems | Couldn't check |", "|---|---|---|---|"]
     for case, c in result["cases"].items():
         lines.append(f"| `{case}` | {c['checked']} | {c['problems']} | {c['errors']} |")
     if result.get("notes"):
         lines += [""] + [f"- {n}" for n in result["notes"]]
-    for title, items in (("Problems", result["new"]), ("Already broken on main", result["known"])):
+    for title, items in (("Problems", result["new"]), ("Already broken on main", result["known"]),
+                         ("Fixed by this change", result.get("fixed", []))):
         if items:
             lines += ["", f"### {title}", "", "| Case | Where | Problem |", "|---|---|---|"]
             lines += [f"| `{p['case']}` | `{p['subject']}` | {p['message']} |" for p in items[:200]]
@@ -725,6 +729,7 @@ def main() -> int:
     current = run_tree(Path(args.root).resolve())
 
     known_keys = set()
+    fixed = []
     if args.baseline:
         print(f"== Checking baseline {args.baseline}")
         base = run_tree(Path(args.baseline).resolve())
@@ -732,6 +737,23 @@ def main() -> int:
             print(f"baseline could not be checked ({base['fatal']}) - treating every problem as new")
         else:
             known_keys = {_key(p) for p in base["problems"]}
+            # Fixed: on the baseline, gone here - but only where this tree really
+            # checked the scenario. A problem that vanished because its build now
+            # fails (or the whole check failed) isn't fixed.
+            if not current["fatal"]:
+                current_keys = {_key(p) for p in current["problems"]}
+                ran = {case for case, c in current["cases"].items() if c["checked"]}
+
+                def unchecked(problem):
+                    # Errors are per scenario ("MacBook5,1"), problems can be finer
+                    # ("MacBook5,1: Lilu.kext") - match the scenario as a prefix
+                    return any(e["case"] == problem["case"] and (
+                        problem["subject"] == e["subject"] or
+                        problem["subject"].startswith((e["subject"] + ":", e["subject"] + " ")))
+                        for e in current["errors"])
+
+                fixed = [p for p in base["problems"]
+                         if _key(p) not in current_keys and p["case"] in ran and not unchecked(p)]
 
     new = [p for p in current["problems"] if _key(p) not in known_keys]
     known = [p for p in current["problems"] if _key(p) in known_keys]
@@ -741,6 +763,7 @@ def main() -> int:
         "cases": current["cases"],
         "new": new,
         "known": known,
+        "fixed": fixed,
         "errors": current["errors"],
         "notes": current["notes"],
     }
@@ -751,6 +774,8 @@ def main() -> int:
         print(f"PROBLEM [{p['case']}] {p['subject']}: {p['message']}")
     for p in known:
         print(f"already on main [{p['case']}] {p['subject']}: {p['message']}")
+    for p in fixed:
+        print(f"fixed [{p['case']}] {p['subject']}")
     for e in current["errors"][:50]:
         print(f"could not check [{e['case']}] {e['subject']}: {e['message']}")
 
