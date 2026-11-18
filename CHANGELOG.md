@@ -1,4 +1,8 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000003.7.0 - 4.0.0 alpha 20.3.7 Preview
+This release:
+- Fixes the AMFI part of #788 (MacBookPro7,1, Sequoia 15.8.3: patched frameworks rejected by AMFI after root patching).
+
 ## 4.0.0.2000003.6 - 4.0.0 alpha 20.3.6
 This release:
 - fixes a bug where the changelog may appear like this:
