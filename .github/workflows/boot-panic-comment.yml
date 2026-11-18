@@ -9,6 +9,10 @@ name: Comment boot panic check result
 # produced by PR code, so everything in it is treated as untrusted data:
 # the PR is looked up through the API (not taken from the artifact), and every
 # string is escaped before it goes into the comment.
+#
+# It comments when the PR adds problems, when the check can't run, when the PR
+# fixes problems that are on main, and to resolve an earlier complaint -
+# otherwise it stays quiet.
 
 on:
   workflow_run:
@@ -89,6 +93,7 @@ jobs:
             const problems = result ? arr(result.new) : [];
             const known = result ? arr(result.known) : [];
             const errors = result ? arr(result.errors) : [];
+            const fixed = result ? arr(result.fixed) : [];
             const esc = s => String(s ?? '').replace(/[|`<>\[\]\\]/g, c => '&#' + c.charCodeAt(0) + ';')
                                             .replace(/@/g, '@\u200b').replace(/\s+/g, ' ').slice(0, 400);
             const rows = list => `| Case | Where | Problem |\n|---|---|---|\n` +
@@ -111,8 +116,20 @@ jobs:
             const existing = comments.find(c => c.body && c.body.includes(MARKER) && c.user && c.user.type === 'Bot' && c.user.login === 'github-actions[bot]');
 
             let body;
-            if (!fatal && !problems.length) {
-              if (!existing) return;   // never complained - stay quiet
+            const fixedSection = fixed.length
+              ? `\n\n<details><summary>🎉 Fixed by this PR - ${fixed.length} problem(s) that are on <code>main</code></summary>\n\n${rows(fixed)}\n</details>`
+              : '';
+
+            if (!fatal && !problems.length && fixed.length) {
+              // Fixes problems that are on main - worth saying, even without an earlier complaint
+              body = `${MARKER}\n### 🎉 This PR fixes ${fixed.length} boot panic problem(s) on \`main\`\n\n` +
+                `With this PR (at ${short}), these problems that are on \`main\` are gone, and it adds no new ones. ` +
+                `Once it's merged, the tracking issue on \`main\` updates (or closes) on its own.\n\n` +
+                `<details><summary>Deutsch</summary>\n\nMit diesem PR (bei ${short}) verschwinden ${fixed.length} Probleme, die auf \`main\` bestehen, ` +
+                `und es kommen keine neuen hinzu. Nach dem Merge aktualisiert (oder schließt) sich das Tracking-Issue auf \`main\` von selbst.\n</details>` +
+                fixedSection + knownSection + errorSection;
+            } else if (!fatal && !problems.length) {
+              if (!existing) return;   // never complained, nothing fixed - stay quiet
               body = `${MARKER}\n### ✅ Boot panic check OK\n\n` +
                 `No checked EFI build from this PR can stop a root-patched Mac from booting anymore (checked at ${short}). Thanks!\n\n` +
                 `<details><summary>Deutsch</summary>\n\nKein geprüfter EFI-Build aus diesem PR kann einen root-gepatchten Mac mehr am Starten hindern (geprüft bei ${short}). Danke!\n</details>` +
