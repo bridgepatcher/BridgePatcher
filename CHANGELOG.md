@@ -1,4 +1,10 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000003.7.1 - 4.0.0 alpha 20.3.7.1 Preview
+This release:
+- fixes a bug where root patching ran on Macs without a T2 chip even though AMFI was still enabled, so the Mac couldn't start up afterwards (#788). As soon as AMFIPass was loaded, BridgePatcher assumed AMFI would accept the patched frameworks. That is only true for Dortania's root patches: AMFIPass only trusts binaries signed by Dortania, and BridgePatcher signs its root patches with its own certificate. On a Mac whose OpenCore had no `amfi=0x80`, root patching therefore went ahead, and after the reboot AMFI rejected the patched frameworks and the Mac never reached the desktop. Whether AMFI is disabled is now decided only by the boot-args. A Mac without `amfi=0x80` is now stopped before root patching with "Validation: AMFI is enabled" instead of ending up unable to start up
+  - if you see this message, build and install OpenCore again with this version (it adds `amfi=0x80`, see 4.0.0.2000003.7.0), reboot, then root patch
+  - T2 Macs always have `amfi=0x80` and are not affected
+
 ## 4.0.0.2000003.7.0 - 4.0.0 alpha 20.3.7 Preview
 This release:
 - Fixes the AMFI part of #788 (MacBookPro7,1, Sequoia 15.8.3: patched frameworks rejected by AMFI after root patching).
