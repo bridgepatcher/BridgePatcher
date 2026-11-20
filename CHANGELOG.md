@@ -1,12 +1,12 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
 ## 4.0.0.2000003.7.2 - 4.0.0 alpha 20.3.7.2 Preview
 This release:
-- builds OpenCore for Macs without a T2 chip the same way as Dortania's OpenCore Legacy Patcher, to rule out our EFI as the cause of #788. The EFI for e.g. a MacBookPro7,1 now matches Dortania's, apart from BridgePatcher's own names and OpenCore 1.0.8. These settings, which Dortania's builder doesn't set, are no longer added on Macs without a T2 chip:
-  - the "Disable Library Validation Enforcement" and "Disable _csr_check() in _vnode_check_signature" kernel patches, unless the Mac needs them for root patching
-  - the `-oas_skip_attestation` boot-arg and the `IAS_ENV_SKIP_ATTESTATION` NVRAM variable
-  - the `-amfipassbeta` boot-arg
-  - turning off SpoofVendor
-  - build and install OpenCore again with this version to get the new settings
+- builds OpenCore for Macs without a T2 chip with a port of Dortania's current OpenCore Legacy Patcher EFI builder, to rule out BridgePatcher's own EFI builder as the cause of #788. On all 85 supported Macs without a T2 chip, the EFI now matches the one Dortania's builder makes, apart from BridgePatcher's names, OpenCore 1.0.8 and the boot picker theme
+  - BridgePatcher-only settings are no longer added on these Macs, among them `dart=0`, `-amfipassbeta`, `-oas_skip_attestation`, the extra Haswell/Broadwell and MacBookPro13,x/14,x boot-args, CatalinaBCM5701Ethernet and SimpleHDA audio on the iMac19,1 and iMac19,2 under macOS Tahoe
+  - the T1 kexts on the MacBookPro13,2/13,3/14,2/14,3 now load on macOS Tahoe too, as in Dortania's builder. This brings Touch ID back, but also the keystore issue the "T1 Touch ID on macOS Tahoe" setting warns about (iCloud sync stops, the keychain keeps asking for the password). That setting has no effect on these Macs anymore
+  - new from Dortania: per-model USB maps, CSLVFixup on macOS Big Sur and AppleIntelPIIXATA for macOS Monterey and newer on the MacBookPro4,1, MacPro3,1, Xserve2,1, iMac7,1 and iMac8,1
+  - Apple Secure Boot is still turned off whenever SIP is lowered for root patching (#465)
+  - build and install OpenCore again with this version to get the new EFI
   - T2 Macs are not affected, their EFI stays exactly the same
 - removes the TEST-A to TEST-D (LEVEL-B to LEVEL-D) OpenCore build profiles. Every build now uses the standard configuration, and the profile choices are gone from Build OpenCore, the OpenCore settings and Developer Mode. A stored profile choice from an earlier version is removed on the next start
 
