@@ -148,7 +148,6 @@ class arguments:
                 return True
         return False
 
-
     def _check_updates_handler(self) -> None:
         """
         Background update check, started every few hours by the update-check LaunchAgent
@@ -176,22 +175,24 @@ class arguments:
             return
 
         if not update_dict:
-            logging.info(f"- No update available ({checker.last_error if checker.last_error else 'already on the latest version'})")
+            logging.info(
+                f"- No update available ({checker.last_error if checker.last_error else 'already on the latest version'})")
             return
 
         remote_version_str = str(update_dict["Version"])
         if not update_dict.get("ChannelSwitch", False):
             try:
                 if version.parse(remote_version_str) <= version.parse(self.constants.patcher_version):
-                    logging.info(f"- Already up to date (Local: {self.constants.patcher_version}, Remote: {remote_version_str})")
+                    logging.info(
+                        f"- Already up to date (Local: {self.constants.patcher_version}, Remote: {remote_version_str})")
                     return
             except version.InvalidVersion:
-                logging.error(f"- Unparsable version (Local: {self.constants.patcher_version}, Remote: {remote_version_str}), not opening the patcher")
+                logging.error(
+                    f"- Unparsable version (Local: {self.constants.patcher_version}, Remote: {remote_version_str}), not opening the patcher")
                 return
 
-        logging.info(f"- Found new version: {remote_version_str}, sending notification to user")
-        notifications_handler.NotificationsHandler.send_notification(title="Update A", body="")
-
+        logging.info(f"- Found new version: {remote_version_str}, opening the patcher")
+        gui_entry.EntryPoint(self.constants).start()
 
     def _prepare_for_update_handler(self) -> None:
         """
