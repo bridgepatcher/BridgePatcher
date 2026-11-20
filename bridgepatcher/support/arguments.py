@@ -30,7 +30,7 @@ from . import (
     utilities,
     defaults,
     validation,
-    updates
+    updates,
 )
 
 from packaging import version
@@ -189,8 +189,8 @@ class arguments:
                 logging.error(f"- Unparsable version (Local: {self.constants.patcher_version}, Remote: {remote_version_str}), not opening the patcher")
                 return
 
-        logging.info(f"- Found new version: {remote_version_str}, opening the patcher")
-        gui_entry.EntryPoint(self.constants).start()
+        logging.info(f"- Found new version: {remote_version_str}, sending notification to user")
+        notifications_handler.NotificationsHandler.send_notification(title="Update A", body="")
 
 
     def _prepare_for_update_handler(self) -> None:

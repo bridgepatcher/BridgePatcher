@@ -17,11 +17,6 @@ KEXT_DICTIONARY = {
             "Repository": "https://github.com/acidanthera/AirportBrcmFixup",
             "Constants Variable": "self.airportbcrmfixup_version",
         },
-        # Due to issues with legacy Macs, don't update
-        # "AppleALC": {
-        #     "Repository": "https://github.com/acidanthera/AppleALC",
-        #     "Constants Variable": "self.applealc_version",
-        # },
         "BlueToolFixup": {
             "Repository": "https://github.com/acidanthera/BrcmPatchRAM",
             "Constants Variable": "self.bluetool_version",
@@ -38,10 +33,6 @@ KEXT_DICTIONARY = {
         "DebugEnhancer": {
             "Repository": "https://github.com/acidanthera/DebugEnhancer",
             "Constants Variable": "self.debugenhancer_version",
-        },
-        "FeatureUnlock": {
-            "Repository": "https://github.com/acidanthera/FeatureUnlock",
-            "Constants Variable": "self.featureunlock_version",
         },
         "Lilu": {
             "Repository": "https://github.com/acidanthera/Lilu",

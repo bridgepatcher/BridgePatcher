@@ -460,58 +460,15 @@ class CheckProperties:
         has no entry for, and died with a bare KeyError in efi_builder/firmware.py's
         _dual_dp_handling().
         """
-        # Hackintoshes/VMs must stay blocked regardless of a selected custom_model,
-        # unless the user has explicitly opted in via allow_oc_everywhere. Checking
-        # custom_model first (as before) let picking any custom SMBIOS target in
-        # Settings silently re-enable "Build and Install OpenCore" on these hosts
-        # (this is what the on_model_choice() fix alone could not solve, since it
-        # just re-checks this same function).
-        if self.constants.host_is_hackintosh is True:
-            # A Hackintosh/VM can still be a *build station* for a different, real Mac: if the
-            # user explicitly picked a target (custom_model) and that target is itself a genuine,
-            # supported Mac model, the resulting OpenCore build isn't destined for this Hackintosh/VM
-            # at all. Bare `custom_model` truthiness isn't enough here (that's what let ANY custom
-            # SMBIOS choice re-enable the button before, see note above), so this specifically
-            # requires the target to be a real, supported Mac.
-            #
-            # allow_oc_everywhere ("Allow native models") deliberately does NOT lift this branch,
-            # which is what an earlier revision got wrong: it was part of the condition above, so
-            # enabling the checkbox skipped this block entirely and the `allow_oc_everywhere is True`
-            # fallthrough further down returned True even with Host Model selected (custom_model
-            # empty). That toggle means "let me build for a Mac that doesn't need BridgePatcher" - it cannot
-            # conjure a build target for a machine that isn't a Mac at all. A Host Model build on
-            # such a host runs against the host's own model, which smbios_data has no entry for,
-            # and dies with a bare KeyError in efi_builder/firmware.py's _dual_dp_handling() -
-            # exactly the VMware failure described above. Note this also covers a Hackintosh whose
-            # SMBIOS spoofs a supported Mac: that target now has to be chosen explicitly as Target
-            # Model rather than inherited from the host, so what gets built is never implicit.
+        if self.constants.host_is_hackintosh:
             if self.constants.custom_model and self.constants.custom_model in model_array.SupportedSMBIOS:
                 return True
             return False
         if self.constants.custom_model:
             return True
-        if self.constants.allow_oc_everywhere is True:
+
+        if self.constants.allow_oc_everywhere:
             return True
-        # NOTE: real T2 Macs (Macmini8,1, MacBookPro16,3, iMacPro1,1, etc.) are deliberately
-        # NOT gated behind "Allow spoofing native Macs" here, even though an earlier revision
-        # of this function did exactly that. That toggle controls something else, further
-        # down the actual build (efi_builder/smbios.py BuildSMBIOS.set_smbios()): when it's
-        # False (its default), the SMBIOS Model gets deliberately spoofed away from the real
-        # model (eg. Macmini8,1 -> iMac20,1, see generate_smbios.set_smbios_model_spoof())
-        # while the Board ID stays real - this is the actual mechanism this fork relies on to
-        # get T2 Macs booting macOS versions Apple no longer supports on them at all (eg.
-        # Tahoe). Gating the build button behind allow_native_spoofs=True instead:
-        #   (a) left every real T2 Mac stuck with a disabled button by default, since there's
-        #       no reliable way to tell "this OS isn't natively supported" from the currently
-        #       booted OS alone - building OpenCore is usually done from a still-native OS
-        #       session (eg. Sequoia) to prepare booting into a not-yet-installed target OS
-        #       (eg. Tahoe), so even the detected_os-vs-Max-OS-Supported check added in a
-        #       later revision of this function never fired in that (the common) case; and
-        #   (b) if a user enabled the toggle just to unlock the button, it would flip
-        #       allow_native_spoofs to True and silently disable the iMac20,1-style spoof
-        #       their boot setup actually depends on.
-        # Real T2 Macs fall through to the SupportedSMBIOS check below like any other
-        # supported model - they're listed there too.
         if self.constants.computer.real_model in model_array.SupportedSMBIOS:
             return True
 

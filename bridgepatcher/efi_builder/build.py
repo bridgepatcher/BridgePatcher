@@ -20,14 +20,7 @@ from .. import constants
 from ..support import utilities
 from ..datasets import model_array
 
-from .networking import (
-wired,
-wireless
-)
 from . import (
-bluetooth,
-firmware,
-graphics_audio,
 support,
 storage,
 smbios,
@@ -282,11 +275,6 @@ class BuildOpenCore:
 
         # Call support functions
         for function in [
-            firmware.BuildFirmware,
-            wired.BuildWiredNetworking,
-            wireless.BuildWirelessNetworking,
-            graphics_audio.BuildGraphicsAudio,
-            bluetooth.BuildBluetooth,
             storage.BuildStorage,
             smbios.BuildSMBIOS,
             security.BuildSecurity,
