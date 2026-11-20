@@ -1,5 +1,5 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
-## 4.0.0.2000003.7.2 - 4.0.0 alpha 20.3.7.2 Preview
+## 4.0.0.2000004  - 4.0.0 alpha 20.4 Preview
 This release:
 - builds OpenCore for Macs without a T2 chip with a port of Dortania's current OpenCore Legacy Patcher EFI builder, to rule out BridgePatcher's own EFI builder as the cause of #788. On all 85 supported Macs without a T2 chip, the EFI now matches the one Dortania's builder makes, apart from BridgePatcher's names, OpenCore 1.0.8 and the boot picker theme
   - BridgePatcher-only settings are no longer added on these Macs, among them `dart=0`, `-amfipassbeta`, `-oas_skip_attestation`, the extra Haswell/Broadwell and MacBookPro13,x/14,x boot-args, CatalinaBCM5701Ethernet and SimpleHDA audio on the iMac19,1 and iMac19,2 under macOS Tahoe
