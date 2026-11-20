@@ -8,14 +8,15 @@ name: Update browser user agents
 # branch. The script never downgrades a version.
 #
 # main is protected by a ruleset that requires status checks. The bump is pushed
-# straight to main when the token is allowed to bypass that ruleset: store a token
-# of a bypass actor (e.g. a GitHub App added to the ruleset's bypass list, with
-# contents + pull requests: write) as the secret UA_UPDATE_TOKEN. The default
-# GITHUB_TOKEN can't bypass rulesets.
+# straight to main when it's made by a GitHub App on the ruleset's bypass list
+# (permissions: contents + pull requests: read and write). Store the app's ID as
+# the variable UA_APP_ID and its private key as the secret UA_APP_PRIVATE_KEY;
+# each run creates a short-lived app token from them. The default GITHUB_TOKEN
+# can't bypass rulesets.
 #
 # If the push to main is rejected, the bump goes through a PR instead, with
 # auto-merge turned on. PRs made with GITHUB_TOKEN don't trigger other workflows,
-# so without UA_UPDATE_TOKEN someone has to close and reopen the PR to start the
+# so without the app someone has to close and reopen the PR to start the
 # required checks.
 #
 # Run it by hand from the Actions tab ("Run workflow") to check right away.
@@ -42,18 +43,27 @@ jobs:
       BASE: ${{ github.event.repository.default_branch }}
       PREFIX: bot/update-user-agents-
       GH_REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ secrets.UA_UPDATE_TOKEN || github.token }}
-      HAS_TOKEN: ${{ secrets.UA_UPDATE_TOKEN != '' }}
+      HAS_APP: ${{ vars.UA_APP_ID != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      - name: Create a token for the bypass app
+        id: app-token
+        if: env.HAS_APP == 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.UA_APP_ID }}
+          private-key: ${{ secrets.UA_APP_PRIVATE_KEY }}
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
       - name: Bump out-of-date user agents (push to main or open a PR)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           git config core.hooksPath /dev/null
           remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
@@ -151,6 +161,6 @@ jobs:
           gh pr merge "$pr" --auto --squash > /dev/null 2>&1 \
             || echo "::warning::Couldn't turn on auto-merge for #$pr (is 'Allow auto-merge' enabled in the repo settings?). Merge it by hand once the checks pass."
 
-          if [ "$HAS_TOKEN" != true ]; then
-            echo "::warning::UA_UPDATE_TOKEN isn't set, so the required checks won't start on #$pr by themselves (pushes made with GITHUB_TOKEN don't trigger workflows). Close and reopen the PR to start them, or add the secret."
+          if [ "$HAS_APP" != true ]; then
+            echo "::warning::UA_APP_ID isn't set, so the required checks won't start on #$pr by themselves (pushes made with GITHUB_TOKEN don't trigger workflows). Close and reopen the PR to start them, or set up the app."
           fi
