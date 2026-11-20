@@ -1,4 +1,15 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000003.7.2 - 4.0.0 alpha 20.3.7.2 Preview
+This release:
+- builds OpenCore for Macs without a T2 chip the same way as Dortania's OpenCore Legacy Patcher, to rule out our EFI as the cause of #788. The EFI for e.g. a MacBookPro7,1 now matches Dortania's, apart from BridgePatcher's own names and OpenCore 1.0.8. These settings, which Dortania's builder doesn't set, are no longer added on Macs without a T2 chip:
+  - the "Disable Library Validation Enforcement" and "Disable _csr_check() in _vnode_check_signature" kernel patches, unless the Mac needs them for root patching
+  - the `-oas_skip_attestation` boot-arg and the `IAS_ENV_SKIP_ATTESTATION` NVRAM variable
+  - the `-amfipassbeta` boot-arg
+  - turning off SpoofVendor
+  - build and install OpenCore again with this version to get the new settings
+  - T2 Macs are not affected, their EFI stays exactly the same
+- removes the TEST-A to TEST-D (LEVEL-B to LEVEL-D) OpenCore build profiles. Every build now uses the standard configuration, and the profile choices are gone from Build OpenCore, the OpenCore settings and Developer Mode. A stored profile choice from an earlier version is removed on the next start
+
 ## 4.0.0.2000003.7.1 - 4.0.0 alpha 20.3.7.1 Preview
 This release:
 - fixes a bug where root patching ran on Macs without a T2 chip even though AMFI was still enabled, so the Mac couldn't start up afterwards (#788). As soon as AMFIPass was loaded, BridgePatcher assumed AMFI would accept the patched frameworks. That is only true for Dortania's root patches: AMFIPass only trusts binaries signed by Dortania, and BridgePatcher signs its root patches with its own certificate. On a Mac whose OpenCore had no `amfi=0x80`, root patching therefore went ahead, and after the reboot AMFI rejected the patched frameworks and the Mac never reached the desktop. Whether AMFI is disabled is now decided only by the boot-args. A Mac without `amfi=0x80` is now stopped before root patching with "Validation: AMFI is enabled" instead of ending up unable to start up
