@@ -158,12 +158,9 @@ class GenerateDefaults:
         # Purge it unconditionally so that can never happen.
         global_settings.GlobalEnviromentSettings().delete_property("GUI:Experimental_Features")
 
-        if self.constants.Experimental_Features:
-            self.constants.build_profile = global_settings.GlobalEnviromentSettings().read_property("GUI:oc_build")
-            if self.constants.build_profile is None or self.constants.build_profile == "":
-                logging.info("No OC Default config provided, you will be prompted for one at build")
-            else:
-                logging.info(f"Setting the OC Default build to \"{self.constants.build_profile}\"")
+        # The TEST-A to TEST-D build profiles are gone, every build uses the standard
+        # configuration. Drop the stored profile choice from older versions.
+        global_settings.GlobalEnviromentSettings().delete_property("GUI:oc_build")
 
         # "Turn Off Auto Updates" is visible to every user (Settings > Advanced),
         # so its stored value must be restored independently of Developer Mode.

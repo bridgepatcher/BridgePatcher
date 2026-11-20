@@ -1,5 +1,5 @@
 """
-gui_test_info.py: Dialog for displaying detailed explanations of all BridgePatcher test levels and patches
+gui_test_info.py: Dialog for displaying detailed explanations of BridgePatcher's boot-args and patches
 """
 
 import wx
@@ -11,14 +11,13 @@ from . import gui_support
 
 class TestExplanationDialog(wx.Dialog):
     """
-    Dialog providing clear and comprehensive explanations of all build profiles,
-    experimental test levels (Level B, Level C, Level D), boot-args, Wi-Fi, Audio, and T1 root patches.
+    Dialog providing clear and comprehensive explanations of boot-args, Wi-Fi, Audio, and T1 root patches.
     """
 
     def __init__(self, parent: wx.Window, global_constants: constants.Constants, initial_tab: int = 0) -> None:
         super().__init__(
             parent,
-            title="Guide & Explanation: Test Levels, Wi-Fi, Audio & Patches",
+            title="Guide & Explanation: Boot-args, Wi-Fi, Audio & Patches",
             size=(680, 580),
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER
         )
@@ -29,7 +28,7 @@ class TestExplanationDialog(wx.Dialog):
         main_sizer = wx.BoxSizer(wx.VERTICAL)
 
         # Header Title
-        title_label = wx.StaticText(panel, label="📘 Comprehensive Guide to Test Levels & Patches")
+        title_label = wx.StaticText(panel, label="📘 Comprehensive Guide to Boot-args & Patches")
         title_label.SetFont(gui_support.font_factory(16, wx.FONTWEIGHT_BOLD))
         main_sizer.Add(title_label, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 12)
 
@@ -43,19 +42,6 @@ class TestExplanationDialog(wx.Dialog):
 
         # Notebook (Tabs) for categories
         notebook = wx.Notebook(panel)
-
-        # --- TAB 1: Livelli di Build EFI ---
-        tab_builds = wx.Panel(notebook)
-        tab_builds_sizer = wx.BoxSizer(wx.VERTICAL)
-        text_builds = wx.TextCtrl(
-            tab_builds,
-            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2
-        )
-        text_builds.SetFont(gui_support.font_factory(11, wx.FONTWEIGHT_NORMAL))
-        text_builds.SetValue(self._get_builds_text())
-        tab_builds_sizer.Add(text_builds, 1, wx.EXPAND | wx.ALL, 8)
-        tab_builds.SetSizer(tab_builds_sizer)
-        notebook.AddPage(tab_builds, "🧪 Build Levels (A/B/C/D)")
 
         # --- TAB 2: Boot-args & GPU Dual-Graphics ---
         tab_bootargs = wx.Panel(notebook)
@@ -113,55 +99,6 @@ class TestExplanationDialog(wx.Dialog):
         panel.SetSizer(main_sizer)
         panel.Layout()
 
-    def _get_builds_text(self) -> str:
-        return """============================================================
-OPENCORE BUILD LEVELS (PROFILES)
-============================================================
-
-1. 🟢 STANDARD / SAFE BUILD:
-   • Purpose: Stock and stable OpenCore configuration certified by Dortania.
-   • SMBIOS: Retains the Mac's native SMBIOS.
-   • Target: Daily use on supported and validated macOS versions.
-
-------------------------------------------------------------
-
-2. 🧪 [LEVEL-B] EXPERIMENTAL GPU:
-   • Purpose: Diagnostics and isolation of graphical (GPU) issues.
-   • Kexts: Injects and activates WhateverGreen.kext version 1.7.0.
-   • Boot-args: Injects '-wegnoegpu' to disable power/switching
-     of the dGPU and isolate testing to the Intel integrated graphics only.
-
-------------------------------------------------------------
-
-3. 🧪 [LEVEL-C] EXPERIMENTAL TAHOE (MacBookPro14,x):
-   • Goal: Experimental support for macOS 26 (Tahoe) maintaining
-     the native hardware identity of the MacBook Pro 2017 (T1).
-   • Automatic Boot-args:
-     - 'dart=0': Resolves IOMMU mapping and Wi-Fi/Bluetooth peripheral issues.
-     - 'agdpmod=ignore': Bypasses Apple Graphics Device Policy and prevents
-       black screens on boot for MacBookPro14,x (Polaris + Kaby Lake).
-     - 'cryptex=0 cs_allow_invalid=1': Allows kernel loading.
-   • SMBIOS: Native ('MacBookPro14,x'), without spoofing.
-
-------------------------------------------------------------
-
-4. 🧪 [LEVEL-C] EXPERIMENTAL SPOOF T2:
-   • Purpose: Spoofs the SMBIOS to 'MacBookPro16,1' / 'MacBookPro16,2' (T2 Mac)
-     to verify the behavior of the Tahoe installer and kernel.
-   • T2 Bypass: Bypasses the T2 abort block within BridgePatcher.
-   • Includes all Level C boot-args (dart=0, agdpmod=ignore, cryptex=0).
-
-------------------------------------------------------------
-
-5. 🧪 [LEVEL-D] EXPERIMENTAL ALL-IN-ONE (Wi-Fi + Audio + GPU + T1):
-   • Purpose: COMPLETE profile with all patches active simultaneously.
-   • Wi-Fi: Activates IOSkywalkFamily, IO80211FamilyLegacy, AirportBrcmFixup,
-     blocks the native Skywalk driver, and uses boot-arg 'ipc_control_port_options=0 amfi=0x80'.
-   • Audio: Activates AppleALC.kext + 'alcid=13' (HDEF codec for MacBookPro14,x).
-   • GPU: Dual-GPU Kaby Lake + Polaris with 'agdpmod=pikera' and 'dart=0'.
-   • T1 Security: Secure login with password only + iCloud/Apple ID account support.
-"""
-
     def _get_bootargs_text(self) -> str:
         return """============================================================
 SPECIFIC BOOT-ARGS EXPLANATION FOR MACBOOKPRO14,x
@@ -172,7 +109,7 @@ SPECIFIC BOOT-ARGS EXPLANATION FOR MACBOOKPRO14,x
   Fundamental on MacBookPro14,x and Mac 2017 to prevent crashes of the Broadcom Wi-Fi
   driver (14E4:43BA), Bluetooth, and PCIe controllers on macOS Tahoe.
 
-• agdpmod=ignore (or agdpmod=pikera in LEVEL-D)
+• agdpmod=ignore
   Bypasses AppleGraphicsDevicePolicy (AGDP) checks.
   On MacBook Pros with dual GPUs (Intel HD 630 + AMD Polaris), AGDP
   tends to disable video outputs when WindowServer starts,

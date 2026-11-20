@@ -489,22 +489,10 @@ class BuildOpenCore:
         try:
             logging.info(f"Generating OpenCore configuration for {self.model} ...")
             if any(m in self.model or (self.constants.computer is not None and getattr(self.constants.computer, "real_model", None) == m) for m in ["MacBookPro14,1", "MacBookPro14,2", "MacBookPro14,3"]):
-                if self.constants.build_profile == "test_b":
-                    profile_name = "TEST-B GPU"
-                elif self.constants.build_profile == "test_c":
-                    profile_name = "TEST-C TAHOE / ALBERT"
-                elif self.constants.build_profile == "test_c_spoofed":
-                    profile_name = "TEST-C SPOOFED / ALBERT"
-                elif self.constants.build_profile == "test_d":
-                    profile_name = "TEST-D ALL-IN-ONE (Wi-Fi + Audio + GPU + T1)"
-                else:
-                    profile_name = "STANDARD / SAFE"
-
                 target_m = self.model if self.model.startswith("MacBookPro14") else (getattr(self.constants.computer, "real_model", self.model))
                 has_t1 = "14,1" not in target_m
                 logging.info(f"{target_m} (Kaby Lake 2017) detected")
                 logging.info("")
-                logging.info(f"BUILD PROFILE: {profile_name}")
                 if has_t1:
                     logging.info("T1 SECURITY CHIP: ENABLED")
                     if getattr(self.constants, "t1_tahoe_touch_id", False) is True:
@@ -526,11 +514,6 @@ class BuildOpenCore:
                 if "14,3" in target_m:
                     logging.info("Found AMD Polaris")
 
-            if self.constants.build_profile == "test_c_spoofed":
-                logging.info("Profile TEST-C SPOOFED: Forcing SMBIOS spoofing to MacBookPro16,1")
-                self.constants.custom_model = "MacBookPro16,1"
-                self.constants.serial_settings = "Moderate"
-
             self._build_efi()
         except Exception as e:
             logging.error(f"Whoops, Generating OpenCore configuration for {self.model} because of the following error:")
@@ -538,11 +521,7 @@ class BuildOpenCore:
             logging.info("Please try again later.")
             sys.exit(3)
         try:
-            if self.constants.build_profile in ["test_c", "test_d"]:
-                logging.info(f"Profile {self.constants.build_profile.upper()}: Skipping SMBIOS spoofing (Original SMBIOS preserved).")
-            elif self.constants.build_profile == "test_c_spoofed":
-                smbios.BuildSMBIOS(self.model, self.constants, self.config).set_smbios()
-            elif self.constants.allow_oc_everywhere is False or self.constants.allow_native_spoofs is True or (self.constants.custom_serial_number != "" and self.constants.custom_board_serial_number != ""):
+            if self.constants.allow_oc_everywhere is False or self.constants.allow_native_spoofs is True or (self.constants.custom_serial_number != "" and self.constants.custom_board_serial_number != ""):
                 smbios.BuildSMBIOS(self.model, self.constants, self.config).set_smbios()
 
             # cryptex=0 is no longer injected. It was added on every macOS version for CPUs without
@@ -567,44 +546,7 @@ class BuildOpenCore:
                         current_boot_args = f"{current_boot_args} {arg}".strip()
                 self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = current_boot_args
 
-            # TEST-D ALL-IN-ONE Boot-args and Kext injection
-            if self.constants.build_profile == "test_d":
-                logging.info("Profile TEST-D: Injecting Wi-Fi, Audio & System boot-args (ipc_control_port_options=0 -amfipassbeta alcid=13).")
-
-                test_d_args = ["ipc_control_port_options=0", "-amfipassbeta", "-lilubetaall"]
-                if self.model in ["MacBookPro13,2", "MacBookPro13,3", "MacBookPro14,2", "MacBookPro14,3"]:
-                    test_d_args.append("alcid=13")
-                for arg in test_d_args:
-                    prefix = arg.split('=')[0]
-                    if prefix not in current_boot_args:
-                        current_boot_args = f"{current_boot_args} {arg}".strip()
-                # Clean out any leftover amfi=0x80 to ensure Apple Account & entitlements are functional
-                if self.model not in model_array.T2Macs and not self.constants.disable_amfi:
-                    cleaned = [a for a in current_boot_args.split() if a != "amfi=0x80"]
-                    current_boot_args = " ".join(cleaned)
-                self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = current_boot_args
-                # Force Wi-Fi kexts and block
-                # behebt eine Sicherheitslücke, die erlaubt Angreifern, einfach das Injizieren von diesen Kexts zu überspringen, um DoS-Angriffe zu starten
-                try:
-                    logging.info("Injecting WiFi kexts and blocks")
-                    support.BuildSupport(self.model, self.constants, self.config).enable_kext("IOSkywalkFamily.kext", self.constants.ioskywalk_version, self.constants.ioskywalk_path)
-                    support.BuildSupport(self.model, self.constants, self.config).enable_kext("IO80211FamilyLegacy.kext", self.constants.io80211legacy_version, self.constants.io80211legacy_path)
-                    support.BuildSupport(self.model, self.constants, self.config).get_kext_by_bundle_path("IO80211FamilyLegacy.kext/Contents/PlugIns/AirPortBrcmNIC.kext")["Enabled"] = True
-                    support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(self.config["Kernel"]["Block"], "Identifier", "com.apple.iokit.IOSkywalkFamily")["Enabled"] = True
-                    support.BuildSupport(self.model, self.constants, self.config).enable_kext("AirportBrcmFixup.kext", self.constants.airportbcrmfixup_version, self.constants.airportbcrmfixup_path)
-                except Exception as e:
-                    logging.error("Injecting WiFi drivers has failed due to the following error:")
-                    logging.exception("Stack Trace:")
-                    sys.exit(3)
-                try:
-                    logging.info("Injecting the sound kext")
-                    support.BuildSupport(self.model, self.constants, self.config).enable_kext("AppleALC.kext", self.constants.applealc_version, self.constants.applealc_path)
-                except Exception as e:
-                    logging.error("Failed to inject the sound kext - it is necessary so you can have any sound on your machine.")
-                    logging.exception("Stack Trace:")
-                    sys.exit(3)
-
-            # MacBookPro14,x (14,1, 14,2, 14,3) Kaby Lake optimizations (applied across Standard / Safe and all profiles)
+            # MacBookPro14,x (14,1, 14,2, 14,3) Kaby Lake optimizations
             real_model = getattr(self.constants.computer, 'real_model', self.model) if hasattr(self.constants, 'computer') else self.model
             if any(real_model.startswith(m) or self.model.startswith(m) for m in ["MacBookPro14,1", "MacBookPro14,2", "MacBookPro14,3"]):
                 current_boot_args = self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"]
@@ -698,27 +640,14 @@ class BuildOpenCore:
             support.BuildSupport(self.model, self.constants, self.config).sign_files()
             support.BuildSupport(self.model, self.constants, self.config).validate_pathing()
 
-            is_test_profile = getattr(self.constants, "build_profile", "standard") != "standard"
             is_mbp14x = any(self.model == m or (self.constants.computer is not None and getattr(self.constants.computer, "real_model", None) == m) for m in ["MacBookPro14,1", "MacBookPro14,2", "MacBookPro14,3"])
 
-            if is_test_profile or is_mbp14x:
-                if self.constants.build_profile == "test_b":
-                    profile_name = "TEST-B GPU"
-                elif self.constants.build_profile == "test_c":
-                    profile_name = "TEST-C TAHOE / ALBERT"
-                elif self.constants.build_profile == "test_c_spoofed":
-                    profile_name = "TEST-C SPOOFED / ALBERT"
-                elif self.constants.build_profile == "test_d":
-                    profile_name = "TEST-D ALL-IN-ONE (Wi-Fi + Audio + GPU + T1 Native Auth)"
-                else:
-                    profile_name = "STANDARD / SAFE"
-
+            if is_mbp14x:
                 logging.info("")
                 logging.info("=========================================")
                 logging.info("          BUILD REPORT                   ")
                 logging.info("=========================================")
                 logging.info(f"Model: {self.model}")
-                logging.info(f"Profile: {profile_name}")
                 is_t1_model = self.model in ["MacBookPro13,2", "MacBookPro13,3", "MacBookPro14,2", "MacBookPro14,3"]
                 t1_info = "NATIVE SOFTWARE KEYSTORE (TAHOE COMPATIBLE)" if is_t1_model else "NOT APPLICABLE (Non-T1 Hardware)"
                 logging.info(f"T1 Auth: {t1_info}")
@@ -740,34 +669,17 @@ class BuildOpenCore:
                 amd_patches = [patch for patch in self.config["Kernel"]["Patch"] if "AMD" in patch.get("Comment", "")]
                 dart_enabled = "dart=0" in boot_args
 
-                if self.constants.build_profile == "test_b":
-                    logging.info(f"WhateverGreen: {'ENABLED' if weg_enabled else 'ERROR — EXPECTED ENABLED'}")
-                    logging.info(f"WhateverGreen version: {self.constants.whatevergreen_version}")
-                    logging.info(f"-wegnoegpu: {'ENABLED' if wegnoegpu_enabled else 'ERROR — EXPECTED ENABLED'}")
-                elif self.constants.build_profile in ["test_c", "test_c_spoofed"]:
-                    logging.info(f"WhateverGreen: {'ENABLED' if weg_enabled else 'NOT ENABLED'}")
-                    logging.info(f"-wegnoegpu: {'ENABLED' if wegnoegpu_enabled else 'NOT ENABLED'}")
-                else:
-                    logging.info(f"WhateverGreen: {'NOT ENABLED BY TEST-B' if not weg_enabled else 'WARNING — UNEXPECTEDLY ENABLED'}")
-                    logging.info(f"-wegnoegpu: {'NOT ENABLED BY TEST-B' if not wegnoegpu_enabled else 'WARNING — UNEXPECTEDLY ENABLED'}")
+                logging.info(f"WhateverGreen: {'ENABLED' if weg_enabled else 'NOT ENABLED'}")
+                logging.info(f"-wegnoegpu: {'ENABLED' if wegnoegpu_enabled else 'NOT ENABLED'}")
 
                 logging.info(f"AMD kernel patches: {len(amd_patches) if amd_patches else 'NONE'}")
                 logging.info(f"dart=0: {'ENABLED' if dart_enabled else 'NOT ENABLED'}")
                 logging.info(f"boot-args: {boot_args}")
                 logging.info("=========================================")
 
-            # Create profile-specific output directory
-            if is_test_profile or is_mbp14x:
-                if self.constants.build_profile == "test_b":
-                    profile_dir_base = "TEST-B-Build"
-                elif self.constants.build_profile == "test_c":
-                    profile_dir_base = "TEST-C-TAHOE-ALBERT"
-                elif self.constants.build_profile == "test_c_spoofed":
-                    profile_dir_base = "TEST-C-SPOOFED"
-                elif self.constants.build_profile == "test_d":
-                    profile_dir_base = "TEST-D-ALL-IN-ONE"
-                else:
-                    profile_dir_base = "Standard-Build"
+            # Copy the EFI to a model-specific output directory (MacBookPro14,x)
+            if is_mbp14x:
+                profile_dir_base = "Standard-Build"
 
                 if self.model == "MacBookPro14,3":
                     profile_dir_name = profile_dir_base

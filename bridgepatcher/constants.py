@@ -227,7 +227,6 @@ class Constants:
         self.snooze_updates:            int = 0  #  Snooze updates for a number of days
         self.auto_update:               bool = True # install found updates without asking; False = still check, but ask first
         self.next_update_check:         str = "" # Value of when the ext update will be
-        self.build_profile:             str = "standard"  # "standard" or "test_b" — gates TEST-B GPU modifications
         self.app_mode:                  str = "albert"    # "albert" or "matteo"
         self.wxpython_variant:          bool = False  # Determine if using wxPython variant
         self.has_checked_updates:       bool = False  # Determine if check for updates has been run
