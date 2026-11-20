@@ -423,20 +423,11 @@ class BuildSecurity:
                         "RSRHelper.kext", self.constants.rsrhelper_version, self.constants.rsrhelper_path
                     )
 
-                # Shared: AMFI / Library Validation (Legacy Non-T2 verification targets)
-                # Ensure kernel patches for Library Validation and FileVault are active
-                support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(
-                    self.config["Kernel"]["Patch"], "Comment", "Disable Library Validation Enforcement"
-                )["Enabled"] = True
-                support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(
-                    self.config["Kernel"]["Patch"], "Comment", "Disable _csr_check() in _vnode_check_signature"
-                )["Enabled"] = True
-                self._update_nvram_string(PATCHER_NVRAM_UUID, f"{constants.NVRAM_PREFIX}Settings", "-allow_amfi")
-
-                # Attestation error -10000 bypass (Apple Account / setup compatibility)
-                self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-oas_skip_attestation")
-                self._set_nvram_value(APPLE_NVRAM_UUID, "IAS_ENV_SKIP_ATTESTATION", "1", overwrite=True)
-
+                # Non-T2 Macs get the same AMFI / Library Validation settings as Dortania's
+                # builder: nothing unless the hardware probes ask for it (disable_cs_lv),
+                # no attestation bypass (-oas_skip_attestation / IAS_ENV_SKIP_ATTESTATION)
+                # and no -amfipassbeta (issue #788).
+                #
                 # amfi=0x80 is decided by the hardware probes in defaults.py (disable_amfi),
                 # not by whether AMFIPass gets injected: AMFIPass only trusts root patches
                 # signed by Dortania's CA, and BridgePatcher signs them with its own
@@ -444,13 +435,19 @@ class BuildSecurity:
                 # why defaults.py _check_amfipass_supported() no longer resets disable_amfi.
                 # Gating this on 'not needs_amfipass' dropped amfi=0x80 for every
                 # pre-Sonoma Mac (e.g. MacBookPro7,1).
-                if self.constants.disable_cs_lv is True and self.constants.disable_amfi is True:
-                    logging.info("- Disabling AMFI (non-T2)")
-                    self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "amfi=0x80")
-                else:
-                    if not self._is_t2_mac():
-                        logging.info("- Using AMFIPass & Library Validation Enforcement Bypass for Apple Account compatibility")
-                        self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta ipc_control_port_options=0")
+                if self.constants.disable_cs_lv is True:
+                    if self.constants.disable_amfi is True:
+                        logging.info("- Disabling AMFI (non-T2)")
+                        self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "amfi=0x80")
+                    else:
+                        logging.info("- Disabling Library Validation (non-T2)")
+                    support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(
+                        self.config["Kernel"]["Patch"], "Comment", "Disable Library Validation Enforcement"
+                    )["Enabled"] = True
+                    support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(
+                        self.config["Kernel"]["Patch"], "Comment", "Disable _csr_check() in _vnode_check_signature"
+                    )["Enabled"] = True
+                    self._update_nvram_string(PATCHER_NVRAM_UUID, f"{constants.NVRAM_PREFIX}Settings", "-allow_amfi")
 
                 # Root patching rebuilds the Boot/System Kernel Collections, which breaks
                 # their .im4m (x86legacyap) signature. With SecureBootModel left at
@@ -476,10 +473,7 @@ class BuildSecurity:
             support.BuildSupport(self.model, self.constants, self.config).enable_kext(
                 "AMFIPass.kext", self.constants.amfipass_version, self.constants.amfipass_path
             )
-            # Ensure -amfipassbeta is present in boot-args and remove conflicting amfi=0x80
-            self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta ipc_control_port_options=0")
-            current_args = self._read_nvram_string(APPLE_NVRAM_UUID, "boot-args")
-            if "amfi=0x80" in current_args:
-                if not self._is_t2_mac() and not self.constants.disable_amfi:
-                    cleaned_args = " ".join([arg for arg in current_args.split() if arg != "amfi=0x80"])
-                    self.config["NVRAM"]["Add"][APPLE_NVRAM_UUID]["boot-args"] = cleaned_args
+            # T2 Macs: make sure -amfipassbeta is present in boot-args.
+            # Non-T2 Macs get AMFIPass without extra boot-args, same as Dortania's builder.
+            if self._is_t2_mac():
+                self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta ipc_control_port_options=0")
