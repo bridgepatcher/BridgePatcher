@@ -164,34 +164,12 @@ jobs:
         id: patterns
         run: node .github/scripts/malware_tree_scan.js .
 
-      # The official image ships with an up-to-date signature database; the scanner runs
-      # without network access and the checkout is mounted read-only.
       - name: ClamAV scan of the whole tree
         id: clamav
         if: always()
         run: |
-          set -uo pipefail
-          docker run --rm --network none --entrypoint clamscan \
-            -v "$GITHUB_WORKSPACE:/scan:ro" \
-            clamav/clamav:stable \
-            --recursive --infected --no-summary \
-            --exclude-dir='^/scan/\.git$' \
-            --max-filesize=200M --max-scansize=400M \
-            /scan > "$RUNNER_TEMP/clamav.txt" 2> "$RUNNER_TEMP/clamav-err.txt"
-          rc=$?
-          # 0 = clean, 1 = malware found, 2 = scanner error
-          if [ "$rc" -eq 1 ]; then
-            { echo "### ❌ ClamAV found malware"; echo; sed 's|^/scan/|- |' "$RUNNER_TEMP/clamav.txt"; } >> "$GITHUB_STEP_SUMMARY"
-            sed 's|^/scan/||' "$RUNNER_TEMP/clamav.txt" | while IFS= read -r l; do
-              echo "::error file=${l%%: *}::ClamAV: ${l#*: }"
-            done
-            echo "::error::ClamAV found malware. Nothing is built or uploaded until it is removed."
-            exit 1
-          elif [ "$rc" -ne 0 ]; then
-            echo "::error::ClamAV couldn't finish the scan (exit $rc), so this commit isn't built: $(head -c 1000 "$RUNNER_TEMP/clamav-err.txt")"
-            exit 1
-          fi
-          echo "ClamAV: no malware found."
+          bash .github/scripts/clamav_tree_scan.sh "$GITHUB_WORKSPACE" \
+            || { echo "::error::The ClamAV scan didn't pass. Nothing is built or uploaded until it does."; exit 1; }
 
   open-issues:
     name: Open violation reports
