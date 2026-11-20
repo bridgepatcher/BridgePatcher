@@ -111,6 +111,7 @@ class Constants:
         self.featureunlock_version:      str = "1.1.8"  #      FeatureUnlock
         self.debugenhancer_version:      str = "1.1.1"  #      DebugEnhancer
         self.cpufriend_version:          str = "1.3.0"  #      CPUFriend
+        self.cslvfixup_version:          str = "2.6.1"  #      CSLVFixup
         self.bluetool_version:           str = "2.7.2"  #      BlueToolFixup (BrcmPatchRAM)
         self.autopkg_version:            str = "1.0.4"  #      AutoPkgInstaller
         self.cryptexfixup_version:       str = "1.0.5"  #      CryptexFixup
@@ -133,6 +134,7 @@ class Constants:
         self.marvel_version:        str = "1.0.1"  #  MarvelYukonEthernet
         self.nforce_version:        str = "1.0.1"  #  nForceEthernet
         self.piixata_version:       str = "1.0.1"  #  AppleIntelPIIXATA
+        self.piixata_monterey_version: str = "1.0.0"  # AppleIntelPIIXATA (Monterey)
         self.fw_kext:               str = "1.0.1"  #  IOFireWireFamily
         self.apple_trackpad:        str = "1.0.1"  #  AppleUSBTrackpad
         self.apple_isight_version:  str = "1.0.0"  #  AppleiSight
@@ -457,6 +459,11 @@ class Constants:
     def plist_template(self):
         return self.payload_path / Path("Config/config.plist")
 
+    @property
+    def plist_template_non_t2(self):
+        # config.plist template for efi_builder/non_t2 (Dortania's builder, Macs without a T2 chip)
+        return self.payload_path / Path("Config/config-non-t2.plist")
+
     # Launch Services
     @property
     def launch_services_path(self):
@@ -734,6 +741,10 @@ class Constants:
         return self.payload_kexts_path / Path(f"Misc/AppleIntelPIIXATA-v{self.piixata_version}.zip")
 
     @property
+    def piixata_monterey_path(self):
+        return self.payload_kexts_path / Path(f"Misc/AppleIntelPIIXATA-Monterey-v{self.piixata_monterey_version}.zip")
+
+    @property
     def backlight_injector_path(self):
         return self.payload_kexts_path / Path(f"Misc/BacklightInjector-v{self.backlight_injector_version}.zip")
 
@@ -790,6 +801,10 @@ class Constants:
         return self.payload_kexts_path / Path(f"Acidanthera/RSRHelper-v{self.rsrhelper_version}-{self.kext_variant}.zip")
 
     @property
+    def cslvfixup_path(self):
+        return self.payload_kexts_path / Path(f"Acidanthera/CSLVFixup-v{self.cslvfixup_version}.zip")
+
+    @property
     def amfipass_path(self):
         # AMFIPass is release only
         return self.payload_kexts_path / Path(f"Acidanthera/AMFIPass-v{self.amfipass_version}-RELEASE.zip")
@@ -837,6 +852,14 @@ class Constants:
     @property
     def plist_folder_path(self):
         return self.payload_kexts_path / Path("Plists")
+
+    @property
+    def usb_maps_path(self):
+        return self.plist_folder_path / Path("USBMaps")
+
+    @property
+    def usb_map_template_path(self):
+        return self.plist_folder_path / Path("USB-Map.kext")
 
     @property
     def platform_plugin_plist_path(self):

@@ -24,6 +24,7 @@ from .networking import (
 wired,
 wireless
 )
+from .non_t2 import build as non_t2_build
 from . import (
 bluetooth,
 firmware,
@@ -84,12 +85,26 @@ class BuildOpenCore:
                 logging.error("- Cannot build an EFI for it. If this host is a VM or Hackintosh, pick a real target Mac model in Settings first")
                 raise ValueError(f"Unsupported build model: {self.model}")
 
+            # Macs without a T2 chip are built by efi_builder/non_t2, a port of Dortania's
+            # builder (OpenCore 1.0.8). This class only builds T2 Macs (issue #788).
+            if not self._is_t2_target():
+                self.constants.opencore_build_for_t2 = False
+                non_t2_build.BuildOpenCore(self.model, self.constants)
+                return
+
             self._build_opencore()
         except Exception as e:
             logging.error(f"Function Error: {e}")
             logging.exception("Stack Trace:") # This prints the full technical error
             logging.info("Please try again later.")
             sys.exit(3)
+
+
+    def _is_t2_target(self) -> bool:
+        """
+        Whether the target model has a T2 chip
+        """
+        return self.model in model_array.T2Macs or "T2_CHIP" in self.constants.device_properties.get(self.model, {}).get("Features", [])
 
 
     def _build_efi(self) -> None:
@@ -117,7 +132,7 @@ class BuildOpenCore:
 
         # Determine T2 status upfront: it also selects the OpenCore payload
         # (T2 fork for T2 Macs, OpenCore 1.0.8 for all other Macs) in _generate_base()
-        is_t2 = self.model in model_array.T2Macs or "T2_CHIP" in self.constants.device_properties.get(self.model, {}).get("Features", [])
+        is_t2 = self._is_t2_target()
         self.constants.opencore_build_for_t2 = is_t2
 
         self._generate_base()

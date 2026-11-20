@@ -136,6 +136,7 @@
                 "payloads/Kexts/Misc/AppleIntelCPUPowerManagement-v*.zip",
                 "payloads/Kexts/Misc/AppleIntelCPUPowerManagementClient-v*.zip",
                 "payloads/Kexts/Misc/AppleIntelPIIXATA-v*.zip",
+                "payloads/Kexts/Misc/AppleIntelPIIXATA-Monterey-v*.zip",
                 "payloads/Kexts/Misc/AppleKeyStore-v*.zip",
                 "payloads/Kexts/Misc/AppleKeyStore-Tahoe-v*.zip",
                 "payloads/Kexts/Misc/AppleRAIDCard-v*.zip",
