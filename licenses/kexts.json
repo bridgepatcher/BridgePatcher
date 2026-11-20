@@ -176,6 +176,7 @@
         {
             "reason": "Published without a license (no LICENSE in the author's repository, or no public source)",
             "archives": [
+                "payloads/Kexts/Acidanthera/CSLVFixup-v*.zip",
                 "payloads/Kexts/Misc/AMDGPUWakeHandler-v*.zip",
                 "payloads/Kexts/Misc/AppleMCEReporterDisabler-v*.zip",
                 "payloads/Kexts/Misc/LegacyUSBVideoSupport-v*.zip",
