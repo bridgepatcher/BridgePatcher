@@ -16,7 +16,8 @@ name: Update kexts
 #   - rebuilds the WhateverGreen Navi variant when WhateverGreen is updated (needs
 #     Xcode, so the job runs on macOS)
 #   - updates bridgepatcher/constants.py and THIRD-PARTY-NOTICES.txt
-# Pinned kexts (RestrictEvents) and BridgePatcher's newer AAAMouSSE build are skipped,
+# Pinned kexts (RestrictEvents) and BridgePatcher's newer AAAMouSSE build are skipped.
+# BridgePatcher's own T2 kexts (payloads/Kexts/T2) are updated by hand and never checked,
 # see the comments in the script.
 #
 # Kexts are injected by OpenCore, so a bad update can stop a Mac from booting.

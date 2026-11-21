@@ -96,6 +96,10 @@ KEXT_DICTIONARY = {
 # payloads/Kexts/<folder> on its default branch and copied from there when it is newer.
 UPSTREAM_REPOSITORY = "https://github.com/dortania/OpenCore-Legacy-Patcher"
 
+# BridgePatcher's own kexts, updated by hand by the BridgePatcher authors: never checked
+# by this script and not listed as unchecked in the summary
+FIRST_PARTY_FOLDERS = ["T2"]
+
 # Kexts never taken from Dortania (kexts in KEXT_DICTIONARY are skipped as well)
 UPSTREAM_SKIP = {
     "AAAMouSSE": "BridgePatcher ships a newer build (0.95-Dortania) than Dortania's AAAMouSSE-v0.95.zip",
@@ -231,7 +235,7 @@ class GenerateKexts:
 
         kexts = {}
         for match in CONSTANTS_KEXT_PATH_RE.finditer(constants):
-            if match["name"] in release_kexts:
+            if match["name"] in release_kexts or match["folder"] in FIRST_PARTY_FOLDERS:
                 continue
             if match["variable"] not in values:
                 raise Exception(f"self.{match['variable']} (used for {match['name']}) not found in constants.py")
@@ -255,6 +259,8 @@ class GenerateKexts:
                 known_kexts.add(KEXT_DICTIONARY[kext_folder][kext_name].get("Override", kext_name))
                 known_kexts.add(kext_name)
         for file in sorted(Path(".").glob("*/*.zip")):
+            if file.parent.name in FIRST_PARTY_FOLDERS:
+                continue
             if not any(file.name.startswith(f"{kext_name}-") for kext_name in known_kexts):
                 self.not_checked.append((file.as_posix(), "not tracked by this script"))
 
