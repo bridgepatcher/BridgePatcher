@@ -43,6 +43,14 @@ This release:
   - T2 Macs are not affected, their EFI stays exactly the same
 - removes the TEST-A to TEST-D (LEVEL-B to LEVEL-D) OpenCore build profiles. Every build now uses the standard configuration, and the profile choices are gone from Build OpenCore, the OpenCore settings and Developer Mode. A stored profile choice from an earlier version is removed on the next start
 
+## 4.0.0.2000003.8 - 4.0.0 alpha 20.3.8
+This release:
+- fixes a small bug where in arguments.py the No updates available in the code was on 2 rows instead of 1:
+
+            logging.info(
+                            f"- No update available ({checker.last_error if checker.last_error else 'already on the latest version'})")
+- updates the AirPort Atheros kext to the latest version available.
+
 ## 4.0.0.2000003.7.1 - 4.0.0 alpha 20.3.7.1 Preview
 This release:
 - fixes a bug where root patching ran on Macs without a T2 chip even though AMFI was still enabled, so the Mac couldn't start up afterwards (#788). As soon as AMFIPass was loaded, BridgePatcher assumed AMFI would accept the patched frameworks. That is only true for Dortania's root patches: AMFIPass only trusts binaries signed by Dortania, and BridgePatcher signs its root patches with its own certificate. On a Mac whose OpenCore had no `amfi=0x80`, root patching therefore went ahead, and after the reboot AMFI rejected the patched frameworks and the Mac never reached the desktop. Whether AMFI is disabled is now decided only by the boot-args. A Mac without `amfi=0x80` is now stopped before root patching with "Validation: AMFI is enabled" instead of ending up unable to start up
