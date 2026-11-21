@@ -1,4 +1,6 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.0.0.1 - 4.0.0 alpha 20.4 Preview
+
 ## 4.0.0.2000004  - 4.0.0 alpha 20.4 Preview
 This release:
 - builds OpenCore for Macs without a T2 chip with a port of Dortania's current OpenCore Legacy Patcher EFI builder, to rule out BridgePatcher's own EFI builder as the cause of #788. On all 85 supported Macs without a T2 chip, the EFI now matches the one Dortania's builder makes, apart from BridgePatcher's names, OpenCore 1.0.8 and the boot picker theme
