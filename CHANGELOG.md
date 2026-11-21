@@ -6,6 +6,8 @@ This release:
 - the root patches themselves now match Dortania's current OpenCore Legacy Patcher, apart from the USB 1.1 patch and the Modern Audio patch, which stay as they are (Modern Audio is still skipped on the iMac19,1 and iMac19,2 under macOS Tahoe when SimpleHDA is loaded). The patcher's own checks around root patching (revert checks, choosing which patches to install, the AMFI check from #788) are not changed
   - T1 Security Chip: on macOS Sequoia, `MechanismPlugins`, `ModulePlugins` and `ModuleBase.framework` are installed again (needed to add a Touch ID fingerprint). On macOS Tahoe, the Touch ID and Apple Pay files are now always installed, as in Dortania's patcher, instead of only when the EFI loads the T1 kexts. Build and install OpenCore with this version first, so the T1 kexts are loaded on Tahoe
   - AMD Navi: the patch is offered to every Mac with a Navi GPU and a CPU without AVX2 again (e.g. a Mac Pro 2010/2012 with a Navi graphics card), as in Dortania's patcher. It was limited to Dortania's internal testers
+- brings SimpleHDA audio on macOS Tahoe back to the iMac19,1 and iMac19,2, which lost it with the new EFI builder for Macs without a T2 chip in 4.0.0.2000004. SimpleHDA is the only way to get sound working on these Macs under Tahoe. OpenCore again adds Lilu, AppleALC and SimpleHDA with the Mac's audio layout (`alcid=7`), as before. SimpleHDA is still downloaded while building OpenCore and checked against its SHA-256; without an internet connection, OpenCore is built without it
+  - build and install OpenCore again with this version to get SimpleHDA back
 
 ## 4.0.0.2000004  - 4.0.0 alpha 20.4 Preview
 This release:
