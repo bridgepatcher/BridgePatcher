@@ -30,7 +30,8 @@ from . import (
     utilities,
     defaults,
     validation,
-    updates
+    updates,
+    network_handler
 )
 
 from packaging import version
@@ -159,21 +160,36 @@ class arguments:
         offers or installs it exactly as on a normal launch: auto updates on, an
         expired snooze or a dead service (support/endpoint_health.py) install it,
         otherwise the user is asked.
+
+        If GitHub can't be reached, this keeps waiting for the network and checks
+        again as soon as it is back, instead of giving up until the next interval.
         """
         logging.info("Background update check")
 
         if self._other_instance_running():
-            # The open app checks on its own; the next interval tries again.
+            # The open app checks on its own, at startup and again every
+            # constants.update_check_interval (gui_main_menu.py _on_update_check_timer()).
             logging.info("- The patcher is already running, skipping")
             return
 
-        try:
-            checker = updates.CheckBinaryUpdates(self.constants)
-            update_dict = checker.check_binary_updates()
-        except Exception as e:
-            logging.error(f"- Update check failed: {e}")
-            logging.exception("Stack Trace:")
-            return
+        # launchd doesn't start the next interval's run while this one is still
+        # waiting, so wait at most one interval, then leave it to that run.
+        deadline = time.time() + self.constants.update_check_interval
+        while True:
+            try:
+                checker = updates.CheckBinaryUpdates(self.constants)
+                update_dict = checker.check_binary_updates()
+            except Exception as e:
+                logging.error(f"- Update check failed: {e}")
+                logging.exception("Stack Trace:")
+                return
+
+            if update_dict or not checker.network_failed:
+                break
+
+            logging.info("- Could not reach GitHub, checking again as soon as the network is back")
+            if not self._wait_for_network(deadline):
+                return
 
         if not update_dict:
             logging.info(f"- No update available ({checker.last_error if checker.last_error else 'already on the latest version'})")
@@ -191,6 +207,25 @@ class arguments:
 
         logging.info(f"- Found new version: {remote_version_str}, opening the patcher")
         gui_entry.EntryPoint(self.constants).start()
+
+
+    def _wait_for_network(self, deadline: float) -> bool:
+        """
+        Wait until GitHub can be reached again for the background update check
+
+        Returns False if the deadline passed first, or if the patcher was opened in
+        the meantime (it checks on its own then).
+        """
+        while time.time() < deadline:
+            time.sleep(self.constants.update_check_retry_interval)
+            if self._other_instance_running():
+                logging.info("- The patcher was opened, it checks for updates on its own")
+                return False
+            if network_handler.NetworkUtilities(self.constants.update_releases_api_url).verify_network_connection():
+                logging.info("- Network is back")
+                return True
+        logging.info("- Still offline, leaving it to the next background update check")
+        return False
 
 
     def _prepare_for_update_handler(self) -> None:
