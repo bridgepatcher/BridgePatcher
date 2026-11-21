@@ -10,6 +10,9 @@ Impact: GitHub Actions may comment that the PR is malicious, but not close the P
 
 Impact: an attacker could intentionally set a malicious PR to confuse GitHub Actions into not closing the PR for malicious activity. Then they could trick unsuspecting owners of the organization to push malware into main.
 
+- fixes a vulnerability where an attacker who is actively typosquatting this project could make a fork and then push a malicious PR and bypass all action defenses to deploy malware
+Impact: an attacker who is actively running malware campaigns that impersonate BridgePatcher's organisation to push a malicious PR and bypass all defenses to trick an unsuspecting owner of the project to inject malware into main.
+
 - fixes a vulnerability where if the app was opened before the update was released, it may not update automatically, even while doing nothing at the moment.
 
 Impact: the user may remain on a vulnerable version because they never closed the application at all. An attacker could exploit this vulnerability to exploit other already patched vulnerabilities, e.g arbitary code execution, button hijacking or DoS.
