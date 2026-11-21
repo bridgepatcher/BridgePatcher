@@ -6,7 +6,10 @@ Safety rails:
   * Claude may only return small search/replace edits, never whole files.
   * Every fixed file is re-checked; if it still doesn't parse, it's restored.
   * Fixes that change more than MAX_CHANGED_LINES lines are rejected.
+  * Files under .github/ are never edited, so the checks can't be changed.
   * Nothing is pushed directly - the result goes into a PR for review.
+  * The system prompt includes AGENTS.md and the code-style skill
+    (ai_check_fix.project_guidance), so repairs follow the project's rules.
 
 Usage: ai_syntax_fix.py <failures.jsonl> <summary.md>
 """
@@ -17,6 +20,10 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ai_check_fix as acf   # noqa: E402
 
 API_URL = "https://api.anthropic.com/v1/messages"
 MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-5")
@@ -56,9 +63,9 @@ def check(kind, path):
     return r.returncode == 0, (r.stderr or r.stdout).strip()
 
 
-def ask_claude(api_key, messages):
+def ask_claude(api_key, messages, system):
     body = json.dumps({"model": MODEL, "max_tokens": 4096,
-                       "system": SYSTEM, "messages": messages}).encode()
+                       "system": system, "messages": messages}).encode()
     req = urllib.request.Request(API_URL, data=body, headers={
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
@@ -88,7 +95,7 @@ def changed_lines(a, b):
                if (l.startswith("+") or l.startswith("-")) and not l.startswith(("+++", "---")))
 
 
-def fix_file(api_key, item):
+def fix_file(api_key, item, system):
     path, kind, error = item["file"], item["kind"], item["error"]
     if os.path.getsize(path) > MAX_BYTES:
         return False, "file too large, skipped"
@@ -100,9 +107,13 @@ def fix_file(api_key, item):
                  f"File: {path}\nType: {kind}\nError:\n{error}\n\n<file>\n{content}\n</file>"}]
     for _ in range(ATTEMPTS):
         try:
-            raw, reply = ask_claude(api_key, messages)
+            raw, reply = ask_claude(api_key, messages, system)
             candidate = apply_edits(content, reply.get("edits", []))
-        except (urllib.error.URLError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        # OSError covers URLError/HTTPError and timeouts - one failing file must not
+        # fail the whole job (and with it the ruff fixes)
+        except (OSError, ValueError, KeyError, AttributeError, TypeError) as exc:
+            with open(path, "w", encoding="utf-8", errors="surrogateescape") as fh:
+                fh.write(original)
             return False, f"no usable fix ({exc})"
         if candidate == content:
             return False, reply.get("explanation", "no edits proposed")
@@ -132,7 +143,8 @@ def main():
     if os.path.exists(failures_path):
         with open(failures_path) as fh:
             items = [json.loads(l) for l in fh if l.strip()]
-    # One entry per file
+    # One entry per file, never under .github/ (same rule as ai_python_fix.py)
+    items = [i for i in items if not i["file"].startswith(".github/")]
     items = list({i["file"]: i for i in items}.values())[:MAX_FILES]
 
     if not items:
@@ -142,9 +154,11 @@ def main():
         print("::warning::ANTHROPIC_API_KEY secret not set - skipping AI syntax repair.")
         return
 
+    # Claude has room for the full AGENTS.md and code-style skill
+    system = SYSTEM + acf.project_guidance(compact=False)
     lines = ["### Syntax repairs by Claude", ""]
     for item in items:
-        ok, note = fix_file(api_key, item)
+        ok, note = fix_file(api_key, item, system)
         mark = "fixed" if ok else "not fixed"
         print(f"{item['file']}: {mark} - {note}")
         lines.append(f"- `{item['file']}` ({item['kind']}): **{mark}** - {note}")

@@ -264,6 +264,13 @@ jobs:
 
             // Push / schedule / manual: keep ONE issue up to date, close it when clean.
             // When this runs in a fork of the project, the fork's owner is pinged in the issue.
+            // Say which branch was audited: "upstream/main" in the report is Dortania's branch,
+            // and a manual run can audit any branch of this repository.
+            const branch = context.ref.replace(/^refs\/(heads|tags)\//, '');
+            const branchNote = `> 🌿 **Branch:** [\`${tick(branch)}\`](${context.serverUrl}/${owner}/${repo}/tree/` +
+              `${branch.split('/').map(encodeURIComponent).join('/')}) at ` +
+              `[\`${context.sha.slice(0, 7)}\`](${context.serverUrl}/${owner}/${repo}/commit/${context.sha})`;
+            body = body.replace('## 🛡️ License Guard\n', `## 🛡️ License Guard\n\n${branchNote}\n`);
             const { data: self } = await github.rest.repos.get({ owner, repo });
             let who = '';
             if (self.fork && violations > 0) {
@@ -280,12 +287,13 @@ jobs:
               if (violations === 0) {
                 if (issue) {
                   await github.rest.issues.createComment({ owner, repo, issue_number: issue.number,
-                    body: '✅ License Guard: no violations left in the latest full audit, closing.' });
+                    body: `✅ License Guard: no violations left in the latest full audit of \`${tick(branch)}\` ` +
+                      `(${context.sha.slice(0, 7)}), closing.` });
                   await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
                 }
                 return;
               }
-              const title = `License Guard: ${violations} possible license violation(s)`;
+              const title = `License Guard: ${violations} possible license violation(s) on ${branch}`;
               if (issue) {
                 if (issue.body !== body || issue.title !== title) {
                   await github.rest.issues.update({ owner, repo, issue_number: issue.number, title, body });
@@ -294,7 +302,7 @@ jobs:
                   if (fresh.length) {
                     await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body:
                       `${fresh.join(' ')} License Guard found license violation(s) added by your commits ` +
-                      '– see the issue description.' });
+                      `on \`${tick(branch)}\` – see the issue description.` });
                   }
                 }
               } else {
