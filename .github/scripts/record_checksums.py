@@ -296,13 +296,19 @@ def record_in_ledger(checkout, repo, branch, tag, release, sums):
         git(checkout, "add", LEDGER)
         msg = f"Record SHA256 checksums for {tag}" + (" (file changed after release)" if changed else "")
         git(checkout, "commit", "--quiet", "-m", msg)
-        push = git(checkout, "push", "--quiet", "origin", f"HEAD:{branch}", check=False)
+        # Not --quiet: it would hide the remote's error message checked below
+        push = git(checkout, "push", "origin", f"HEAD:{branch}", check=False)
         if push.returncode == 0:
             print(f"Recorded checksums of {tag} in {LEDGER} ({git(checkout, 'rev-parse', 'HEAD').stdout.strip()[:12]}).")
             return first_recorded_in(checkout, tag), first, changed
         print(f"Push attempt {attempt} failed: {push.stderr.strip()}")
-    print(f"::warning::Could not push {LEDGER} to {branch} (branch protection?). "
-          f"Allow github-actions[bot] to push to {branch}, or the checksums of {tag} are only kept in the release notes.")
+        # GH006: classic branch protection, GH013: ruleset. Retrying won't help there;
+        # any other failure (e.g. the branch moved meanwhile) is retried.
+        if re.search(r"GH006|GH013", push.stderr):
+            print(f"::warning::{branch} is protected and github-actions[bot] can't push to it. "
+                  f"Allow it to push to {branch}, or the checksums of {tag} are only kept in the release notes.")
+            return None, first, changed
+    print(f"::warning::Could not push {LEDGER} to {branch}, the checksums of {tag} are only kept in the release notes.")
     return None, first, changed
 
 
