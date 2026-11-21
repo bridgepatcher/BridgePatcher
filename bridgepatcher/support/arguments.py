@@ -163,7 +163,8 @@ class arguments:
         logging.info("Background update check")
 
         if self._other_instance_running():
-            # The open app checks on its own; the next interval tries again.
+            # The open app checks on its own, at startup and again every
+            # constants.update_check_interval (gui_main_menu.py _on_update_check_timer()).
             logging.info("- The patcher is already running, skipping")
             return
 

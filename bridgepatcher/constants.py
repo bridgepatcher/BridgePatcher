@@ -231,6 +231,8 @@ class Constants:
         self.app_mode:                  str = "albert"    # "albert" or "matteo"
         self.wxpython_variant:          bool = False  # Determine if using wxPython variant
         self.has_checked_updates:       bool = False  # Determine if check for updates has been run
+        self.last_update_check:         float = 0.0  # time.monotonic() of the last update check, see update_check_interval
+        self.update_check_interval:     int = 21600  # Seconds between automatic update checks while the app stays open, same as the update-check LaunchAgent's StartInterval
         self.root_patcher_succeeded:    bool = False  # Determine if root patcher succeeded
         self.start_build_install:       bool = False  # Determine if build install should be started
         self.host_is_non_metal:         bool = False  # Determine if host is non-metal (ie. enable UI hacks)

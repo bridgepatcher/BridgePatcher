@@ -6,6 +6,7 @@ import wx
 import wx.html2
 
 import sys
+import time
 import logging
 import markdown2
 import threading
@@ -37,6 +38,12 @@ from ..wx_gui import (
     gui_model_change,
 )
 
+# How often (milliseconds) the open main menu looks whether the next automatic
+# update check is due (constants.update_check_interval). Shorter than the
+# interval itself so a check that had to wait for the main menu to be idle
+# isn't put off for another full interval.
+UPDATE_CHECK_TIMER_TICK = 10 * 60 * 1000
+
 class MainFrame(wx.Frame):
     def __init__(self, parent: wx.Frame, title: str, global_constants: constants.Constants, screen_location: tuple = None):
         logging.info("Initializing Main Menu Frame")
@@ -60,6 +67,16 @@ class MainFrame(wx.Frame):
 
         self.Centre()
         self.Show()
+
+        # The startup check below only runs once per session, and the update-check
+        # LaunchAgent skips its run while the patcher is open (support/arguments.py
+        # _check_updates_handler()). Without this timer an app that was opened before
+        # a release never learned about it, so a user could be kept on a vulnerable
+        # build simply by leaving the window open. See _on_update_check_timer().
+        self.update_check_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self._on_update_check_timer, self.update_check_timer)
+        self.Bind(wx.EVT_WINDOW_DESTROY, self._on_destroy)
+        self.update_check_timer.Start(UPDATE_CHECK_TIMER_TICK)
 
         self._preflight_checks()
 
@@ -397,6 +414,7 @@ class MainFrame(wx.Frame):
         # on the last line of this function for exactly this reason.
         if "--update_installed" in sys.argv and self.constants.has_checked_updates is False and gui_support.CheckProperties(self.constants).host_can_build():
             self.constants.has_checked_updates = True
+            self.constants.last_update_check = time.monotonic()
             pop_up = wx.MessageDialog(
                 self,
                 f"{self.constants.patcher_name} has been updated to the latest available version: {self.constants.patcher_version_label}\n\nWould you like to update OpenCore and your root volume patches?",
@@ -428,7 +446,13 @@ class MainFrame(wx.Frame):
             # would put us right back into the dead-frame callback problem.
             return
 
-        self.update_thread = threading.Thread(target=self._check_for_updates)
+        self._start_update_check()
+
+    def _start_update_check(self, periodic: bool = False) -> None:
+        """
+        Run the automatic update check on a worker thread
+        """
+        self.update_thread = threading.Thread(target=self._check_for_updates, kwargs={"periodic": periodic})
         self.update_thread.daemon = True
         self.update_thread.start()
         # Also tracked on constants (not just this frame) so PatcherApp.OnExit()
@@ -438,13 +462,67 @@ class MainFrame(wx.Frame):
         # navigates), but constants persists for the whole process lifetime.
         self.constants.update_thread = self.update_thread
 
-    def _check_for_updates(self, manual: bool = False, include_prerelease: "bool | None" = None):
+    def _automatic_check_due(self) -> bool:
+        """
+        Whether the automatic update check should run (again): once per session,
+        and again every constants.update_check_interval seconds while the app stays open
+        """
+        if self.constants.has_checked_updates is False:
+            return True
+        return time.monotonic() - self.constants.last_update_check >= self.constants.update_check_interval
+
+    def _main_menu_idle(self) -> bool:
+        """
+        Whether the main menu is the only window on screen, i.e. nothing was started from it
+        """
+        if not self or self.exiting_app or gui_support.is_app_exiting() or not self.IsShown():
+            return False
+        if self.constants.update_stage != gui_support.AutoUpdateStages.INACTIVE:
+            return False
+        return not any(window is not self and window.IsShown() for window in wx.GetTopLevelWindows())
+
+    def _on_update_check_timer(self, event: wx.TimerEvent) -> None:
+        """
+        Repeat the automatic update check while the app stays open
+
+        Only from the idle main menu: an update found by the automatic check may be
+        installed right away (gui_update.UpdateFrame quits the running app when it is
+        done), which must not happen underneath a build, root patching or a dialog.
+        A busy main menu just tries again on the next tick.
+        """
+        if not self._automatic_check_due() or not self._main_menu_idle():
+            return
+        thread = getattr(self.constants, "update_thread", None)
+        if thread is not None and thread.is_alive():
+            return
+        logging.info("Update check interval has passed, checking for updates again")
+        self._start_update_check(periodic=True)
+
+    def _offer_periodic_update(self, *args) -> None:
+        """
+        Hand an update found by the repeated check to on_update(), if the main menu is still idle
+        """
+        if not self._main_menu_idle():
+            # Something was started while the check was running. Forget the result,
+            # so the next tick (or the next main menu) checks and offers it again.
+            logging.info("Main menu is busy, offering the update later")
+            self.constants.has_checked_updates = False
+            return
+        self.on_update(*args)
+
+    def _on_destroy(self, event: wx.WindowDestroyEvent) -> None:
+        if event.GetEventObject() is self:
+            self.update_check_timer.Stop()
+        event.Skip()
+
+    def _check_for_updates(self, manual: bool = False, include_prerelease: "bool | None" = None, periodic: bool = False):
         # include_prerelease None (the automatic startup check) follows the
         # stored "Include pre-releases" setting, see check_binary_updates()
-        if manual is False and self.constants.has_checked_updates is True:
+        if manual is False and not self._automatic_check_due():
             logging.info("We have already checked for updates.")
             return
         self.constants.has_checked_updates = True
+        self.constants.last_update_check = time.monotonic()
 
         checker = updates.CheckBinaryUpdates(self.constants)
         try:
@@ -524,7 +602,7 @@ class MainFrame(wx.Frame):
             mandatory = not ask_first and (updates.snooze_has_expired() or forced)
             if mandatory:
                 logging.info("Snooze period has ended or a required service is gone, this update is mandatory")
-            wx.CallAfter(self.on_update, update_dict["Link"], remote_version_str, update_dict["Github Link"], changelog, ask_first, channel_switch, mandatory, update_dict.get("SHA256") or "")
+            wx.CallAfter(self._offer_periodic_update if periodic else self.on_update, update_dict["Link"], remote_version_str, update_dict["Github Link"], changelog, ask_first, channel_switch, mandatory, update_dict.get("SHA256") or "")
 
     def _report_manual_check(self, manual: bool, new_version, error, include_prerelease: bool = False) -> None:
         """
