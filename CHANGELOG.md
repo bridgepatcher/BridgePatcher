@@ -1,4 +1,13 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.0.0.1 - 4.0.0 alpha 20.4 Preview
+This release:
+- root patching now always uses Dortania's PatcherSupportPkg (dortania/PatcherSupportPkg 2.0.5) on every Mac, T2 Macs included. It is bundled with the app again, so it no longer needs to be downloaded online when root patching. BridgePatcher's own PatcherSupportPkg (2.6) and the PatcherSupportPkg choice in Settings > App are gone, and a stored choice from an earlier version is removed on the next start
+  - Macs root patched with BridgePatcher's PatcherSupportPkg are asked to revert the root patches and patch again
+- the root patches themselves now match Dortania's current OpenCore Legacy Patcher, apart from the USB 1.1 patch, which stays as it is. The patcher's own checks around root patching (revert checks, choosing which patches to install, the AMFI check from #788) are not changed
+  - T1 Security Chip: on macOS Sequoia, `MechanismPlugins`, `ModulePlugins` and `ModuleBase.framework` are installed again (needed to add a Touch ID fingerprint). On macOS Tahoe, the Touch ID and Apple Pay files are now always installed, as in Dortania's patcher, instead of only when the EFI loads the T1 kexts. Build and install OpenCore with this version first, so the T1 kexts are loaded on Tahoe
+  - Modern Audio: on the iMac19,1 and iMac19,2 under macOS Tahoe, the Modern Audio patch is installed again even when SimpleHDA is loaded. This version no longer adds SimpleHDA to the EFI on these Macs, so build and install OpenCore with this version first, otherwise audio is loaded twice
+  - AMD Navi: the patch is offered to every Mac with a Navi GPU and a CPU without AVX2 again (e.g. a Mac Pro 2010/2012 with a Navi graphics card), as in Dortania's patcher. It was limited to Dortania's internal testers
+
 ## 4.0.0.2000004  - 4.0.0 alpha 20.4 Preview
 This release:
 - builds OpenCore for Macs without a T2 chip with a port of Dortania's current OpenCore Legacy Patcher EFI builder, to rule out BridgePatcher's own EFI builder as the cause of #788. On all 85 supported Macs without a T2 chip, the EFI now matches the one Dortania's builder makes, apart from BridgePatcher's names, OpenCore 1.0.8 and the boot picker theme
@@ -9,11 +18,14 @@ This release:
   - build and install OpenCore again with this version to get the new EFI
   - T2 Macs are not affected, their EFI stays exactly the same
 - removes the TEST-A to TEST-D (LEVEL-B to LEVEL-D) OpenCore build profiles. Every build now uses the standard configuration, and the profile choices are gone from Build OpenCore, the OpenCore settings and Developer Mode. A stored profile choice from an earlier version is removed on the next start
+<<<<<<< HEAD
 - root patching now always uses Dortania's PatcherSupportPkg (dortania/PatcherSupportPkg 2.0.5) on every Mac, T2 Macs included. It is bundled with the app again, so it no longer needs to be downloaded online when root patching. BridgePatcher's own PatcherSupportPkg (2.6) and the PatcherSupportPkg choice in Settings > App are gone, and a stored choice from an earlier version is removed on the next start
   - Macs root patched with BridgePatcher's PatcherSupportPkg are asked to revert the root patches and patch again
 - the root patches themselves now match Dortania's current OpenCore Legacy Patcher, apart from the USB 1.1 patch and the Modern Audio patch, which stay as they are (Modern Audio is still skipped on the iMac19,1 and iMac19,2 under macOS Tahoe when SimpleHDA is loaded). The patcher's own checks around root patching (revert checks, choosing which patches to install, the AMFI check from #788) are not changed
   - T1 Security Chip: on macOS Sequoia, `MechanismPlugins`, `ModulePlugins` and `ModuleBase.framework` are installed again (needed to add a Touch ID fingerprint). On macOS Tahoe, the Touch ID and Apple Pay files are now always installed, as in Dortania's patcher, instead of only when the EFI loads the T1 kexts. Build and install OpenCore with this version first, so the T1 kexts are loaded on Tahoe
   - AMD Navi: the patch is offered to every Mac with a Navi GPU and a CPU without AVX2 again (e.g. a Mac Pro 2010/2012 with a Navi graphics card), as in Dortania's patcher. It was limited to Dortania's internal testers
+=======
+>>>>>>> 773f163d71af94a6196f0f53e61f777a8c7125e1
 
 ## 4.0.0.2000003.7.1 - 4.0.0 alpha 20.3.7.1 Preview
 This release:
