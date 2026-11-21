@@ -1,0 +1,242 @@
+name: Update kexts
+
+# Once a day, checks whether the third-party kexts in payloads/Kexts have a newer
+# version and, if so, opens a PR that updates them. It runs
+# payloads/Kexts/Update-Kexts.command, which:
+#   - compares the kexts in its KEXT_DICTIONARY (Lilu, WhateverGreen, BlueToolFixup,
+#     Innie, ...) with the latest GitHub release of their repository, downloads the
+#     new RELEASE/DEBUG zips and only uses them if their SHA-256 matches the digest
+#     GitHub publishes for the release asset
+#   - compares the kexts by Dortania's authors in its UPSTREAM_KEXT_DICTIONARY
+#     (AMFIPass, AutoPkgInstaller, KDKlessWorkaround), which have no releases of
+#     their own, with Dortania's payloads/Kexts and copies newer ones from there
+#   - rebuilds the WhateverGreen Navi variant when WhateverGreen is updated (needs
+#     Xcode, so the job runs on macOS)
+#   - updates bridgepatcher/constants.py and THIRD-PARTY-NOTICES.txt
+# Pinned kexts (RestrictEvents) and kexts left out on purpose (AppleALC) are skipped,
+# see the comments in the script.
+#
+# Kexts are injected by OpenCore, so a bad update can stop a Mac from booting.
+# That's why nothing is pushed to main: every update is a PR that a maintainer
+# tests on real hardware and merges by hand (no auto-merge).
+#
+# The update runs in a job that can only read the repository, since it downloads
+# and builds code from other repositories. A second job applies the result, checks
+# that it only touches the kexts, constants.py and THIRD-PARTY-NOTICES.txt, and
+# opens the PR from a bot/update-kexts-<hash> branch. The same update on a later run
+# reuses the open PR; a newer update replaces it, and an open bot PR is closed once
+# main has nothing left to update.
+#
+# PRs opened with GITHUB_TOKEN don't trigger other workflows, so the required
+# checks (malware scan, kext license check, ...) don't start by themselves. If the
+# bot app of the update-user-agents workflow is set up (variable UA_APP_ID, secret
+# UA_APP_PRIVATE_KEY), its token is used here as well and the checks start
+# normally. Without it, close and reopen the PR to start them.
+#
+# Run it by hand from the Actions tab ("Run workflow") to check right away.
+
+on:
+  schedule:
+    - cron: "29 3 * * *"   # daily, 03:29 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: update-kexts
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.repository_owner == 'bridgepatcher'
+    # WhateverGreen's Navi variant is built with xcodebuild
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+      key: ${{ steps.diff.outputs.key }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install the script's dependencies
+        run: python3 -m pip install --quiet requests packaging
+
+      - name: Update kexts
+        env:
+          # Read-only, only raises GitHub's API rate limit
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 payloads/Kexts/Update-Kexts.command --summary "$RUNNER_TEMP/summary.md"
+          cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          if grep -q '\[!WARNING\]' "$RUNNER_TEMP/summary.md"; then
+            echo "::warning::Some kexts couldn't be checked, see the run summary."
+          fi
+
+      - name: Collect the changes
+        id: diff
+        run: |
+          git add -A -- payloads/Kexts bridgepatcher/constants.py THIRD-PARTY-NOTICES.txt
+          if git status --porcelain --untracked-files=all | grep -qv '^[MADR] '; then
+            git status --short
+            echo "::error::Update-Kexts.command changed files outside payloads/Kexts, constants.py and THIRD-PARTY-NOTICES.txt."
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir "$RUNNER_TEMP/out"
+          git diff --cached --binary > "$RUNNER_TEMP/out/kexts.patch"
+          cp "$RUNNER_TEMP/summary.md" "$RUNNER_TEMP/out/summary.md"
+          # Re-zipped kexts aren't byte-for-byte the same on every run, so the key is made
+          # from the file names (they carry the versions) and the text changes only
+          key=$( { git diff --cached --name-status; git diff --cached -- bridgepatcher/constants.py THIRD-PARTY-NOTICES.txt; } | shasum -a 256 | cut -c1-12)
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.diff.outputs.changed == 'true'
+        with:
+          name: kext-update
+          path: ${{ runner.temp }}/out/
+          retention-days: 7
+
+  propose:
+    needs: update
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      BASE: ${{ github.event.repository.default_branch }}
+      PREFIX: bot/update-kexts-
+      GH_REPO: ${{ github.repository }}
+      HAS_APP: ${{ vars.UA_APP_ID != '' }}
+      CHANGED: ${{ needs.update.outputs.changed }}
+      KEY: ${{ needs.update.outputs.key }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commit the update job started from, so the patch applies cleanly
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Create a token for the bot app
+        id: app-token
+        if: env.HAS_APP == 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.UA_APP_ID }}
+          private-key: ${{ secrets.UA_APP_PRIVATE_KEY }}
+
+      - uses: actions/download-artifact@v4
+        if: env.CHANGED == 'true'
+        with:
+          name: kext-update
+          path: ${{ runner.temp }}/in
+
+      - name: Open a PR with the kext updates
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          git config core.hooksPath /dev/null
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          branch=""
+          if [ "$CHANGED" = true ]; then
+            case "$KEY" in
+              *[!0-9a-f]* | "") echo "::error::Unexpected update key '$KEY'."; exit 1 ;;
+            esac
+            branch="$PREFIX$KEY"
+
+            git apply --index "$RUNNER_TEMP/in/kexts.patch"
+            # The update job downloads and builds code from other repositories, so only
+            # accept changes to the files the script is meant to update
+            outside=$(git diff --cached --name-only | grep -vE '^(payloads/Kexts/[^/]+/[^/]+\.zip|bridgepatcher/constants\.py|THIRD-PARTY-NOTICES\.txt)$' || true)
+            if [ -n "$outside" ]; then
+              echo "::error::The kext update changes files it shouldn't touch:"
+              echo "$outside"
+              exit 1
+            fi
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -F - <<'EOF'
+          Update kexts to their latest versions
+
+          Generated by the update-kexts workflow.
+          EOF
+          fi
+
+          # Close bot PRs for any other (outdated) update
+          gh pr list --base "$BASE" --state open --json number,headRefName \
+            --jq ".[] | select(.headRefName | startswith(\"$PREFIX\")) | \"\(.number) \(.headRefName)\"" |
+          while read -r old old_branch; do
+            [ "$old_branch" = "$branch" ] && continue
+            if [ -n "$branch" ]; then
+              msg="Superseded by a newer kext update. / Durch eine neuere Kext-Aktualisierung ersetzt."
+            else
+              msg="✅ All kexts on \`$BASE\` are up to date. Closing. / Alle Kexts auf \`$BASE\` sind aktuell. Wird geschlossen."
+            fi
+            gh pr close "$old" --comment "$msg" > /dev/null
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$old_branch" > /dev/null 2>&1 \
+              || echo "::warning::Closed #$old but couldn't delete its branch $old_branch - delete it by hand."
+            echo "Closed outdated PR #$old."
+          done
+
+          if [ -z "$branch" ]; then
+            echo "All kexts on $BASE are up to date."
+            exit 0
+          fi
+
+          pr=$(gh pr list --head "$branch" --base "$BASE" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$pr" ]; then
+            echo "This update is already proposed in #$pr."
+            exit 0
+          fi
+
+          # The branch may already exist from an earlier run whose PR couldn't be created.
+          # Reuse it then - pushing a new commit there would be a force push.
+          if git ls-remote --exit-code -q "$remote" "refs/heads/$branch" > /dev/null; then
+            echo "Branch $branch already exists, reusing it."
+          else
+            git push -q "$remote" "HEAD:refs/heads/$branch"
+            echo "Pushed $(git rev-parse --short HEAD) to $branch."
+          fi
+
+          {
+            echo "<!-- update-kexts -->"
+            cat "$RUNNER_TEMP/in/summary.md"
+            echo
+            echo "> [!IMPORTANT]"
+            echo "> Kexts are injected by OpenCore and can stop a Mac from booting. Build an EFI with this branch and test it on real hardware (T2 and non-T2) before merging. This PR is never merged automatically."
+            echo
+            echo "Release downloads were only used when their SHA-256 matched the digest GitHub publishes for the asset. Read the release notes of every updated kext; when AMFIPass is updated, check whether \`amfipass_compatibility_version\` in constants.py has to follow."
+            echo
+            echo "Opened by the daily update-kexts run. It's closed automatically when a newer update replaces it or \`$BASE\` is already up to date."
+            echo
+            echo "<details><summary>Deutsch</summary>"
+            echo
+            echo "Automatische Aktualisierung der Kexts in payloads/Kexts auf ihre neuesten Versionen. Kexts werden von OpenCore geladen und können einen Mac am Starten hindern: bitte vor dem Mergen eine EFI mit diesem Branch bauen und auf echter Hardware (T2 und ohne T2) testen. Der PR wird nie automatisch gemergt und automatisch geschlossen, wenn eine neuere Aktualisierung ihn ersetzt oder \`$BASE\` schon aktuell ist."
+            echo "</details>"
+          } > "$RUNNER_TEMP/pr.md"
+
+          # With GITHUB_TOKEN this needs "Allow GitHub Actions to create and approve
+          # pull requests" enabled for the organization AND the repository.
+          if ! url=$(gh pr create --head "$branch" --base "$BASE" \
+                       --title "Update kexts" --body-file "$RUNNER_TEMP/pr.md" 2>"$RUNNER_TEMP/pr_err.txt"); then
+            cat "$RUNNER_TEMP/pr_err.txt"
+            compare="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$BASE...$branch?expand=1"
+            echo "::error::Couldn't create the PR (is 'Allow GitHub Actions to create and approve pull requests' enabled in the org and repo settings?). The update is on $branch - open the PR manually: $compare"
+            exit 1
+          fi
+          echo "Opened PR ${url##*/}."
+
+          if [ "$HAS_APP" != true ]; then
+            echo "::warning::UA_APP_ID isn't set, so the required checks won't start on ${url##*/} by themselves (PRs opened with GITHUB_TOKEN don't trigger workflows). Close and reopen the PR to start them, or set up the app."
+          fi
