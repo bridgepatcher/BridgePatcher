@@ -24,8 +24,7 @@ from ..support import (
     endpoint_health
 )
 from ..datasets import (
-    css_data,
-    model_array
+    css_data
 )
 from ..wx_gui import (
     gui_build,
@@ -201,6 +200,9 @@ class MainFrame(wx.Frame):
             button.SetFont(gui_support.font_factory(12, wx.FONTWEIGHT_NORMAL))
             button.Bind(wx.EVT_BUTTON, lambda event, f=button_function["function"]: f(event))
 
+            if button_name == "Check for updates":
+                self.update_button = button
+
             if "OpenCore" in button_name or "EXPERIMENTAL" in button_name:
                 self.build_button = button
                 if not gui_support.CheckProperties(self.constants).host_can_build():
@@ -254,8 +256,6 @@ class MainFrame(wx.Frame):
 
         # MainFrame is recreated while navigating; once the end of life is known,
         # every new instance shows the banner right away
-        if self.constants.computer.real_model not in model_array.SupportedSMBIOS:
-            self._unsupported_mac_model_message()
         if project_status.is_end_of_life(self.constants):
             self._add_end_of_life_banner()
 
@@ -277,22 +277,6 @@ class MainFrame(wx.Frame):
             "bug fixes, new features, updates or support for new macOS versions. "
             "Also, any newly discovered vulnerabilities will remain permanently unpatched. "
         )
-    def _unsupported_mac_model_message(self):
-        """
-        warn the user that their Mac is no longer supported
-        """
-        Warning = wx.MessageDialog(
-            self,
-            "Support for your Mac is limited, as this project is aimed at restoring support for T2 Macs, we are removing support for non-T2 Macs as this will allow us to focus on the T2 Macs.\n\nFor better support, we recommend switching to Dortania's OCLP.\n\n if you would rather not switch, you can continue to use the root patches until the end of 2026. However, starting today we do not support building OpenCore on your Mac.",
-            "Your Mac is close to end of live with BridgePatcher",
-            wx.YES_NO | wx.YES_DEFAULT | wx.ICON_WARNING
-        )
-        Warning.SetYesNoLabels("Download OCLP", "Continue anyway")
-        response = Warning.ShowModal()
-        Warning.Destroy()
-
-        if response == wx.ID_YES:
-            self.on_download_dortania_patcher()
 
     def _add_end_of_life_banner(self) -> None:
         """
