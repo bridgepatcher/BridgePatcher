@@ -218,6 +218,64 @@ def check_guidance(script):
     return None
 
 
+# The maintainers' rules for AI assistants - the same files Claude Code and
+# other coding agents read. AGENTS.md wins where they disagree.
+GUIDANCE_FILES = ["AGENTS.md", ".claude/skills/code-style/SKILL.md", ".agents/skills/code-style/SKILL.md"]
+# The free tier has no room for all of it (~23000 characters): only the rules
+# that matter for a small fix
+GUIDANCE_SECTIONS = {"1. Non-negotiable rules", "2.1 At a glance", "4. Correctness over looking finished"}
+GUIDANCE_CHARS = 3500
+
+
+def _guidance_sections(text, titles):
+    """The Markdown sections (heading + body, including sub-sections) whose heading is in `titles`."""
+    out, keep, fence = [], None, False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            fence = not fence
+        m = None if fence else re.match(r"(#+)\s+(.*)", line)
+        if m:
+            level = len(m.group(1))
+            if keep is not None and level <= keep:
+                keep = None
+            if keep is None and m.group(2).strip() in titles:
+                keep = level
+        if keep is not None:
+            out.append(line)
+    return "\n".join(out).strip()
+
+
+def project_guidance(compact=True):
+    """
+    AGENTS.md and the code-style skill from the checkout, for the system prompt
+
+    compact: only GUIDANCE_SECTIONS, at most GUIDANCE_CHARS (GitHub Models free tier)
+    Returns "" when none of the files exist.
+    """
+    parts, seen = [], set()
+    for rel in GUIDANCE_FILES:
+        try:
+            text = (ROOT / rel).read_text()
+        except OSError:
+            continue
+        text = re.sub(r"\A---\n.*?\n---\n", "", text, flags=re.DOTALL).strip()     # skill frontmatter
+        if text in seen:            # .claude/ and .agents/ usually hold the same skill
+            continue
+        seen.add(text)
+        if compact:
+            text = _guidance_sections(text, GUIDANCE_SECTIONS)
+        if text:
+            parts.append(f"=== {rel} ===\n{text}")
+    if not parts:
+        return ""
+    body = "\n\n".join(parts)
+    if compact and len(body) > GUIDANCE_CHARS:
+        body = body[:GUIDANCE_CHARS] + "\n[cut]"
+    return ("\n\nThe project's own rules for AI assistants follow" + (" (excerpt)" if compact else "") +
+            ". Follow them in every edit; where they disagree, AGENTS.md wins. They don't widen your task "
+            "or change the answer format above.\n\n" + body)
+
+
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 GEMINI_MODELS = [m.strip() for m in (os.environ.get("GEMINI_FIX_MODELS") or
                  "gemini-flash-latest,gemini-2.5-flash,gemini-flash-lite-latest").split(",") if m.strip()]
