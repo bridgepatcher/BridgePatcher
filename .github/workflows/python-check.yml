@@ -312,6 +312,11 @@ jobs:
   #     secret) when GitHub Models doesn't answer. Only small edits in the
   #     file that has the error; an edit is kept only if it removes one of that
   #     file's errors and adds none anywhere, otherwise the file is restored.
+  #   - Both AI fixers get the project's rules for AI assistants in their
+  #     system prompt: AGENTS.md and .claude/skills/code-style/SKILL.md (or
+  #     .agents/skills/code-style/SKILL.md) - Claude the full files, the free
+  #     GitHub Models tier an excerpt (see ai_check_fix.project_guidance).
+  #     Neither ever edits files under .github/.
   # What can't be fixed safely stays in the tracking issue above.
   #
   # Before anything is pushed, the whole project is checked again; if the fixes
@@ -377,10 +382,18 @@ jobs:
       - name: Install tools
         run: python3 -m pip install --quiet --disable-pip-version-check pyflakes==4.0.1 ruff==0.16.10
 
+      # Trusted copies of the check and the fixers, taken BEFORE ruff or a model
+      # edits anything: every later step runs these, never the files in the tree.
+      - name: Copy the check and the fixers
+        run: |
+          s="$RUNNER_TEMP/scripts"; mkdir -p "$s"
+          cp .github/scripts/check_python.py .github/scripts/ai_check_fix.py \
+             .github/scripts/ai_python_fix.py .github/scripts/ai_syntax_fix.py "$s/"
+
       - name: Check before fixing
         run: |
           set +e
-          python3 .github/scripts/check_python.py --root . --warnings --json "$RUNNER_TEMP/before.json"
+          python3 "$RUNNER_TEMP/scripts/check_python.py" --root . --warnings --json "$RUNNER_TEMP/before.json"
           exit 0
 
       - name: Fix warnings with ruff
@@ -390,8 +403,25 @@ jobs:
           while IFS= read -r f; do
             head -n 1 "$f" | grep -qE '^#!.*\bpython' && commands+=("$f")
           done < <(git ls-files '*.command')
+          # Findings before and after --fix: the difference is what ruff fixed. Its
+          # --fix output only lists what is LEFT, which is not what the PR changes.
+          ruff check --select "$RUFF_RULES" --exit-zero --output-format concise . "${commands[@]}" \
+            > "$RUNNER_TEMP/ruff_before.txt"
           ruff check --select "$RUFF_RULES" --fix --exit-zero --output-format concise . "${commands[@]}" \
             | tee "$RUNNER_TEMP/ruff.txt"
+          python3 - <<'PY'
+          import os, re
+          tmp = os.environ["RUNNER_TEMP"]
+          # "path:line:col: CODE message" - line numbers shift when lines are removed
+          key = lambda l: re.sub(r"^(.+?):\d+:\d+: ", r"\1: ", l)
+          read = lambda n: [l.rstrip("\n") for l in open(f"{tmp}/{n}") if re.match(r"^.+?:\d+:\d+: [A-Z]+\d+ ", l)]
+          left = {key(l) for l in read("ruff.txt")}
+          before = read("ruff_before.txt")
+          with open(f"{tmp}/ruff_fixed.txt", "w") as fh:
+              fh.writelines(l + "\n" for l in before if key(l) not in left)
+          with open(f"{tmp}/ruff_left.txt", "w") as fh:
+              fh.writelines(l + "\n" for l in read("ruff.txt"))
+          PY
 
       - name: Repair syntax errors with Claude
         env:
@@ -412,7 +442,7 @@ jobs:
                       fh.write(json.dumps({"file": p["file"], "kind": "python",
                                            "error": f"line {p['line']}: {p['message']}"}) + "\n")
           PY
-          python3 .github/scripts/ai_syntax_fix.py "$RUNNER_TEMP/failures.jsonl" "$RUNNER_TEMP/ai.md"
+          python3 "$RUNNER_TEMP/scripts/ai_syntax_fix.py" "$RUNNER_TEMP/failures.jsonl" "$RUNNER_TEMP/ai.md"
 
       - name: Fix the remaining errors with GitHub Models / Gemini
         env:
@@ -421,9 +451,8 @@ jobs:
           # Fallback when GitHub Models doesn't answer (same free key as the T2 status bot)
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          # Trusted copies: the fixer must not run a check it could have edited
-          s="$RUNNER_TEMP/scripts"; mkdir -p "$s"
-          cp .github/scripts/check_python.py .github/scripts/ai_check_fix.py .github/scripts/ai_python_fix.py "$s/"
+          # Trusted copies (see "Copy the check and the fixers"): the fixer must not run a check it could have edited
+          s="$RUNNER_TEMP/scripts"
           python3 "$s/check_python.py" --root . --json "$RUNNER_TEMP/remaining.json" > /dev/null || true
           python3 "$s/ai_python_fix.py" --check "$s/check_python.py" \
             --problems "$RUNNER_TEMP/remaining.json" --notes "$RUNNER_TEMP/ai_models.md"
@@ -432,7 +461,7 @@ jobs:
         id: verify
         run: |
           set +e
-          python3 .github/scripts/check_python.py --root . --warnings --json "$RUNNER_TEMP/after.json"
+          python3 "$RUNNER_TEMP/scripts/check_python.py" --root . --warnings --json "$RUNNER_TEMP/after.json"
           python3 - <<'PY'
           import json, os, sys
           tmp = os.environ["RUNNER_TEMP"]
@@ -445,7 +474,9 @@ jobs:
           before, after = load("before.json"), load("after.json")
           old = {key(p) for p in before if p["severity"] == "error"}
           new = [p for p in after if p["severity"] == "error" and key(p) not in old]
-          fixed = len(before) - len(after)
+          # Problems that are gone - not the net count, which new warnings would hide
+          left = {key(p) for p in after}
+          fixed = sum(1 for p in before if key(p) not in left)
           with open(os.environ["GITHUB_OUTPUT"], "a") as out:
               out.write(f"fixed={fixed}\nnew_errors={len(new)}\n")
           for p in new:
@@ -484,13 +515,26 @@ jobs:
             echo
             echo "**$FIXED problem(s) fixed.** The whole project was re-checked after fixing; no new errors."
             echo
-            echo "<details><summary>ruff ($RUFF_RULES)</summary>"
-            echo
-            echo '```'
-            grep -v '^$' "$RUNNER_TEMP/ruff.txt" | head -n 200 || true
-            echo '```'
-            echo "</details>"
-            echo
+            if [ -s "$RUNNER_TEMP/ruff_fixed.txt" ]; then
+              echo "<details><summary>Fixed by ruff ($RUFF_RULES): $(wc -l < "$RUNNER_TEMP/ruff_fixed.txt")</summary>"
+              echo
+              echo '```'
+              head -n 200 "$RUNNER_TEMP/ruff_fixed.txt"
+              echo '```'
+              echo "</details>"
+              echo
+            fi
+            if [ -s "$RUNNER_TEMP/ruff_left.txt" ]; then
+              echo "<details><summary>Left alone by ruff (not changed in this PR): $(wc -l < "$RUNNER_TEMP/ruff_left.txt")</summary>"
+              echo
+              echo "Mostly imports in \`__init__.py\` that are kept on purpose as re-exports."
+              echo
+              echo '```'
+              head -n 200 "$RUNNER_TEMP/ruff_left.txt"
+              echo '```'
+              echo "</details>"
+              echo
+            fi
             [ -f "$RUNNER_TEMP/ai.md" ] && cat "$RUNNER_TEMP/ai.md" && echo
             if [ -f "$RUNNER_TEMP/ai_models.md" ]; then
               echo "> [!WARNING]"
