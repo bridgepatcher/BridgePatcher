@@ -1,4 +1,10 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 
+This release fixes a small bug where in arguments.py the No updates available in the code was on 2 rows instead of 1:
+
+            logging.info(
+                            f"- No update available ({checker.last_error if checker.last_error else 'already on the latest version'})")
+
 ## 4.0.0.2000003.7 - 4.0.0 alpha 20.3.7
 This version is a security update only that fixes critical vulnerabilities. Please we recommend to update to this version.
 
