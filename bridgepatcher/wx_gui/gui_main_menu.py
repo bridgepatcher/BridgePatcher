@@ -19,6 +19,7 @@ from .. import constants
 from ..support import (
     updates,
     utilities,
+    network_handler,
     project_status,
     endpoint_health
 )
@@ -37,12 +38,6 @@ from ..wx_gui import (
     gui_macos_configeration,
     gui_model_change,
 )
-
-# How often (milliseconds) the open main menu looks whether the next automatic
-# update check is due (constants.update_check_interval). Shorter than the
-# interval itself so a check that had to wait for the main menu to be idle
-# isn't put off for another full interval.
-UPDATE_CHECK_TIMER_TICK = 10 * 60 * 1000
 
 class MainFrame(wx.Frame):
     def __init__(self, parent: wx.Frame, title: str, global_constants: constants.Constants, screen_location: tuple = None):
@@ -76,7 +71,10 @@ class MainFrame(wx.Frame):
         self.update_check_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self._on_update_check_timer, self.update_check_timer)
         self.Bind(wx.EVT_WINDOW_DESTROY, self._on_destroy)
-        self.update_check_timer.Start(UPDATE_CHECK_TIMER_TICK)
+        # Ticks every constants.update_check_retry_interval, not every update_check_interval:
+        # a check that had to wait for the network or for the main menu to be idle
+        # must not be put off for another full interval.
+        self.update_check_timer.Start(self.constants.update_check_retry_interval * 1000)
 
         self._preflight_checks()
 
@@ -414,7 +412,7 @@ class MainFrame(wx.Frame):
         # on the last line of this function for exactly this reason.
         if "--update_installed" in sys.argv and self.constants.has_checked_updates is False and gui_support.CheckProperties(self.constants).host_can_build():
             self.constants.has_checked_updates = True
-            self.constants.last_update_check = time.monotonic()
+            self.constants.next_update_check_time = time.time() + self.constants.update_check_interval
             pop_up = wx.MessageDialog(
                 self,
                 f"{self.constants.patcher_name} has been updated to the latest available version: {self.constants.patcher_version_label}\n\nWould you like to update OpenCore and your root volume patches?",
@@ -465,11 +463,19 @@ class MainFrame(wx.Frame):
     def _automatic_check_due(self) -> bool:
         """
         Whether the automatic update check should run (again): once per session,
-        and again every constants.update_check_interval seconds while the app stays open
+        again every constants.update_check_interval seconds while the app stays open,
+        and right away while the last check couldn't reach GitHub
+
+        Wall-clock time on purpose: time.monotonic() may not advance while the Mac
+        sleeps, so a laptop that is mostly asleep would rarely check again.
         """
-        if self.constants.has_checked_updates is False:
+        if self.constants.has_checked_updates is False or self.constants.update_check_offline is True:
             return True
-        return time.monotonic() - self.constants.last_update_check >= self.constants.update_check_interval
+        now = time.time()
+        # The clock was set back: don't let that postpone the next check
+        if now < self.constants.next_update_check_time - self.constants.update_check_interval:
+            return True
+        return now >= self.constants.next_update_check_time
 
     def _main_menu_idle(self) -> bool:
         """
@@ -505,8 +511,10 @@ class MainFrame(wx.Frame):
         if not self._main_menu_idle():
             # Something was started while the check was running. Forget the result,
             # so the next tick (or the next main menu) checks and offers it again.
+            # Not via has_checked_updates: that would also bring back the
+            # "--update_installed" prompt in _preflight_checks().
             logging.info("Main menu is busy, offering the update later")
-            self.constants.has_checked_updates = False
+            self.constants.next_update_check_time = 0.0
             return
         self.on_update(*args)
 
@@ -521,8 +529,14 @@ class MainFrame(wx.Frame):
         if manual is False and not self._automatic_check_due():
             logging.info("We have already checked for updates.")
             return
+        if manual is False and self.constants.update_check_offline is True:
+            # Still offline? Then don't run the whole check again (it may ask for the
+            # administrator password to repair the Privileged Helper Tool) every tick.
+            if not network_handler.NetworkUtilities(self.constants.update_releases_api_url).verify_network_connection():
+                return
+            logging.info("Network is back, checking for updates again")
         self.constants.has_checked_updates = True
-        self.constants.last_update_check = time.monotonic()
+        self.constants.next_update_check_time = time.time() + self.constants.update_check_interval
 
         checker = updates.CheckBinaryUpdates(self.constants)
         try:
@@ -532,6 +546,14 @@ class MainFrame(wx.Frame):
             logging.exception("Stack Trace:")
             self._report_manual_check(manual, None, str(e), include_prerelease)
             return
+
+        # Couldn't reach GitHub: try again as soon as the network is back (the timer
+        # ticks every update_check_retry_interval) instead of after a full interval.
+        # Otherwise a Mac that was offline at launch - or kept offline on purpose
+        # until the app was open - would stay on its build for hours.
+        if checker.network_failed and not self.constants.update_check_offline:
+            logging.info("Could not reach GitHub, checking again as soon as the network is back")
+        self.constants.update_check_offline = checker.network_failed
 
         # Updates are enforced because a service the patcher depends on is gone
         # (support/endpoint_health.py): tell the user once, before any update dialog.
