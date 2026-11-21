@@ -103,6 +103,8 @@ jobs:
         env:
           RANGE: ${{ steps.range.outputs.range }}
           VIOLATIONS_LIST: head-violations.txt
+          # The commits that added each violation (git blame), so their authors can be @mentioned.
+          BLAME_LIST: head-blame.json
           # Shared between both scans, so unchanged images are only read once.
           ART_CACHE: ${{ runner.temp }}/license-guard-art-cache.json
         run: python3 .github/scripts/license_guard.py "$RANGE"
@@ -146,6 +148,7 @@ jobs:
             const fs = require('fs');
             const marker = '<!-- license-guard -->';
             const forkMarker = '<!-- license-guard-fork -->';
+            const blameMarker = '<!-- license-guard-blame -->';
             const { owner, repo } = context.repo;
             const violations = Number(process.env.VIOLATIONS || 0);
             const warnings = Number(process.env.WARNINGS || 0);
@@ -171,6 +174,63 @@ jobs:
               return text.replace('## 🛡️ License Guard\n', `## 🛡️ License Guard\n\n${note}\n`);
             };
 
+            // Who made the change: the GitHub accounts behind the commits that added each
+            // violation (git blame in license_guard.py). On PRs only violations the PR itself
+            // adds count, so nobody is pinged for violations that are already on the base branch.
+            // Commits whose author has no linked GitHub account (or is a bot) are listed without
+            // a mention; on PRs the PR author is pinged for them instead.
+            const tick = s => String(s).replace(/`/g, "'");
+            const blameNote = async (fallback) => {
+              let entries;
+              try { entries = JSON.parse(fs.readFileSync('head-blame.json', 'utf8')); }
+              catch (e) { if (e.code === 'ENOENT') return { note: '', people: [] }; throw e; }
+              if (context.eventName === 'pull_request_target') {
+                if (!fs.existsSync('new-violations.txt')) return { note: '', people: [] };
+                const added = new Set(fs.readFileSync('new-violations.txt', 'utf8').split('\n'));
+                entries = entries.filter(e => added.has(e.key));
+              }
+              const authors = new Map();   // sha -> { login, name }
+              const author = async sha => {
+                if (!authors.has(sha)) {
+                  try {
+                    const { data } = await github.rest.repos.getCommit({ owner, repo, ref: sha });
+                    const login = data.author?.type === 'Bot' ? null : data.author?.login;
+                    authors.set(sha, { login: login && !login.endsWith('[bot]') ? login : null,
+                                       name: data.commit?.author?.name || '' });
+                  } catch (e) {
+                    core.warning(`Could not look up the author of commit ${sha}: ${e.message}`);
+                    authors.set(sha, { login: null, name: '' });
+                  }
+                }
+                return authors.get(sha);
+              };
+              const people = new Set(), lines = [];
+              for (const e of entries) {
+                const by = [];
+                for (const sha of e.commits) {
+                  const a = await author(sha);
+                  const who = a.login || fallback;
+                  if (who) people.add(`@${who}`);
+                  by.push(`${who ? `@${who} ` : ''}(${sha.slice(0, 7)}` +
+                    (a.login || !a.name ? ')' : `, commit author \`${tick(a.name)}\`)`));
+                }
+                if (by.length) lines.push(`> - **${e.title}** in \`${tick(e.path)}\`: ${by.join(', ')}`);
+              }
+              if (!lines.length) return { note: '', people: [] };
+              const head = people.size
+                ? `> 👤 ${[...people].join(' ')} – your commits added the violation(s) below, please fix them:`
+                : '> 👤 Commits that added the violation(s) below:';
+              return { note: `${blameMarker}\n${head}\n${lines.join('\n')}`, people: [...people] };
+            };
+            const withBlameNote = (text, note) =>
+              note ? text.replace('### ❌ Violations\n', `### ❌ Violations\n\n${note}\n\n`) : text;
+            // Editing a comment or issue doesn't notify anyone, so people who weren't mentioned in
+            // the notes (the "> " lines) of the previous version are pinged in a new comment.
+            const mentioned = (text, p) => (text || '').split('\n')
+              .some(l => l.startsWith('>') && new RegExp(`${p}(?![\\w-])`).test(l));
+            const notYetPinged = (oldBody, people) =>
+              [...new Set(people)].filter(p => p && !mentioned(oldBody, p));
+
             // PR: one sticky comment, updated on every push (and flipped to ✅ once fixed)
             if (context.eventName === 'pull_request_target') {
               const pr = context.payload.pull_request;
@@ -179,17 +239,22 @@ jobs:
               const fromFork = !!head && head.full_name !== `${owner}/${repo}`;
               const who = fromFork ? mentionsFor(head, pr.user?.login) : '';
               if (fromFork && violations > 0) body = withForkNote(body, head, who);
+              const author = pr.user?.login?.endsWith('[bot]') ? null : pr.user?.login;
+              const blame = await blameNote(author);
+              body = withBlameNote(body, blame.note);
+              const pinged = [...(fromFork && violations > 0 ? who.split(' ') : []), ...blame.people];
               const comments = await github.paginate(github.rest.issues.listComments,
                 { owner, repo, issue_number, per_page: 100 });
               const existing = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(marker));
               if (existing) {
                 await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-                // Editing a comment doesn't notify anyone, so ping the fork once when an
-                // existing ✅ / warnings-only comment turns into one with violations.
-                if (fromFork && violations > 0 && who && !existing.body.includes(forkMarker)) {
+                // Editing a comment doesn't notify anyone, so ping the fork and the people who
+                // made the change once, when they are first mentioned in the comment.
+                const fresh = notYetPinged(existing.body, pinged);
+                if (fresh.length) {
                   await github.rest.issues.createComment({ owner, repo, issue_number, body:
-                    `${who} License Guard found ${violations} license violation(s) in this pull request ` +
-                    `from \`${head.full_name}\` – see the License Guard comment above.` });
+                    `${fresh.join(' ')} License Guard found ${violations} license violation(s) in this pull request` +
+                    (fromFork ? ` from \`${head.full_name}\`` : '') + ' – see the License Guard comment above.' });
                 }
               } else if (violations + warnings > 0) {
                 await github.rest.issues.createComment({ owner, repo, issue_number, body });
@@ -205,6 +270,8 @@ jobs:
               who = mentionsFor(self);
               body = withForkNote(body, self, who, self.parent?.full_name);
             }
+            const blame = violations > 0 ? await blameNote() : { note: '', people: [] };
+            body = withBlameNote(body, blame.note);
             const label = 'license-guard';
             try {
               const open = await github.paginate(github.rest.issues.listForRepo,
@@ -222,6 +289,13 @@ jobs:
               if (issue) {
                 if (issue.body !== body || issue.title !== title) {
                   await github.rest.issues.update({ owner, repo, issue_number: issue.number, title, body });
+                  // Editing the issue doesn't notify anyone: ping the people who are new in it.
+                  const fresh = notYetPinged(issue.body, [...who.split(' '), ...blame.people]);
+                  if (fresh.length) {
+                    await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body:
+                      `${fresh.join(' ')} License Guard found license violation(s) added by your commits ` +
+                      '– see the issue description.' });
+                  }
                 }
               } else {
                 try {
