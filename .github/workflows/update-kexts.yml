@@ -7,9 +7,12 @@ name: Update kexts
 #     Innie, ...) with the latest GitHub release of their repository, downloads the
 #     new RELEASE/DEBUG zips and only uses them if their SHA-256 matches the digest
 #     GitHub publishes for the release asset
-#   - compares the kexts by Dortania's authors in its UPSTREAM_KEXT_DICTIONARY
-#     (AMFIPass, AutoPkgInstaller, KDKlessWorkaround), which have no releases of
-#     their own, with Dortania's payloads/Kexts and copies newer ones from there
+#   - compares every other kext whose path is in bridgepatcher/constants.py
+#     (AMFIPass, KDKlessWorkaround, the Apple kexts patched by Dortania, ...), which
+#     have no releases of their own, with Dortania's payloads/Kexts and copies newer
+#     ones from there. Kexts sharing one version in constants.py (e.g. the FireWire
+#     kexts) are only updated together.
+#   - lists every kext it didn't check, and why, under "Not checked" in the summary
 #   - rebuilds the WhateverGreen Navi variant when WhateverGreen is updated (needs
 #     Xcode, so the job runs on macOS)
 #   - updates bridgepatcher/constants.py and THIRD-PARTY-NOTICES.txt
