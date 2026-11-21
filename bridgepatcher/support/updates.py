@@ -41,6 +41,9 @@ from .. import constants
 # ci_tooling/build_modules/package_scripts.py, generate_verify_package()).
 CHECKSUM_FILE_NAMES = ("SHA256SUMS", "certificates.txt")
 _CHECKSUM_TIMEOUT = 20
+# The releases request had no timeout: a connection that dropped mid-request left
+# the update check hanging for good, and with it every later check of the session.
+_RELEASES_TIMEOUT = 20
 _SHA256SUMS_LINE = re.compile(r"^([0-9a-fA-F]{64})\s+\*?(.+?)\s*$")
 _CERTIFICATES_LINE = re.compile(r"^(.+?):\s*([0-9a-fA-F]{64})\s*$")
 
@@ -461,6 +464,10 @@ class CheckBinaryUpdates:
 
         self.latest_details = None
         self.last_error: Optional[str] = None
+        # True if the last check failed because GitHub couldn't be reached. Callers
+        # retry those as soon as the network is back instead of waiting for the next
+        # regular check, see gui_main_menu.py and arguments.py _check_updates_handler().
+        self.network_failed: bool = False
 
     def _ensure_privileged_helper_permissions(self) -> None:
         """
@@ -607,6 +614,7 @@ class CheckBinaryUpdates:
         self._ensure_privileged_helper_permissions()
 
         self.last_error = None
+        self.network_failed = False
 
         if self.constants.special_build is True:
             # Special builds do not get updates through the updater
@@ -653,9 +661,17 @@ class CheckBinaryUpdates:
             logging.exception("Stack Trace:")
             logging.info("If so, report this issue immediately")
             self.last_error = "Could not reach GitHub. Please check your internet connection."
+            self.network_failed = True
             return None
 
-        response = network_handler.NetworkUtilities().get(repo_latest_release_url)
+        response = network_handler.NetworkUtilities().get(repo_latest_release_url, timeout=_RELEASES_TIMEOUT)
+        if response.status_code is None:
+            # network_handler.get() returns an empty Response if the request failed,
+            # i.e. the connection dropped after verify_network_connection() above
+            logging.error("Lost the connection to GitHub while checking for updates")
+            self.last_error = "Could not reach GitHub. Please check your internet connection."
+            self.network_failed = True
+            return None
         releases = response.json()
 
         if not releases or not isinstance(releases, list):
