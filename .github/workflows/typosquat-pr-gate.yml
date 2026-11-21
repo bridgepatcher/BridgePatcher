@@ -1,0 +1,49 @@
+name: Typosquat PR gate
+
+# Closes pull requests from people who own a repository the typosquat watch lists
+# as a lookalike of this project, and asks them to rename it and wait for the next
+# typosquat watch run (which marks it as renamed) before opening a new pull request.
+# See .github/scripts/typosquat_pr_gate.py.
+on:
+  # pull_request_target so it can comment on and close PRs from forks.
+  # SAFE: only the base branch is checked out; nothing from the PR is checked out or executed.
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+  # After each watch run: close open PRs of newly listed owners, and tell the
+  # owners of closed PRs who renamed that they can open them again
+  workflow_run:
+    workflows: ["Typosquat watch"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write         # comment on and label PRs
+  pull-requests: write  # close PRs
+
+concurrency:
+  group: typosquat-pr-gate-${{ github.event.pull_request.number || 'sweep' }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    # A failed watch run didn't update the tracker, so there's nothing new to check
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Close PRs from owners of listed typosquats
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGINAL_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ALIASES: "OpenCore-Legacy-Patcher-T2 OCLP-T2"   # former names, as in typosquat-watch.yml
+        run: python .github/scripts/typosquat_pr_gate.py
