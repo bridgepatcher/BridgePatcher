@@ -499,11 +499,11 @@ def _worker(root: str, case: str, out_path: str) -> None:
 
         # The PatcherSupportPkg the app ships with (Universal-Binaries.dmg is built
         # from this repo at this tag by its CI)
-        source = constants.Constants().patcher_support_pkg_sources["bridgepatcher"]
-        match = re.fullmatch(r"https://github\.com/([A-Za-z0-9-]+)/PatcherSupportPkg/releases/download/", source["url"])
-        version = source["version"]
+        patcher_constants = constants.Constants()
+        match = re.fullmatch(r"https://github\.com/([A-Za-z0-9-]+)/PatcherSupportPkg/releases/download/", patcher_constants.url_patcher_support_pkg)
+        version = patcher_constants.patcher_support_pkg_version
         if not match or not re.fullmatch(r"[0-9][0-9A-Za-z.\-]*", version):
-            raise SystemExit(f"unexpected bundled PatcherSupportPkg source: {source['url']!r} {version!r}")
+            raise SystemExit(f"unexpected bundled PatcherSupportPkg source: {patcher_constants.url_patcher_support_pkg!r} {version!r}")
         repo_url = f"https://github.com/{match.group(1)}/PatcherSupportPkg.git"
         notes.append(f"PatcherSupportPkg {version} from {match.group(1)}/PatcherSupportPkg")
 
