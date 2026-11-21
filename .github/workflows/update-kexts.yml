@@ -3,8 +3,8 @@ name: Update kexts
 # Once a day, checks whether the third-party kexts in payloads/Kexts have a newer
 # version and, if so, opens a PR that updates them. It runs
 # payloads/Kexts/Update-Kexts.command, which:
-#   - compares the kexts in its KEXT_DICTIONARY (Lilu, WhateverGreen, BlueToolFixup,
-#     Innie, ...) with the latest GitHub release of their repository, downloads the
+#   - compares the kexts in its KEXT_DICTIONARY (Lilu, WhateverGreen, AppleALC,
+#     BlueToolFixup, Innie, ...) with the latest GitHub release of their repository, downloads the
 #     new RELEASE/DEBUG zips and only uses them if their SHA-256 matches the digest
 #     GitHub publishes for the release asset
 #   - compares every other kext whose path is in bridgepatcher/constants.py
@@ -16,7 +16,7 @@ name: Update kexts
 #   - rebuilds the WhateverGreen Navi variant when WhateverGreen is updated (needs
 #     Xcode, so the job runs on macOS)
 #   - updates bridgepatcher/constants.py and THIRD-PARTY-NOTICES.txt
-# Pinned kexts (RestrictEvents) and kexts left out on purpose (AppleALC) are skipped,
+# Pinned kexts (RestrictEvents) and BridgePatcher's newer AAAMouSSE build are skipped,
 # see the comments in the script.
 #
 # Kexts are injected by OpenCore, so a bad update can stop a Mac from booting.

@@ -25,11 +25,13 @@ KEXT_DICTIONARY = {
             "Repository": "https://github.com/acidanthera/AirportBrcmFixup",
             "Constants Variable": "self.airportbcrmfixup_version",
         },
-        # Due to issues with legacy Macs, don't update
-        # "AppleALC": {
-        #     "Repository": "https://github.com/acidanthera/AppleALC",
-        #     "Constants Variable": "self.applealc_version",
-        # },
+        # Dortania stays on its modified AppleALC 1.6.3 for legacy Macs (MacBook4,1), BridgePatcher
+        # follows acidanthera's releases instead. Only AppleALC.kext is kept from the release zip
+        # (not AppleALCU.kext or alc-verb), it's the only part the EFI builder uses.
+        "AppleALC": {
+            "Repository": "https://github.com/acidanthera/AppleALC",
+            "Constants Variable": "self.applealc_version",
+        },
         "BlueToolFixup": {
             "Repository": "https://github.com/acidanthera/BrcmPatchRAM",
             "Constants Variable": "self.bluetool_version",
@@ -96,7 +98,7 @@ UPSTREAM_REPOSITORY = "https://github.com/dortania/OpenCore-Legacy-Patcher"
 
 # Kexts never taken from Dortania (kexts in KEXT_DICTIONARY are skipped as well)
 UPSTREAM_SKIP = {
-    "AppleALC": "not updated, see the comment in KEXT_DICTIONARY (BridgePatcher ships a newer build than Dortania)",
+    "AAAMouSSE": "BridgePatcher ships a newer build (0.95-Dortania) than Dortania's AAAMouSSE-v0.95.zip",
 }
 
 # self.payload_kexts_path / Path(f"<folder>/<name>-v{self.<variable>}[-{self.kext_variant}|-RELEASE|-DEBUG].zip")
