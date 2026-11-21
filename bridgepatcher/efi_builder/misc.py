@@ -6,17 +6,15 @@ import shutil
 import logging
 import binascii
 import sys
-from pathlib import Path
 
 from . import support
 from .. import constants
-from ..support import generate_smbios, utilities
+from ..support import utilities
 from ..detections import device_probe
 from ..datasets import (
     model_array,
     smbios_data,
-    cpu_data,
-    os_data
+    cpu_data
 )
 
 _T2_MODELS = set(model_array.T2Macs)

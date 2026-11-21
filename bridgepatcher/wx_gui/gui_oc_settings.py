@@ -21,13 +21,11 @@ from ..wx_gui import (
 from ..support import (
     defaults,
     global_settings,
-    generate_smbios,
 )
 from ..datasets import (
     sip_data,
     smbios_data,
     os_data,
-    cpu_data,
     model_array
 )
 
