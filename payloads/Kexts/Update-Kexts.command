@@ -102,9 +102,7 @@ UPSTREAM_REPOSITORY = "https://github.com/dortania/OpenCore-Legacy-Patcher"
 FIRST_PARTY_FOLDERS = ["T2"]
 
 # Kexts never taken from Dortania (kexts in KEXT_DICTIONARY are skipped as well)
-UPSTREAM_SKIP = {
-    "AAAMouSSE": "BridgePatcher ships a newer build (0.95-Dortania) than Dortania's AAAMouSSE-v0.95.zip",
-}
+UPSTREAM_SKIP = {}
 
 # self.payload_kexts_path / Path(f"<folder>/<name>-v{self.<variable>}[-{self.kext_variant}|-RELEASE|-DEBUG].zip")
 CONSTANTS_KEXT_PATH_RE = re.compile(r'payload_kexts_path / Path\(f"(?P<folder>[A-Za-z0-9]+)/(?P<name>[A-Za-z0-9_.,+-]+?)-v\{self\.(?P<variable>\w+)\}(?P<variant>-\{self\.kext_variant\}|-RELEASE|-DEBUG)?\.zip"\)')
@@ -321,18 +319,19 @@ class GenerateKexts:
                 label = ", ".join(dict.fromkeys(name for _, name, _ in files))
                 print(f"Checking {label} (Dortania)...")
 
+                # A version with a suffix (0.95-Dortania) is compared with Dortania's files
+                # with the same suffix (AAAMouSSE-v0.95-Dortania.zip), not with other builds
+                local_base, build_suffix = local_version, ""
                 if "-" in local_version:
-                    # e.g. 0.95-Dortania: a build of its own, Dortania's file is named differently
-                    print(f"  {label} is a custom build (v{local_version}), skipping")
-                    self.not_checked.append((label, f"custom build v{local_version}, not compared with Dortania"))
-                    continue
+                    local_base, build_suffix = local_version.split("-", 1)
+                    build_suffix = f"-{build_suffix}"
 
                 for folder, name, variant in files:
                     suffix = f"-{variant}" if variant else ""
                     if not Path(f"./{folder}/{name}-v{local_version}{suffix}.zip").exists():
                         raise Exception(f"{folder}/{name}-v{local_version}{suffix}.zip not found, but constants.py says self.{variable} is {local_version}")
 
-                remote_versions = {self._get_version_from_names(upstream_files.get(folder, []), name, variant) for folder, name, variant in files}
+                remote_versions = {self._get_version_from_names(upstream_files.get(folder, []), name, variant, build_suffix) for folder, name, variant in files}
                 if None in remote_versions:
                     print(f"  {label} isn't in Dortania's payloads/Kexts, skipping")
                     self.not_checked.append((label, "not in Dortania's payloads/Kexts"))
@@ -344,8 +343,9 @@ class GenerateKexts:
                     self.warnings.append(message)
                     continue
 
-                remote_version = remote_versions.pop()
-                if packaging.version.parse(remote_version) <= packaging.version.parse(local_version):
+                remote_base = remote_versions.pop()
+                remote_version = f"{remote_base}{build_suffix}"
+                if packaging.version.parse(remote_base) <= packaging.version.parse(local_base):
                     print(f"  {label} is up to date: v{local_version}")
                     continue
 
