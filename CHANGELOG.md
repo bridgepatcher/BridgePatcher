@@ -5,6 +5,7 @@ This release:
 
             logging.info(
                             f"- No update available ({checker.last_error if checker.last_error else 'already on the latest version'})")
+
 ## 4.0.0.2000004.0.0.3 - 4.0.0 alpha 20.4 Preview
 This version updates the AirPort Atheros kext to the latest version available.
 
