@@ -311,12 +311,11 @@ jobs:
                 (who ? ` ${who}: see the job summary for the ${violations} violation(s).` : ''));
             }
 
-      # Only PRs from forks, and only for violations the PR itself adds. PRs that fix
-      # violations (or come from branches in this repo) are never closed.
-      - name: Close fork PR that adds violations
-        if: >-
-          steps.new.outcome == 'success' && steps.new.outputs.count != '0' &&
-          github.event.pull_request.head.repo.full_name != github.repository
+      # Every PR that adds violations, drafts and branches in this repo included, but only
+      # for violations the PR itself adds: violations already in the base branch, and PRs
+      # that fix violations, never get a PR closed.
+      - name: Close PR that adds violations
+        if: steps.new.outcome == 'success' && steps.new.outputs.count != '0'
         uses: actions/github-script@v7
         with:
           script: |
@@ -328,7 +327,8 @@ jobs:
             const names = new Set([pr.user?.login]);
             if (head?.owner?.login && head.owner.type !== 'Organization') names.add(head.owner.login);
             const who = [...names].filter(n => n && !n.endsWith('[bot]')).map(n => `@${n}`).join(' ');
-            const fork = head ? `from the fork [\`${head.full_name}\`](${head.html_url}) ` : '';
+            const isFork = head?.full_name !== `${owner}/${repo}`;
+            const fork = isFork && head ? `from the fork [\`${head.full_name}\`](${head.html_url}) ` : '';
             const list = fs.readFileSync('new-violations.txt', 'utf8').trim().split('\n')
               .filter(Boolean).map(l => `- ${l}`).join('\n');
             await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body:
