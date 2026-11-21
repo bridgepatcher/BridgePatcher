@@ -384,6 +384,26 @@ xw
         support.BuildSupport(self.model, self.constants, self.config).enable_kext("corecrypto_T1.kext", self.constants.t1_corecrypto_version, self.constants.t1_corecrypto_path)
         support.BuildSupport(self.model, self.constants, self.config).enable_kext("AppleSSE.kext", self.constants.t1_sse_version, self.constants.t1_sse_path)
         support.BuildSupport(self.model, self.constants, self.config).enable_kext("AppleKeyStore.kext", self.constants.t1_key_store_version, self.constants.t1_key_store_path)
-        support.BuildSupport(self.model, self.constants, self.config).enable_kext("AppleKeyStore-Tahoe.kext", self.constants.t1_key_store_tahoe_version, self.constants.t1_key_store_tahoe_path)
+        if self.constants.t1_tahoe_touch_id is True:  # BridgePatcher, see below
+            support.BuildSupport(self.model, self.constants, self.config).enable_kext("AppleKeyStore-Tahoe.kext", self.constants.t1_key_store_tahoe_version, self.constants.t1_key_store_tahoe_path)
         support.BuildSupport(self.model, self.constants, self.config).enable_kext("AppleCredentialManager.kext", self.constants.t1_credential_version, self.constants.t1_credential_path)
         support.BuildSupport(self.model, self.constants, self.config).enable_kext("KernelRelayHost.kext", self.constants.kernel_relay_version, self.constants.kernel_relay_path)
+
+        # BridgePatcher: on macOS Tahoe, userspace can't reach the keystore through the
+        # legacy T1 kexts (aks_get_lock_state: aks connection failed). Data Protection
+        # class C never unlocks after login, so iCloud Photos / Messages / Maps stop
+        # syncing and the keychain keeps asking for the Mac password. Tahoe's own
+        # AppleKeyStore + AppleCredentialManager work on a T1 Mac, only Touch ID is lost.
+        # So by default every T1 kext and Block entry stops at Sequoia (Darwin 24) and
+        # Tahoe boots with its native keystore. Touch ID on Tahoe is opt-in via
+        # constants.t1_tahoe_touch_id ("T1 Touch ID on macOS Tahoe"), which keeps
+        # Dortania's configuration above.
+        if self.constants.t1_tahoe_touch_id is True:
+            logging.info("- T1 on macOS Tahoe: Touch ID enabled (experimental)")
+            return
+
+        logging.info("- T1 on macOS Tahoe: native keystore, no Touch ID")
+        for identifier in ["com.apple.driver.AppleSSE", "com.apple.driver.AppleKeyStore", "com.apple.driver.AppleCredentialManager"]:
+            support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(self.config["Kernel"]["Block"], "Identifier", identifier)["MaxKernel"] = "24.99.99"
+        for kext in ["corecrypto_T1.kext", "AppleSSE.kext", "AppleKeyStore.kext", "AppleCredentialManager.kext", "KernelRelayHost.kext"]:
+            support.BuildSupport(self.model, self.constants, self.config).get_kext_by_bundle_path(kext)["MaxKernel"] = "24.99.99"

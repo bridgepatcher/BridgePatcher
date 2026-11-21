@@ -11,6 +11,8 @@ upstream changes can be ported file by file. BridgePatcher changes are limited t
 - security.py: SecureBootModel is also disabled whenever SIP is lowered (Issue #465)
 - graphics_audio.py: SimpleHDA audio on macOS Tahoe for the iMac19,1/19,2
   (model_array.SimpleHDAAudio), see _simplehda_handling()
+- misc.py: T1 kexts stop at Sequoia unless constants.t1_tahoe_touch_id is set,
+  see _t1_handling()
 - moving the finished EFI to oc_build_path when the GUI saves the build
 T2 Macs are built by efi_builder/build.py.
 """
