@@ -204,8 +204,7 @@ class arguments:
                 return
 
         if not update_dict:
-            logging.info(
-                f"- No update available ({checker.last_error if checker.last_error else 'already on the latest version'})")
+            logging.info(f"- No update available ({checker.last_error if checker.last_error else 'already on the latest version'})")
             return
 
         remote_version_str = str(update_dict["Version"])
