@@ -165,7 +165,7 @@ class Constants:
         self.io80211elcap_version:     str = "2.0.1"  # IO80211ElCap
         self.io80211legacy_version:    str = "1.0.0"  # IO80211FamilyLegacy (Ventura)
         self.ioskywalk_version:        str = "1.2.0"  # IOSkywalkFamily (Ventura)
-        self.airport_atheros_tahoe_version: str = "1.0.0"  # AirPortAtheros40-Tahoe
+        self.airport_atheros_tahoe_version: str = "1.0.1"  # AirPortAtheros40-Tahoe
         self.airport_brcmnic_tahoe_version: str = "1.0.0"  # AirPortBrcmNIC-Tahoe
         self.bigsursdxc_version:       str = "1.0.0"  # BigSurSDXC
         self.monterey_ahci_version:    str = "1.0.0"  # CatalinaAHCI
