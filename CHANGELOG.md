@@ -1,6 +1,7 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
 ## 4.0.0.2000003.7 - 4.0.0 alpha 20.3.7
 This version is a security update only that fixes critical vulnerabilities. Please we recommend to update to this version.
+
 This version:
 - fixes a vulnerability where an attacker may be able to gain access to this repository to push malicious PRs that violate the license or include malware and push PRs that are set to Draft to bypass GitHub Actions and confuse contributors into accepting malware
 
