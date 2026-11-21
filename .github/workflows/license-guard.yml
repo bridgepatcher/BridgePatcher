@@ -329,13 +329,35 @@ jobs:
             const who = [...names].filter(n => n && !n.endsWith('[bot]')).map(n => `@${n}`).join(' ');
             const isFork = head?.full_name !== `${owner}/${repo}`;
             const fork = isFork && head ? `from the fork [\`${head.full_name}\`](${head.html_url}) ` : '';
-            const list = fs.readFileSync('new-violations.txt', 'utf8').trim().split('\n')
-              .filter(Boolean).map(l => `- ${l}`).join('\n');
-            await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body:
+            // What exactly is wrong and where: the finding's details from license_guard.py (lines with
+            // the offending text, removed notices, how to fix it), with links to the PR's version of the file.
+            // The PR head commit is reachable in this repo too (refs/pull/N/head), even for forks.
+            let details = new Map();
+            try {
+              details = new Map(JSON.parse(fs.readFileSync('head-blame.json', 'utf8')).map(e => [e.key, e]));
+            } catch (e) { core.warning(`No violation details for the closing comment: ${e.message}`); }
+            const tick = s => String(s).replace(/`/g, "'");
+            const fileUrl = p => `${context.serverUrl}/${owner}/${repo}/blob/${pr.head.sha}/` +
+              p.split('/').map(encodeURIComponent).join('/');
+            const list = fs.readFileSync('new-violations.txt', 'utf8').trim().split('\n').filter(Boolean)
+              .map(key => {
+                const e = details.get(key);
+                if (!e) return `- ${key}`;
+                const url = fileUrl(e.path);
+                const lines = [...new Set((e.details || []).map(d => d.match(/^\s*line (\d+)\b/)?.[1]).filter(Boolean))];
+                let item = `- **${e.title}** in [\`${tick(e.path)}\`](${url})`;
+                if (lines.length) item += ` – line ${lines.map(n => `[${n}](${url}#L${n})`).join(', ')}`;
+                if (e.details?.length) item += `\n\n  \`\`\`diff\n${e.details.map(d => `  ${d}`).join('\n')}\n  \`\`\``;
+                return item;
+              }).join('\n\n');
+            let body =
               `🛡️ **License Guard closed this pull request automatically.**${who ? ' ' + who : ''}\n\n` +
               `This pull request ${fork}adds license violations that aren't in \`${pr.base.ref}\`:\n\n${list}\n\n` +
-              `Keep every upstream copyright notice and use your own artwork instead of Dortania's or Apple's, ` +
-              `then open a new pull request. The License Guard comment above has the details.` });
+              `Fix every item above, then open a new pull request. Keep every upstream copyright notice, ` +
+              `don't use Dortania's name for this project and use your own artwork instead of Dortania's or Apple's. ` +
+              `The License Guard comment above has the full audit.`;
+            if (body.length > 60000) body = body.slice(0, 60000) + '\n\n…truncated, see the License Guard comment above.';
+            await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
             await github.rest.pulls.update({ owner, repo, pull_number: pr.number, state: 'closed' });
 
       - name: Fail on violations
