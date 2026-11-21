@@ -1,7 +1,10 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
 ## 4.0.0.2000003.7
-This version fixes a vulnerability where an attacker may be able to gain access to this repository to push malicious PRs that violate the license or include malware and push PRs that are set to Draft to bypass GitHub Actions and confuse contributors into accepting malware
+This version:
+- fixes a vulnerability where an attacker may be able to gain access to this repository to push malicious PRs that violate the license or include malware and push PRs that are set to Draft to bypass GitHub Actions and confuse contributors into accepting malware
 Impact: GitHub Actions may comment that the PR is malicious, but not close the PR. An attacker could exploit this to trick unsuspecting owners of the organization into accepting malicious PRs to commit license violations, contribution violations or malware to the repository.
+- fixes a vulnerability where a malicious fork could trick GitHub Actions into not closing the PR by making the PR set to draft.
+Impact: an attacker could intentionally set a malicious PR to confuse GitHub Actions into not closing the PR for malicious activity. Then they could trick unsuspecting owners of the organization to push malware into main.
 ## 4.0.0.2000003.6 - 4.0.0 alpha 20.3.6
 This release:
 - fixes a bug where the changelog may appear like this:
