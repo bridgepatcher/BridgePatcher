@@ -11,7 +11,7 @@ and only reported as info.
 
 Usage: license_guard.py <git-diff-range>     e.g. "abc123...pr-head"
 Env:   UPSTREAM_HOLDER (default "Dortania"), REPORT_PATH (default license-report.md),
-       BLAME_LIST (optional: JSON file with the commits that introduced each violation)
+       BLAME_LIST (optional: JSON file with the details and the commits that introduced each violation)
 """
 import fnmatch
 import io
@@ -932,10 +932,11 @@ def main():
         with open(os.environ["VIOLATIONS_LIST"], "w", encoding="utf-8") as fh:
             fh.write("".join(f"{title} — {path}\n" for _, path, title, _ in v))
     # Same keys as VIOLATIONS_LIST, plus the commits that introduced each violation, so the
-    # workflow can @mention the people who made the change.
+    # workflow can @mention the people who made the change, and the details (lines, how to fix),
+    # so the comment that closes a PR can say exactly what is wrong and where.
     if os.environ.get("BLAME_LIST"):
         with open(os.environ["BLAME_LIST"], "w", encoding="utf-8") as fh:
-            json.dump([{"key": f"{title} — {path}", "path": path, "title": title,
+            json.dump([{"key": f"{title} — {path}", "path": path, "title": title, "details": details,
                         "commits": blame(path, details, removed.get((path, title), ()))}
                        for _, path, title, details in v], fh, ensure_ascii=False, indent=1)
 
