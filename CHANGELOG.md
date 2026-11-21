@@ -1,6 +1,8 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.0.0.3 - 4.0.0 alpha 20.4 Preview
+This version updates the AirPort Atheros kext to the latest version available.
+
 ## 4.0.0.2000004.0.0.2 - 4.0.0 alpha 20.4 Preview
-This version is a security update only that fixes critical vulnerabilities. Please we recommend to update to this version.
 This release:
 - stops injecting AppleKeyStore-Tahoe on T1 Macs automatically, just like in the latest non-preview version
 
