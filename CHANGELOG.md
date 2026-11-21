@@ -1,4 +1,55 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.0.0.4 - 4.0.0 alpha 20.4 Preview
+This release:
+- fixes a small bug where in arguments.py the No updates available in the code was on 2 rows instead of 1:
+
+            logging.info(
+                            f"- No update available ({checker.last_error if checker.last_error else 'already on the latest version'})")
+
+## 4.0.0.2000004.0.0.3 - 4.0.0 alpha 20.4 Preview
+This version updates the AirPort Atheros kext to the latest version available.
+
+## 4.0.0.2000004.0.0.2 - 4.0.0 alpha 20.4 Preview
+This release:
+- stops injecting AppleKeyStore-Tahoe on T1 Macs automatically, just like in the latest non-preview version
+
+- fixes a vulnerability where an attacker may be able to gain access to this repository to push malicious PRs that violate the license or include malware and push PRs that are set to Draft to bypass GitHub Actions and confuse contributors into accepting malware
+
+Impact: GitHub Actions may comment that the PR is malicious, but not close the PR. An attacker could exploit this to trick unsuspecting owners of the organization into accepting malicious PRs to commit license violations, contribution violations or malware to the repository.
+- fixes a vulnerability where a malicious fork could trick GitHub Actions into not closing the PR by making the PR set to draft.
+
+Impact: an attacker could intentionally set a malicious PR to confuse GitHub Actions into not closing the PR for malicious activity. Then they could trick unsuspecting owners of the organization to push malware into main.
+
+- fixes a vulnerability where an attacker who is actively typosquatting this project could make a fork and then push a malicious PR and bypass all action defenses to deploy malware
+Impact: an attacker who is actively running malware campaigns that impersonate BridgePatcher's organisation to push a malicious PR and bypass all defenses to trick an unsuspecting owner of the project to inject malware into main.
+
+- fixes a vulnerability where if the app was opened before the update was released, it may not update automatically, even while doing nothing at the moment.
+
+Impact: the user may remain on a vulnerable version because they never closed the application at all. An attacker could exploit this vulnerability to exploit other already patched vulnerabilities, e.g arbitary code execution, button hijacking or DoS.
+
+## 4.0.0.2000004.0.0.1 - 4.0.0 alpha 20.4 Preview
+This release:
+- root patching now always uses Dortania's PatcherSupportPkg (dortania/PatcherSupportPkg 2.0.5) on every Mac, T2 Macs included. It is bundled with the app again, so it no longer needs to be downloaded online when root patching. BridgePatcher's own PatcherSupportPkg (2.6) and the PatcherSupportPkg choice in Settings > App are gone, and a stored choice from an earlier version is removed on the next start
+  - Macs root patched with BridgePatcher's PatcherSupportPkg are asked to revert the root patches and patch again
+- the root patches themselves now match Dortania's current OpenCore Legacy Patcher, apart from the USB 1.1 patch and the Modern Audio patch, which stay as they are (Modern Audio is still skipped on the iMac19,1 and iMac19,2 under macOS Tahoe when SimpleHDA is loaded). The patcher's own checks around root patching (revert checks, choosing which patches to install, the AMFI check from #788) are not changed
+  - T1 Security Chip: on macOS Sequoia, `MechanismPlugins`, `ModulePlugins` and `ModuleBase.framework` are installed again (needed to add a Touch ID fingerprint). On macOS Tahoe, nothing changes: the Touch ID and Apple Pay files are still only installed when the EFI loads the T1 kexts ("T1 Touch ID on macOS Tahoe")
+  - AMD Navi: the patch is offered to every Mac with a Navi GPU and a CPU without AVX2 again (e.g. a Mac Pro 2010/2012 with a Navi graphics card), as in Dortania's patcher. It was limited to Dortania's internal testers
+- brings SimpleHDA audio on macOS Tahoe back to the iMac19,1 and iMac19,2, which lost it with the new EFI builder for Macs without a T2 chip in 4.0.0.2000004. SimpleHDA is the only way to get sound working on these Macs under Tahoe. OpenCore again adds Lilu, AppleALC and SimpleHDA with the Mac's audio layout (`alcid=7`), as before. SimpleHDA is still downloaded while building OpenCore and checked against its SHA-256; without an internet connection, OpenCore is built without it
+  - build and install OpenCore again with this version to get SimpleHDA back
+- brings back the macOS Tahoe handling for the T1 MacBook Pros (MacBookPro13,2, 13,3, 14,2 and 14,3), which the new EFI builder for Macs without a T2 chip dropped in 4.0.0.2000004. By default, the T1 kexts are only loaded up to macOS Sequoia again, and macOS Tahoe uses its own keystore: no Touch ID there, but iCloud sync and the keychain work. The "T1 Touch ID on macOS Tahoe" setting works again and loads the T1 kexts on Tahoe for Touch ID (with the iCloud sync and keychain issue it warns about)
+  - build and install OpenCore again with this version. If root patches were installed on macOS Tahoe while the T1 kexts were loaded, revert them and patch again after rebooting
+
+## 4.0.0.2000004  - 4.0.0 alpha 20.4 Preview
+This release:
+- builds OpenCore for Macs without a T2 chip with a port of Dortania's current OpenCore Legacy Patcher EFI builder, to rule out BridgePatcher's own EFI builder as the cause of #788. On all 85 supported Macs without a T2 chip, the EFI now matches the one Dortania's builder makes, apart from BridgePatcher's names, OpenCore 1.0.8 and the boot picker theme
+  - BridgePatcher-only settings are no longer added on these Macs, among them `dart=0`, `-amfipassbeta`, `-oas_skip_attestation`, the extra Haswell/Broadwell and MacBookPro13,x/14,x boot-args, CatalinaBCM5701Ethernet and SimpleHDA audio on the iMac19,1 and iMac19,2 under macOS Tahoe
+  - the T1 kexts on the MacBookPro13,2/13,3/14,2/14,3 now load on macOS Tahoe too, as in Dortania's builder. This brings Touch ID back, but also the keystore issue the "T1 Touch ID on macOS Tahoe" setting warns about (iCloud sync stops, the keychain keeps asking for the password). That setting has no effect on these Macs anymore
+  - new from Dortania: per-model USB maps, CSLVFixup on macOS Big Sur and AppleIntelPIIXATA for macOS Monterey and newer on the MacBookPro4,1, MacPro3,1, Xserve2,1, iMac7,1 and iMac8,1
+  - Apple Secure Boot is still turned off whenever SIP is lowered for root patching (#465)
+  - build and install OpenCore again with this version to get the new EFI
+  - T2 Macs are not affected, their EFI stays exactly the same
+- removes the TEST-A to TEST-D (LEVEL-B to LEVEL-D) OpenCore build profiles. Every build now uses the standard configuration, and the profile choices are gone from Build OpenCore, the OpenCore settings and Developer Mode. A stored profile choice from an earlier version is removed on the next start
+
 ## 4.0.0.2000003.8 - 4.0.0 alpha 20.3.8
 This release:
 - fixes a small bug where in arguments.py the No updates available in the code was on 2 rows instead of 1:
@@ -6,6 +57,16 @@ This release:
             logging.info(
                             f"- No update available ({checker.last_error if checker.last_error else 'already on the latest version'})")
 - updates the AirPort Atheros kext to the latest version available.
+
+## 4.0.0.2000003.7.1 - 4.0.0 alpha 20.3.7.1 Preview
+This release:
+- fixes a bug where root patching ran on Macs without a T2 chip even though AMFI was still enabled, so the Mac couldn't start up afterwards (#788). As soon as AMFIPass was loaded, BridgePatcher assumed AMFI would accept the patched frameworks. That is only true for Dortania's root patches: AMFIPass only trusts binaries signed by Dortania, and BridgePatcher signs its root patches with its own certificate. On a Mac whose OpenCore had no `amfi=0x80`, root patching therefore went ahead, and after the reboot AMFI rejected the patched frameworks and the Mac never reached the desktop. Whether AMFI is disabled is now decided only by the boot-args. A Mac without `amfi=0x80` is now stopped before root patching with "Validation: AMFI is enabled" instead of ending up unable to start up
+  - if you see this message, build and install OpenCore again with this version (it adds `amfi=0x80`, see 4.0.0.2000003.7.0), reboot, then root patch
+  - T2 Macs always have `amfi=0x80` and are not affected
+
+## 4.0.0.2000003.7.0 - 4.0.0 alpha 20.3.7 Preview
+This release:
+- Fixes the AMFI part of #788 (MacBookPro7,1, Sequoia 15.8.3: patched frameworks rejected by AMFI after root patching).
 
 ## 4.0.0.2000003.7 - 4.0.0 alpha 20.3.7
 This version is a security update only that fixes critical vulnerabilities. Please we recommend to update to this version.

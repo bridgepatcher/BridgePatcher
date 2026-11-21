@@ -136,48 +136,8 @@ class BuildFrame(wx.Frame):
 
         next_y = model_label.GetPosition()[1] + model_label.GetSize()[1] + 5
 
-        # Profile selection for MacBookPro14,x (T1)
-        target_model = self.constants.custom_model or self.constants.computer.real_model
-        if target_model in ["MacBookPro14,1", "MacBookPro14,2", "MacBookPro14,3"] and self.constants.Experimental_Features:
-            self.radio_standard = wx.RadioButton(frame, label="STANDARD / SAFE", pos=(-1, next_y), style=wx.RB_GROUP)
-            self.radio_standard.Centre(wx.HORIZONTAL)
-            next_y += 30
-
-            self.radio_testa = wx.RadioButton(frame, label="TEST-A (GPU)", pos=(-1, next_y))
-            self.radio_testa.Centre(wx.HORIZONTAL)
-            next_y += 30
-
-            self.radio_testb = wx.RadioButton(frame, label="TEST-B (GPU + No-Compat)", pos=(-1, next_y))
-            self.radio_testb.Centre(wx.HORIZONTAL)
-            next_y += 30
-
-            self.radio_testc = wx.RadioButton(frame, label="TEST-C (GPU + No-Compat + VBootArgs)", pos=(-1, next_y))
-            self.radio_testc.Centre(wx.HORIZONTAL)
-            next_y += 30
-
-            self.radio_testd = wx.RadioButton(frame, label="TEST-D (GPU + BootArgs + XPC)", pos=(-1, next_y))
-            self.radio_testd.Centre(wx.HORIZONTAL)
-            next_y += 40
-
-            if self.constants.build_profile == "test_d":
-                self.radio_testd.SetValue(True)
-            elif self.constants.build_profile == "test_c":
-                self.radio_testc.SetValue(True)
-            elif self.constants.build_profile == "test_b":
-                self.radio_testb.SetValue(True)
-            elif self.constants.build_profile == "test_a":
-                self.radio_testa.SetValue(True)
-            else:
-                self.radio_standard.SetValue(True)
-        else:
-            self.radio_standard = None
-            self.radio_testa = None
-            self.radio_testb = None
-            self.radio_testc = None
-            self.radio_testd = None
-
         if self.constants.Experimental_Features:
-            # Button: Build OpenCore (Only in Developer Mode to allow selection)
+            # Button: Build OpenCore (Only in Developer Mode, so the build doesn't start on its own)
             build_button = wx.Button(frame, label="🔨 Build OpenCore", pos=(-1, next_y), size=(150, 30))
             build_button.Bind(wx.EVT_BUTTON, self.on_build_click)
             build_button.Centre(wx.HORIZONTAL)
@@ -336,23 +296,12 @@ class BuildFrame(wx.Frame):
         logger.addHandler(handler)
 
 
-        if self.constants.build_profile == "test_b":
-            profile_name = "TEST-B GPU"
-        elif self.constants.build_profile == "test_c":
-            profile_name = "TEST-C TAHOE / ALBERT"
-        elif self.constants.build_profile == "test_d":
-            profile_name = "TEST-D (GPU + BootArgs + XPC)"
-        elif self.constants.build_profile == "test_c_spoofed":
-            profile_name = "TEST-C SPOOFED / ALBERT"
-        else:
-            profile_name = "STANDARD / SAFE"
         target_model = self.constants.custom_model or self.constants.computer.real_model
 
         logging.info("=========================================")
         logging.info("          BUILD CONFIGURATION            ")
         logging.info("=========================================")
         logging.info(f"Target Model: {target_model}")
-        logging.info(f"Profile: {profile_name}")
 
         if target_model in ["MacBookPro14,1", "MacBookPro14,2", "MacBookPro14,3"]:
             t1_status = "DETECTED" if getattr(self.constants.computer, 't1_chip', False) else f"ENABLED ({target_model})"
@@ -429,23 +378,6 @@ class BuildFrame(wx.Frame):
 
     def on_build_click(self, event: wx.Event) -> None:
         self.build_button.Disable()
-        if getattr(self, "radio_standard", None):
-            if self.radio_testd.GetValue():
-                self.constants.build_profile = "test_d"
-            elif self.radio_testc.GetValue():
-                self.constants.build_profile = "test_c"
-            elif self.radio_testb.GetValue():
-                self.constants.build_profile = "test_b"
-            elif self.radio_testa.GetValue():
-                self.constants.build_profile = "test_a"
-            else:
-                self.constants.build_profile = "standard"
-
-            self.radio_standard.Disable()
-            self.radio_testa.Disable()
-            self.radio_testb.Disable()
-            self.radio_testc.Disable()
-            self.radio_testd.Disable()
         if hasattr(self, "return_button"):
             self.return_button.Disable()
         self._invoke_build()

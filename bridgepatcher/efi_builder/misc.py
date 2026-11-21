@@ -364,7 +364,7 @@ class BuildMiscellaneous:
 
                     # Reduce the maps to this model right away. Previously only BuildSMBIOS.set_smbios()
                     # did this, under its own (different) conditions, and set_smbios() is skipped for
-                    # e.g. test_c/test_d or "Allow native models" + "Allow spoofing native Macs". Every
+                    # e.g. "Allow native models" + "Allow spoofing native Macs". Every
                     # personality in the combined maps carries a mangled "model" value, so an unstripped
                     # map was an enabled kext that matched nothing. set_smbios() re-targets the
                     # personalities at the spoofed model afterwards when spoofing.

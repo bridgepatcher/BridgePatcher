@@ -792,46 +792,6 @@ class MainFrame(wx.Frame):
             logging.error(f"Failed to open Test Explanation dialog: {e}")
             logging.exception("Stack Trace:")
 
-    def on_build_and_install_standard(self, event: wx.Event = None):
-        self.constants.build_profile = "standard"
-        self.on_build_and_install(event)
-
-    def on_build_opencore_menu(self, event: wx.Event = None):
-        choices = [
-            "🟢 Standard / Safe Build",
-            "🧪 [LEVEL-B] Experimental GPU",
-            "🧪 [LEVEL-C] Experimental Tahoe (Native SMBIOS)",
-            "🧪 [LEVEL-C] Experimental Spoof T2 (MacBookPro16,1)",
-            "🧪 [LEVEL-D] All-In-One Tahoe (Wi-Fi + Audio + GPU + T1)"
-        ]
-        dialog = wx.SingleChoiceDialog(
-            self,
-            "Select the OpenCore build profile you wish to generate:",
-            "Build OpenCore",
-            choices
-        )
-
-        if dialog.ShowModal() == wx.ID_OK:
-            selection = dialog.GetSelection()
-            if selection == 0:
-                self.constants.build_profile = "standard"
-            elif selection == 1:
-                self.constants.build_profile = "test_b"
-            elif selection == 2:
-                self.constants.build_profile = "test_c"
-            elif selection == 3:
-                self.constants.build_profile = "test_c_spoofed"
-            elif selection == 4:
-                self.constants.build_profile = "test_d"
-            # behebt eine Sicherheitslücke, die erlaubt Angreifern, selection zu manipulieren und beispielsweise zu behaupten, es wäre Option 5 ausgewählt, die erst gar nicht existiert, um die Anwendung zum Absturz zu bringen.
-            else:
-                logging.error("You haven't selected a valid testing OpenCore option.")
-                logging.info("Please try again later.")
-
-            self.on_build_and_install(event)
-
-        dialog.Destroy()
-
     def on_build_and_install(self, event: wx.Event = None):
         try:
             self.Hide()

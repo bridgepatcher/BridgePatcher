@@ -184,11 +184,12 @@ class BuildSMBIOS:
                 logging.info("Please try again later.")
                 sys.exit(3)
         else:
-            # When serial_settings is "None", ensure we do not touch SMBIOS tables
-            # and explicitly disable SpoofVendor to prevent changing the BIOS vendor to Acidanthera
-            logging.info("- Disabling SMBIOS updates and SpoofVendor (None selected)")
-            self.config["PlatformInfo"]["UpdateSMBIOS"] = False
-            self.config.setdefault("PlatformInfo", {}).setdefault("Generic", {})["SpoofVendor"] = False
+            # T2 Macs: when serial_settings is "None", ensure we do not touch SMBIOS tables.
+            # Non-T2 Macs keep the template's values (SpoofVendor stays enabled), same as
+            # Dortania's builder (issue #788).
+            if self.model in model_array.T2Macs:
+                logging.info("- Disabling SMBIOS updates (None selected)")
+                self.config["PlatformInfo"]["UpdateSMBIOS"] = False
 
             # Update DataHub to resolve Lilu Race Condition
             # macOS Monterey will sometimes not present the boardIdentifier in the DeviceTree on UEFI 1.2 or older Mac,
