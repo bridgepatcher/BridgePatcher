@@ -1,8 +1,8 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
 ## 4.0.0.2000004.0.0.2 - 4.0.0 alpha 20.4 Preview
+This version is a security update only that fixes critical vulnerabilities. Please we recommend to update to this version.
 This release:
 - stops injecting AppleKeyStore-Tahoe on T1 Macs automatically, just like in the latest non-preview version
-This version is a security update only that fixes critical vulnerabilities. Please we recommend to update to this version.
 
 - fixes a vulnerability where an attacker may be able to gain access to this repository to push malicious PRs that violate the license or include malware and push PRs that are set to Draft to bypass GitHub Actions and confuse contributors into accepting malware
 
