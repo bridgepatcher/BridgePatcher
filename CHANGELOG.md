@@ -1,4 +1,23 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.0.0.2 - 4.0.0 alpha 20.4 Preview
+This release:
+- stops injecting AppleKeyStore-Tahoe on T1 Macs automatically, just like in the latest non-preview version
+This version is a security update only that fixes critical vulnerabilities. Please we recommend to update to this version.
+
+- fixes a vulnerability where an attacker may be able to gain access to this repository to push malicious PRs that violate the license or include malware and push PRs that are set to Draft to bypass GitHub Actions and confuse contributors into accepting malware
+
+Impact: GitHub Actions may comment that the PR is malicious, but not close the PR. An attacker could exploit this to trick unsuspecting owners of the organization into accepting malicious PRs to commit license violations, contribution violations or malware to the repository.
+- fixes a vulnerability where a malicious fork could trick GitHub Actions into not closing the PR by making the PR set to draft.
+
+Impact: an attacker could intentionally set a malicious PR to confuse GitHub Actions into not closing the PR for malicious activity. Then they could trick unsuspecting owners of the organization to push malware into main.
+
+- fixes a vulnerability where an attacker who is actively typosquatting this project could make a fork and then push a malicious PR and bypass all action defenses to deploy malware
+Impact: an attacker who is actively running malware campaigns that impersonate BridgePatcher's organisation to push a malicious PR and bypass all defenses to trick an unsuspecting owner of the project to inject malware into main.
+
+- fixes a vulnerability where if the app was opened before the update was released, it may not update automatically, even while doing nothing at the moment.
+
+Impact: the user may remain on a vulnerable version because they never closed the application at all. An attacker could exploit this vulnerability to exploit other already patched vulnerabilities, e.g arbitary code execution, button hijacking or DoS.
+
 ## 4.0.0.2000004.0.0.1 - 4.0.0 alpha 20.4 Preview
 This release:
 - root patching now always uses Dortania's PatcherSupportPkg (dortania/PatcherSupportPkg 2.0.5) on every Mac, T2 Macs included. It is bundled with the app again, so it no longer needs to be downloaded online when root patching. BridgePatcher's own PatcherSupportPkg (2.6) and the PatcherSupportPkg choice in Settings > App are gone, and a stored choice from an earlier version is removed on the next start
