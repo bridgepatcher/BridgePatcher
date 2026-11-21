@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import hashlib
+import plistlib
 import zipfile
 import argparse
 import subprocess
@@ -107,6 +108,8 @@ UPSTREAM_SKIP = {
 
 # self.payload_kexts_path / Path(f"<folder>/<name>-v{self.<variable>}[-{self.kext_variant}|-RELEASE|-DEBUG].zip")
 CONSTANTS_KEXT_PATH_RE = re.compile(r'payload_kexts_path / Path\(f"(?P<folder>[A-Za-z0-9]+)/(?P<name>[A-Za-z0-9_.,+-]+?)-v\{self\.(?P<variable>\w+)\}(?P<variant>-\{self\.kext_variant\}|-RELEASE|-DEBUG)?\.zip"\)')
+# self.payload_kexts_path / Path("<folder>/<name>.zip"): kexts without a version in the file name
+CONSTANTS_UNVERSIONED_KEXT_PATH_RE = re.compile(r'payload_kexts_path / Path\(f?"(?P<folder>[A-Za-z0-9]+)/(?P<name>[A-Za-z0-9_.,+-]+)\.zip"\)')
 CONSTANTS_VALUE_RE = re.compile(r'^\s*self\.(?P<variable>\w+)\s*:\s*str\s*=\s*"(?P<value>[^"]*)"', re.MULTILINE)
 
 
@@ -246,6 +249,36 @@ class GenerateKexts:
         return kexts
 
 
+    def _get_unversioned_upstream_kexts(self):
+        # (folder, name) of kexts without a version in their file name (e.g. Acidanthera/EFICheckDisabler.zip)
+        constants = Path("../../bridgepatcher/constants.py").read_text()
+        kexts = []
+        for match in CONSTANTS_UNVERSIONED_KEXT_PATH_RE.finditer(constants):
+            if match["folder"] in FIRST_PARTY_FOLDERS or match["name"] in UPSTREAM_SKIP:
+                continue
+            if (match["folder"], match["name"]) not in kexts:
+                kexts.append((match["folder"], match["name"]))
+        return kexts
+
+
+    def _get_zip_kext_version(self, zip_path, kext_name):
+        # CFBundleShortVersionString (or CFBundleVersion) of <kext_name>.kext inside the archive
+        with zipfile.ZipFile(zip_path) as zip_file:
+            try:
+                info = zip_file.getinfo(f"{kext_name}.kext/Contents/Info.plist")
+            except KeyError:
+                return None
+            if info.file_size > 1024 * 1024:
+                return None
+            plist = plistlib.loads(zip_file.read(info))
+        version = plist.get("CFBundleShortVersionString") or plist.get("CFBundleVersion")
+        try:
+            packaging.version.parse(str(version))
+        except packaging.version.InvalidVersion:
+            return None
+        return str(version)
+
+
     def _iterate_over_upstream_kexts(self):
         for kext_name, reason in UPSTREAM_SKIP.items():
             print(f"Skipping {kext_name}: {reason}")
@@ -258,8 +291,10 @@ class GenerateKexts:
             for kext_name in KEXT_DICTIONARY[kext_folder]:
                 known_kexts.add(KEXT_DICTIONARY[kext_folder][kext_name].get("Override", kext_name))
                 known_kexts.add(kext_name)
+        unversioned_kexts = self._get_unversioned_upstream_kexts()
+        known_files = {f"{folder}/{name}.zip" for folder, name in unversioned_kexts}
         for file in sorted(Path(".").glob("*/*.zip")):
-            if file.parent.name in FIRST_PARTY_FOLDERS:
+            if file.parent.name in FIRST_PARTY_FOLDERS or file.as_posix() in known_files:
                 continue
             if not any(file.name.startswith(f"{kext_name}-") for kext_name in known_kexts):
                 self.not_checked.append((file.as_posix(), "not tracked by this script"))
@@ -270,11 +305,15 @@ class GenerateKexts:
             upstream = f"{temp_dir}/upstream"
             subprocess.run(["/usr/bin/git", "clone", "--quiet", "--depth", "1", "--filter=blob:none", "--no-checkout", UPSTREAM_REPOSITORY, upstream], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             commit = subprocess.run(["/usr/bin/git", "rev-parse", "HEAD"], cwd=upstream, check=True, capture_output=True, text=True).stdout.strip()
-            listing = subprocess.run(["/usr/bin/git", "ls-tree", "-r", "--name-only", "HEAD", "payloads/Kexts/"], cwd=upstream, check=True, capture_output=True, text=True).stdout
+            listing = subprocess.run(["/usr/bin/git", "ls-tree", "-r", "HEAD", "payloads/Kexts/"], cwd=upstream, check=True, capture_output=True, text=True).stdout
             upstream_files = {}
+            upstream_blobs = {}
             for line in listing.splitlines():
+                # <mode> <type> <object>\t<path>
+                details, line = line.split("\t", 1)
                 path = PurePosixPath(line)
                 upstream_files.setdefault(path.parent.relative_to("payloads/Kexts").as_posix(), []).append(path.name)
+                upstream_blobs[path.relative_to("payloads/Kexts").as_posix()] = details.split()[2]
 
             for variable, entry in upstream_kexts.items():
                 local_version = entry["version"]
@@ -321,6 +360,39 @@ class GenerateKexts:
                     subprocess.run(["/bin/cp", f"{upstream}/payloads/Kexts/{folder}/{zip_name}", f"./{folder}/{zip_name}"], check=True)
                 self._update_constants_file(f"self.{variable}", local_version, remote_version)
                 self.updated.append((label, local_version, remote_version, f"dortania/OpenCore-Legacy-Patcher@{commit[:7]}"))
+
+            for folder, name in unversioned_kexts:
+                # No version in the file name: the same file as Dortania's is up to date, otherwise
+                # the kext versions in both Info.plists decide
+                print(f"Checking {name} (Dortania)...")
+                local_zip = f"./{folder}/{name}.zip"
+                if not Path(local_zip).exists():
+                    raise Exception(f"{folder}/{name}.zip is in constants.py but not in payloads/Kexts")
+                upstream_blob = upstream_blobs.get(f"{folder}/{name}.zip")
+                if upstream_blob is None:
+                    print(f"  {name} isn't in Dortania's payloads/Kexts, skipping")
+                    self.not_checked.append((name, "not in Dortania's payloads/Kexts"))
+                    continue
+
+                local_blob = subprocess.run(["/usr/bin/git", "hash-object", "--", local_zip], check=True, capture_output=True, text=True).stdout.strip()
+                local_version = self._get_zip_kext_version(local_zip, name)
+                if local_blob == upstream_blob:
+                    print(f"  {name} is up to date (same file as Dortania's{f', v{local_version}' if local_version else ''})")
+                    continue
+
+                subprocess.run(["/usr/bin/git", "checkout", "--quiet", "HEAD", "--", f"payloads/Kexts/{folder}/{name}.zip"], cwd=upstream, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                upstream_zip = f"{upstream}/payloads/Kexts/{folder}/{name}.zip"
+                self._check_zip(upstream_zip, require_kext=True)
+                remote_version = self._get_zip_kext_version(upstream_zip, name)
+                if local_version is None or remote_version is None or packaging.version.parse(remote_version) <= packaging.version.parse(local_version):
+                    message = f"{folder}/{name}.zip differs from Dortania's, but Dortania's isn't a newer version (BridgePatcher: {local_version or 'unknown'}, Dortania: {remote_version or 'unknown'}), compare them by hand"
+                    print(f"  Warning: {message}")
+                    self.warnings.append(message)
+                    continue
+
+                print(f"  Copying {name}.zip v{remote_version} from Dortania ({commit[:7]})...")
+                subprocess.run(["/bin/cp", upstream_zip, local_zip], check=True)
+                self.updated.append((name, local_version, remote_version, f"dortania/OpenCore-Legacy-Patcher@{commit[:7]}"))
 
 
     def _is_build_nightly(self, kext: str, version: str) -> bool:

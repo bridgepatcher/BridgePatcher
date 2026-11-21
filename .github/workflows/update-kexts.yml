@@ -12,6 +12,8 @@ name: Update kexts
 #     have no releases of their own, with Dortania's payloads/Kexts and copies newer
 #     ones from there. Kexts sharing one version in constants.py (e.g. the FireWire
 #     kexts) are only updated together.
+#     Kexts without a version in their file name (EFICheckDisabler) are compared by
+#     the version in their Info.plist.
 #   - lists every kext it didn't check, and why, under "Not checked" in the summary
 #   - rebuilds the WhateverGreen Navi variant when WhateverGreen is updated (needs
 #     Xcode, so the job runs on macOS)
@@ -100,8 +102,10 @@ jobs:
           git diff --cached --binary > "$RUNNER_TEMP/out/kexts.patch"
           cp "$RUNNER_TEMP/summary.md" "$RUNNER_TEMP/out/summary.md"
           # Re-zipped kexts aren't byte-for-byte the same on every run, so the key is made
-          # from the file names (they carry the versions) and the text changes only
-          key=$( { git diff --cached --name-status; git diff --cached -- bridgepatcher/constants.py THIRD-PARTY-NOTICES.txt; } | shasum -a 256 | cut -c1-12)
+          # from the file names, the text changes and the kext/old/new columns of the summary
+          # (EFICheckDisabler.zip has no version in its name; the Source column holds Dortania's
+          # latest commit, which changes without the update changing)
+          key=$( { git diff --cached --name-status; git diff --cached -- bridgepatcher/constants.py THIRD-PARTY-NOTICES.txt; grep '^| ' "$RUNNER_TEMP/summary.md" | cut -d'|' -f1-4; } | shasum -a 256 | cut -c1-12)
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "key=$key" >> "$GITHUB_OUTPUT"
 
