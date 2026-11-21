@@ -1,5 +1,6 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
 ## 4.0.0.2000004.0.0.1 - 4.0.0 alpha 20.4 Preview
+This release:
 - root patching now always uses Dortania's PatcherSupportPkg (dortania/PatcherSupportPkg 2.0.5) on every Mac, T2 Macs included. It is bundled with the app again, so it no longer needs to be downloaded online when root patching. BridgePatcher's own PatcherSupportPkg (2.6) and the PatcherSupportPkg choice in Settings > App are gone, and a stored choice from an earlier version is removed on the next start
   - Macs root patched with BridgePatcher's PatcherSupportPkg are asked to revert the root patches and patch again
 - the root patches themselves now match Dortania's current OpenCore Legacy Patcher, apart from the USB 1.1 patch, which stays as it is. The patcher's own checks around root patching (revert checks, choosing which patches to install, the AMFI check from #788) are not changed
