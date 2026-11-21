@@ -3,11 +3,8 @@ dmg_mount.py: PatcherSupportPkg DMG Mounting. Handles Universal-Binaries and Dor
 """
 
 import os
-import atexit
-import shutil
 import hashlib
 import logging
-import tempfile
 import subprocess
 import applescript
 import sys
@@ -25,11 +22,6 @@ UNIVERSAL_BINARIES_PASSPHRASE = "password"
 # Anything smaller cannot be the real image (~750 MB) - typically an HTTP error
 # page or a download that was interrupted before the rename below.
 MINIMUM_UNIVERSAL_BINARIES_SIZE = 1024 * 1024
-
-# Private (0700) directory for PatcherSupportPkg images downloaded online by packaged
-# builds that could not move their payloads to a temporary directory
-# (see reroute_payloads.py). Created on first use, removed at exit.
-_online_download_directory: "Path | None" = None
 
 class PatcherSupportPkgMount:
 
@@ -77,18 +69,10 @@ class PatcherSupportPkgMount:
 
     def _mount_universal_binaries_dmg(self) -> bool:
         """Mount PatcherSupportPkg's Universal-Binaries.dmg"""
-        logging.info(
-            f"- PatcherSupportPkg: {self.constants.patcher_support_pkg_label}, "
-            f"version {self.constants.patcher_support_pkg_version}"
-        )
-        if self.constants.patcher_support_pkg_bundled:
-            dmg_path = Path(self.constants.payload_local_binaries_root_path_dmg)
-            if not self._ensure_universal_binaries_dmg(dmg_path):
-                return False
-        else:
-            dmg_path = self._online_universal_binaries_dmg_path()
-            if dmg_path is None or not self._ensure_online_universal_binaries_dmg(dmg_path):
-                return False
+        logging.info(f"- PatcherSupportPkg: version {self.constants.patcher_support_pkg_version}")
+        dmg_path = Path(self.constants.payload_local_binaries_root_path_dmg)
+        if not self._ensure_universal_binaries_dmg(dmg_path):
+            return False
 
         mount_point = Path(self.constants.payload_path / "Universal-Binaries")
         shadow_path = Path(self.constants.payload_path / "Universal-Binaries_overlay")
@@ -130,7 +114,7 @@ class PatcherSupportPkgMount:
 
         Source runs also check an existing image against the release SHA256: a
         checkout may still hold the image of another PatcherSupportPkg (e.g.
-        Dortania's 2.0.5, which builds downloaded for a while), and patching with
+        BridgePatcher's own, which earlier builds bundled), and patching with
         it would record the wrong version in the root patch manifest.
         """
         if not self.constants.launcher_script:
@@ -172,59 +156,6 @@ class PatcherSupportPkgMount:
             offline_hint="Connect to the internet, or run './Build-Project.command --run-as-individual-steps --prepare-assets' once, then try again.",
         )
 
-    def _online_universal_binaries_dmg_path(self) -> "Path | None":
-        """Where a PatcherSupportPkg that is not bundled with the app is downloaded to.
-
-        Source runs keep it next to the sources (like the bundled image, ignored by
-        git), named after source and version so it never passes for the bundled one.
-        Packaged builds must not write into their signed bundle: they use the private
-        temporary directory their payloads were moved to, or a private one of their own.
-        """
-        name = f"Universal-Binaries-{self.constants.patcher_support_pkg_source}-{self.constants.patcher_support_pkg_version}.dmg"
-        if self.constants.launcher_script:
-            return Path(self.constants.original_path) / name
-        if Path(self.constants.current_path) != Path(self.constants.original_path):
-            return Path(self.constants.current_path) / name
-
-        global _online_download_directory
-        if _online_download_directory is None:
-            try:
-                _online_download_directory = Path(tempfile.mkdtemp(prefix="BridgePatcher-PatcherSupportPkg-"))
-            except Exception as e:
-                logging.error(f"- Could not create a directory to download PatcherSupportPkg to: {e}")
-                return None
-            atexit.register(shutil.rmtree, _online_download_directory, True)
-        return _online_download_directory / name
-
-    def _ensure_online_universal_binaries_dmg(self, dmg_path: Path) -> bool:
-        """Download a PatcherSupportPkg that is not bundled with the app (e.g. Dortania's).
-
-        It is always downloaded online, never shipped. An image already downloaded
-        (by a source run, or earlier in this session) is only reused if it still
-        matches the release SHA256.
-        """
-        if dmg_path.exists():
-            expected_sha256 = self._expected_sha256()
-            if expected_sha256 is None:
-                return False
-            if dmg_path.stat().st_size >= MINIMUM_UNIVERSAL_BINARIES_SIZE and self._sha256_of_file(dmg_path) == expected_sha256:
-                logging.info(f"- Using downloaded {dmg_path.name} (SHA256 {expected_sha256})")
-                return True
-            logging.info(f"- Discarding {dmg_path.name}, it doesn't match the release SHA256")
-            try:
-                dmg_path.unlink()
-            except Exception as e:
-                logging.error(f"- Could not remove {dmg_path}: {e}")
-                return False
-
-        return self._download_universal_binaries_dmg(
-            dmg_path,
-            offline_hint=(
-                f"{self.constants.patcher_support_pkg_label} is not bundled with BridgePatcher and is always downloaded online. "
-                "Connect to the internet, or select the bundled BridgePatcher PatcherSupportPkg in Settings > App, then try again."
-            ),
-        )
-
     def _expected_sha256(self) -> "str | None":
         try:
             return patcher_support_pkg_data.expected_universal_binaries_sha256(
@@ -233,12 +164,11 @@ class PatcherSupportPkgMount:
         except patcher_support_pkg_data.ChecksumLookupError as error:
             logging.error(f"- Can't determine the SHA256 of PatcherSupportPkg {self.constants.patcher_support_pkg_version}, refusing to use an image that can't be verified")
             logging.error(f"- {error}")
-            if self.constants.patcher_support_pkg_bundled:
-                logging.error("- Run './Build-Project.command --run-as-individual-steps --prepare-assets' once, or try again later.")
+            logging.error("- Run './Build-Project.command --run-as-individual-steps --prepare-assets' once, or try again later.")
             return None
 
     def _download_universal_binaries_dmg(self, dmg_path: Path, offline_hint: str) -> bool:
-        """Download Universal-Binaries.dmg of the selected PatcherSupportPkg to dmg_path, verified against the release SHA256"""
+        """Download Universal-Binaries.dmg of PatcherSupportPkg to dmg_path, verified against the release SHA256"""
         expected_sha256 = self._expected_sha256()
         if expected_sha256 is None:
             return False

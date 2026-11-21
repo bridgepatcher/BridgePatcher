@@ -9,6 +9,8 @@ This release:
   - build and install OpenCore again with this version to get the new EFI
   - T2 Macs are not affected, their EFI stays exactly the same
 - removes the TEST-A to TEST-D (LEVEL-B to LEVEL-D) OpenCore build profiles. Every build now uses the standard configuration, and the profile choices are gone from Build OpenCore, the OpenCore settings and Developer Mode. A stored profile choice from an earlier version is removed on the next start
+- root patching now always uses Dortania's PatcherSupportPkg (dortania/PatcherSupportPkg 2.0.5) on every Mac, T2 Macs included. It is bundled with the app again, so it no longer needs to be downloaded online when root patching. BridgePatcher's own PatcherSupportPkg (2.6) and the PatcherSupportPkg choice in Settings > App are gone, and a stored choice from an earlier version is removed on the next start
+  - Macs root patched with BridgePatcher's PatcherSupportPkg are asked to revert the root patches and patch again
 
 ## 4.0.0.2000003.7.1 - 4.0.0 alpha 20.3.7.1 Preview
 This release:

@@ -44,22 +44,8 @@ class Constants:
         self.bundle_identifier:               str = "com.bridgepatcher.bridgepatcher"
 
         # URLs
-        self.patcher_support_pkg_sources: dict = {
-            "bridgepatcher": {
-                "label":   "BridgePatcher (bundled)",
-                "url":     "https://github.com/bridgepatcher/PatcherSupportPkg/releases/download/",
-                "version": "2.6",
-                "bundled": True,
-            },
-            "dortania": {
-                "label":   "Dortania (online only)",
-                "url":     "https://github.com/dortania/PatcherSupportPkg/releases/download/",
-                # When bumping, use the version upstream OCLP pins in its constants.py
-                "version": "2.0.5",
-                "bundled": False,
-            },
-        }
-        self.patcher_support_pkg_source: str = "bridgepatcher"  # Key of patcher_support_pkg_sources, selected in the GUI
+        self.patcher_support_pkg_version:     str = "2.0.5"  # PatcherSupportPkg, use the version upstream OCLP pins in its constants.py
+        self.url_patcher_support_pkg:         str = "https://github.com/dortania/PatcherSupportPkg/releases/download/"
         self.guide_link:                      str = "https://bridgepatcher.github.io/"
         self.repo_link:                       str = "https://github.com/bridgepatcher/BridgePatcher/"
         self.github_issues_link:              str = "https://github.com/bridgepatcher/BridgePatcher/issues"
@@ -377,42 +363,6 @@ class Constants:
             logging.error(f"We could not confirm whether you're using a special version: {e}")
             logging.info("You won't receive any updates to prevent an attacker from abusing the update API for malware delivery or denial of service attacks.")
             return True
-
-    # PatcherSupportPkg
-    @property
-    def _active_patcher_support_pkg(self) -> dict:
-        """
-        Selected PatcherSupportPkg source, or the bundled default if the selection is unknown
-        """
-        return self.patcher_support_pkg_sources.get(self.patcher_support_pkg_source) \
-            or self.patcher_support_pkg_sources["bridgepatcher"]
-
-    @property
-    def patcher_support_pkg_version(self) -> str:
-        """
-        PatcherSupportPkg release used for root patching (of the selected source)
-        """
-        return self._active_patcher_support_pkg["version"]
-
-    @property
-    def url_patcher_support_pkg(self) -> str:
-        """
-        Release download URL of the selected PatcherSupportPkg source
-        (https://github.com/<owner>/PatcherSupportPkg/releases/download/)
-        """
-        return self._active_patcher_support_pkg["url"]
-
-    @property
-    def patcher_support_pkg_label(self) -> str:
-        return self._active_patcher_support_pkg["label"]
-
-    @property
-    def patcher_support_pkg_bundled(self) -> bool:
-        """
-        Whether the selected PatcherSupportPkg ships with the app (Universal-Binaries.dmg
-        next to the sources/inside the bundle). False means it is downloaded online.
-        """
-        return self._active_patcher_support_pkg["bundled"] is True
 
     # Payload Location
 
