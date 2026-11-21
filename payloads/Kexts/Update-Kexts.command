@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import re
 import sys
 import hashlib
 import zipfile
@@ -87,28 +88,20 @@ KEXT_DICTIONARY = {
 }
 
 
-# Kexts by Dortania's authors that only ship inside Dortania's repository (no GitHub
-# releases of their own). They're compared with the same file in Dortania's
+# Every other kext in payloads/Kexts (AMFIPass, KDKlessWorkaround, the Apple kexts
+# patched by Dortania, ...) has no GitHub releases of its own. They're found through
+# their paths in constants.py, compared with the same file in Dortania's
 # payloads/Kexts/<folder> on its default branch and copied from there when it is newer.
 UPSTREAM_REPOSITORY = "https://github.com/dortania/OpenCore-Legacy-Patcher"
-UPSTREAM_KEXT_DICTIONARY = {
 
-    "Acidanthera": {
-        "AMFIPass": {
-            # When bumping, check whether amfipass_compatibility_version needs to follow
-            "Constants Variable": "self.amfipass_version",
-        },
-        "AutoPkgInstaller": {
-            "Constants Variable": "self.autopkg_version",
-        },
-    },
-
-    "Misc": {
-        "KDKlessWorkaround": {
-            "Constants Variable": "self.kdkless_version",
-        },
-    },
+# Kexts never taken from Dortania (kexts in KEXT_DICTIONARY are skipped as well)
+UPSTREAM_SKIP = {
+    "AppleALC": "not updated, see the comment in KEXT_DICTIONARY (BridgePatcher ships a newer build than Dortania)",
 }
+
+# self.payload_kexts_path / Path(f"<folder>/<name>-v{self.<variable>}[-{self.kext_variant}|-RELEASE|-DEBUG].zip")
+CONSTANTS_KEXT_PATH_RE = re.compile(r'payload_kexts_path / Path\(f"(?P<folder>[A-Za-z0-9]+)/(?P<name>[A-Za-z0-9_.,+-]+?)-v\{self\.(?P<variable>\w+)\}(?P<variant>-\{self\.kext_variant\}|-RELEASE|-DEBUG)?\.zip"\)')
+CONSTANTS_VALUE_RE = re.compile(r'^\s*self\.(?P<variable>\w+)\s*:\s*str\s*=\s*"(?P<value>[^"]*)"', re.MULTILINE)
 
 
 
@@ -123,6 +116,8 @@ class GenerateKexts:
         # (kext, old version, new version, source) of every update, for the summary
         self.updated = []
         self.warnings = []
+        # (kexts, reason) of every kext this script doesn't check, for the summary
+        self.not_checked = []
 
         # A token raises GitHub's API rate limit (60 requests/hour without one),
         # only sent to api.github.com
@@ -211,6 +206,7 @@ class GenerateKexts:
                     # Never replace pinned kexts with the latest GitHub release, not even when the
                     # release has the same or a higher version number (see the comment at the entry).
                     print(f"  {kext_name} is pinned, skipping: {KEXT_DICTIONARY[kext_folder][kext_name]['Pinned']}")
+                    self.not_checked.append((kext_name, f"pinned: {KEXT_DICTIONARY[kext_folder][kext_name]['Pinned']}"))
                     continue
                 if "Override" in KEXT_DICTIONARY[kext_folder][kext_name]:
                     self._get_latest_release(kext_folder, kext_name, override_kext_zip_name=KEXT_DICTIONARY[kext_folder][kext_name]["Override"])
@@ -218,47 +214,105 @@ class GenerateKexts:
                     self._get_latest_release(kext_folder, kext_name)
 
 
+    def _get_upstream_kexts(self):
+        # Kexts that aren't updated from GitHub releases, grouped by their constants.py
+        # variable: {variable: {"version": ..., "kexts": [(folder, name, variants), ...]}}
+        release_kexts = set(UPSTREAM_SKIP)
+        for kext_folder in KEXT_DICTIONARY:
+            for kext_name in KEXT_DICTIONARY[kext_folder]:
+                release_kexts.add(kext_name)
+                if "Override" in KEXT_DICTIONARY[kext_folder][kext_name]:
+                    release_kexts.add(KEXT_DICTIONARY[kext_folder][kext_name]["Override"])
+
+        constants = Path("../../bridgepatcher/constants.py").read_text()
+        values = {match["variable"]: match["value"] for match in CONSTANTS_VALUE_RE.finditer(constants)}
+
+        kexts = {}
+        for match in CONSTANTS_KEXT_PATH_RE.finditer(constants):
+            if match["name"] in release_kexts:
+                continue
+            if match["variable"] not in values:
+                raise Exception(f"self.{match['variable']} (used for {match['name']}) not found in constants.py")
+            variants = {"-{self.kext_variant}": ["RELEASE", "DEBUG"], "-RELEASE": ["RELEASE"], "-DEBUG": ["DEBUG"]}.get(match["variant"], [""])
+            entry = kexts.setdefault(match["variable"], {"version": values[match["variable"]], "kexts": []})
+            if (match["folder"], match["name"], variants) not in entry["kexts"]:
+                entry["kexts"].append((match["folder"], match["name"], variants))
+        return kexts
+
+
     def _iterate_over_upstream_kexts(self):
+        for kext_name, reason in UPSTREAM_SKIP.items():
+            print(f"Skipping {kext_name}: {reason}")
+            self.not_checked.append((kext_name, reason))
+
+        # Archives neither in KEXT_DICTIONARY nor found through constants.py (e.g. BridgePatcher's own T2 kexts)
+        upstream_kexts = self._get_upstream_kexts()
+        known_kexts = set(UPSTREAM_SKIP) | {name for entry in upstream_kexts.values() for _, name, _ in entry["kexts"]}
+        for kext_folder in KEXT_DICTIONARY:
+            for kext_name in KEXT_DICTIONARY[kext_folder]:
+                known_kexts.add(KEXT_DICTIONARY[kext_folder][kext_name].get("Override", kext_name))
+                known_kexts.add(kext_name)
+        for file in sorted(Path(".").glob("*/*.zip")):
+            if not any(file.name.startswith(f"{kext_name}-") for kext_name in known_kexts):
+                self.not_checked.append((file.as_posix(), "not tracked by this script"))
+
         with tempfile.TemporaryDirectory() as temp_dir:
             # Blobless clone: file names can be listed without downloading any kext,
             # only the archives that are newer get fetched
             upstream = f"{temp_dir}/upstream"
             subprocess.run(["/usr/bin/git", "clone", "--quiet", "--depth", "1", "--filter=blob:none", "--no-checkout", UPSTREAM_REPOSITORY, upstream], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             commit = subprocess.run(["/usr/bin/git", "rev-parse", "HEAD"], cwd=upstream, check=True, capture_output=True, text=True).stdout.strip()
+            listing = subprocess.run(["/usr/bin/git", "ls-tree", "-r", "--name-only", "HEAD", "payloads/Kexts/"], cwd=upstream, check=True, capture_output=True, text=True).stdout
+            upstream_files = {}
+            for line in listing.splitlines():
+                path = PurePosixPath(line)
+                upstream_files.setdefault(path.parent.relative_to("payloads/Kexts").as_posix(), []).append(path.name)
 
-            for kext_folder in UPSTREAM_KEXT_DICTIONARY:
-                listing = subprocess.run(["/usr/bin/git", "ls-tree", "--name-only", "HEAD", f"payloads/Kexts/{kext_folder}/"], cwd=upstream, check=True, capture_output=True, text=True).stdout
-                upstream_files = [PurePosixPath(line).name for line in listing.splitlines()]
+            for variable, entry in upstream_kexts.items():
+                local_version = entry["version"]
+                files = [(folder, name, variant) for folder, name, variants in entry["kexts"] for variant in variants]
+                label = ", ".join(dict.fromkeys(name for _, name, _ in files))
+                print(f"Checking {label} (Dortania)...")
 
-                for kext_name in UPSTREAM_KEXT_DICTIONARY[kext_folder]:
-                    print(f"Checking {kext_name} (Dortania)...")
-                    variants = self._get_local_variants(kext_folder, kext_name)
-                    if not variants:
-                        raise Exception(f"Could not find local version for {kext_name}")
+                if "-" in local_version:
+                    # e.g. 0.95-Dortania: a build of its own, Dortania's file is named differently
+                    print(f"  {label} is a custom build (v{local_version}), skipping")
+                    self.not_checked.append((label, f"custom build v{local_version}, not compared with Dortania"))
+                    continue
 
-                    for variant in variants:
-                        local_version = self._get_local_version(kext_folder, kext_name, variant)
-                        remote_version = self._get_version_from_names(upstream_files, kext_name, variant)
-                        if remote_version is None:
-                            message = f"{kext_name}{f' {variant}' if variant else ''} is no longer in Dortania's payloads/Kexts/{kext_folder}, can't check it for updates"
-                            print(f"  Warning: {message}")
-                            self.warnings.append(message)
-                            continue
+                for folder, name, variant in files:
+                    suffix = f"-{variant}" if variant else ""
+                    if not Path(f"./{folder}/{name}-v{local_version}{suffix}.zip").exists():
+                        raise Exception(f"{folder}/{name}-v{local_version}{suffix}.zip not found, but constants.py says self.{variable} is {local_version}")
 
-                        if packaging.version.parse(remote_version) <= packaging.version.parse(local_version):
-                            print(f"  {kext_name} {variant} is up to date: v{local_version}")
-                            continue
+                remote_versions = {self._get_version_from_names(upstream_files.get(folder, []), name, variant) for folder, name, variant in files}
+                if None in remote_versions:
+                    print(f"  {label} isn't in Dortania's payloads/Kexts, skipping")
+                    self.not_checked.append((label, "not in Dortania's payloads/Kexts"))
+                    continue
+                if len(remote_versions) > 1:
+                    # Kexts sharing one constants.py variable have to be updated together
+                    message = f"{label} share self.{variable}, but Dortania has different versions of them ({', '.join(sorted(remote_versions))}), update them by hand"
+                    print(f"  Warning: {message}")
+                    self.warnings.append(message)
+                    continue
 
-                        suffix = f"-{variant}" if variant else ""
-                        zip_name = f"{kext_name}-v{remote_version}{suffix}.zip"
-                        print(f"  Copying {kext_name} {variant}: v{remote_version} from Dortania ({commit[:7]})...")
-                        subprocess.run(["/usr/bin/git", "checkout", "--quiet", "HEAD", "--", f"payloads/Kexts/{kext_folder}/{zip_name}"], cwd=upstream, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        self._check_zip(f"{upstream}/payloads/Kexts/{kext_folder}/{zip_name}", f"{kext_name}.kext")
+                remote_version = remote_versions.pop()
+                if packaging.version.parse(remote_version) <= packaging.version.parse(local_version):
+                    print(f"  {label} is up to date: v{local_version}")
+                    continue
 
-                        subprocess.run(["/bin/rm", "-f", f"./{kext_folder}/{kext_name}-v{local_version}{suffix}.zip"], check=True)
-                        subprocess.run(["/bin/cp", f"{upstream}/payloads/Kexts/{kext_folder}/{zip_name}", f"./{kext_folder}/{zip_name}"], check=True)
-                        self._update_constants_file(UPSTREAM_KEXT_DICTIONARY[kext_folder][kext_name]["Constants Variable"], local_version, remote_version)
-                        self.updated.append((f"{kext_name}{f' {variant}' if variant else ''}", local_version, remote_version, f"dortania/OpenCore-Legacy-Patcher@{commit[:7]}"))
+                for folder, name, variant in files:
+                    suffix = f"-{variant}" if variant else ""
+                    zip_name = f"{name}-v{remote_version}{suffix}.zip"
+                    print(f"  Copying {zip_name} from Dortania ({commit[:7]})...")
+                    subprocess.run(["/usr/bin/git", "checkout", "--quiet", "HEAD", "--", f"payloads/Kexts/{folder}/{zip_name}"], cwd=upstream, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    self._check_zip(f"{upstream}/payloads/Kexts/{folder}/{zip_name}", require_kext=True)
+
+                    subprocess.run(["/bin/rm", f"./{folder}/{name}-v{local_version}{suffix}.zip"], check=True)
+                    subprocess.run(["/bin/cp", f"{upstream}/payloads/Kexts/{folder}/{zip_name}", f"./{folder}/{zip_name}"], check=True)
+                self._update_constants_file(f"self.{variable}", local_version, remote_version)
+                self.updated.append((label, local_version, remote_version, f"dortania/OpenCore-Legacy-Patcher@{commit[:7]}"))
 
 
     def _is_build_nightly(self, kext: str, version: str) -> bool:
@@ -353,12 +407,6 @@ class GenerateKexts:
         return None
 
 
-    def _get_local_variants(self, kext_folder, kext_name):
-        # Variants shipped for a kext: "RELEASE"/"DEBUG", or "" for a single zip without one
-        names = [file.name for file in Path(f"./{kext_folder}").iterdir()]
-        return [variant for variant in ["RELEASE", "DEBUG", ""] if self._get_version_from_names(names, kext_name, variant) is not None]
-
-
     def _get_local_version(self, kext_folder, kext_name, variant, suffix=""):
         local_version = self._get_version_from_names([file.name for file in Path(f"./{kext_folder}").iterdir()], kext_name, variant, suffix)
         if local_version is None:
@@ -390,7 +438,7 @@ class GenerateKexts:
         return download.content
 
 
-    def _check_zip(self, zip_path, required_entry=None):
+    def _check_zip(self, zip_path, required_entry=None, require_kext=False):
         # Refuse archives that would write outside the target folder or contain symlinks
         with zipfile.ZipFile(zip_path) as zip_file:
             names = zip_file.namelist()
@@ -402,6 +450,8 @@ class GenerateKexts:
                     raise Exception(f"{Path(zip_path).name}: archive contains a symlink: {info.filename}")
         if required_entry and not any(name.startswith(f"{required_entry}/") for name in names):
             raise Exception(f"{Path(zip_path).name} doesn't contain {required_entry}")
+        if require_kext and not any(part.endswith(".kext") for name in names for part in PurePosixPath(name).parts):
+            raise Exception(f"{Path(zip_path).name} doesn't contain a kext")
 
 
     def _download_file(self, asset, file_path, file):
@@ -464,9 +514,13 @@ class GenerateKexts:
             lines += ["| Kext | Old | New | Source |", "| --- | --- | --- | --- |"]
             lines += [f"| {kext} | {old} | {new} | {source} |" for kext, old, new, source in self.updated]
         else:
-            lines.append("All kexts are up to date.")
+            lines.append("All checked kexts are up to date.")
         if self.warnings:
             lines += [""] + [f"> [!WARNING]\n> {warning}" for warning in self.warnings]
+        if self.not_checked:
+            lines += ["", "<details><summary>Not checked</summary>", ""]
+            lines += [f"- {kexts}: {reason}" for kexts, reason in self.not_checked]
+            lines += ["", "</details>"]
         summary_file.write_text("\n".join(lines) + "\n")
 
 
