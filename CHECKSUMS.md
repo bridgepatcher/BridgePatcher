@@ -39,6 +39,15 @@ aa62c9ef064d74734f114ecc9f68f600a7b361f4d4f4f6ba23de9cc6562ed9ed  AutoPkg-Assets
 d8bf2e586e26ad10064c2d850fbefe8df6915ab645cdb1dc863d94c29fe6fb06  BridgePatcher.pkg
 ```
 
+> [!WARNING]
+> Changed after its checksum was first recorded, recorded 2026-11-21 19:19 EET (UTC+2). The first checksum of each file is the one listed above.
+
+```
+8afdf1273805ac0cfbe0d48e73b995276794367d79f5dea980c3b3561bbcf760  AutoPkg-Assets.pkg
+53e1bbb089ec44af2459e74ad3d8d3f63abf973cd41aae72c7756bf97920515e  BridgePatcher-Uninstaller.pkg
+b764105ce893295adc8507495db2a809fca0ab9dcb1fe865c138c699ca81374b  BridgePatcher.pkg
+```
+
 <!-- release: 4.0.0.2000003.8 -->
 ## 4.0.0.2000003.8
 
