@@ -13,6 +13,7 @@ Impact: an attacker could intentionally set a malicious PR to confuse GitHub Act
 - fixes a vulnerability where if the app was opened before the update was released, it may not update automatically, even while doing nothing at the moment.
 
 Impact: the user may remain on a vulnerable version because they never closed the application at all. An attacker could exploit this vulnerability to exploit other already patched vulnerabilities, e.g arbitary code execution, button hijacking or DoS.
+
 ## 4.0.0.2000003.6 - 4.0.0 alpha 20.3.6
 This release:
 - fixes a bug where the changelog may appear like this:
