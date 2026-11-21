@@ -10,10 +10,12 @@ Year bumps are ignored. Adding your own copyright *next to* an existing one is f
 and only reported as info.
 
 Usage: license_guard.py <git-diff-range>     e.g. "abc123...pr-head"
-Env:   UPSTREAM_HOLDER (default "Dortania"), REPORT_PATH (default license-report.md)
+Env:   UPSTREAM_HOLDER (default "Dortania"), REPORT_PATH (default license-report.md),
+       BLAME_LIST (optional: JSON file with the commits that introduced each violation)
 """
 import fnmatch
 import io
+import json
 import os
 import re
 import subprocess
@@ -765,6 +767,35 @@ def git(*args):
                           encoding="utf-8", errors="replace").stdout
 
 
+# "  line 275: ..." in a finding's details: the line in the audited tree it was found on.
+DETAIL_LINE_RE = re.compile(r"^\s*line (\d+)\b")
+
+
+def blame(path, details, removed=()):
+    """Commits that introduced a violation, so the workflow can @mention their authors.
+    Only commits in the fork count (base..head): lines that came unchanged from upstream are
+    boundary commits and skipped, so Dortania's authors are never blamed for the fork's findings."""
+    base, head = re.split(r"\.\.\.?", DIFF_RANGE)
+    rev, shas = f"{base}..{head}", []
+    lines = [m.group(1) for d in details if (m := DETAIL_LINE_RE.match(d))]
+    removed = [line for line in removed[:5] if line.strip()]
+    try:
+        for n in lines:
+            out = git("blame", "--porcelain", "-L", f"{n},{n}", rev, "--", path)
+            if "\nboundary\n" not in out:
+                shas.append(out.split(" ", 1)[0])
+        # Removed notices / license text: the newest fork commit that dropped that text.
+        for line in removed:
+            shas += git("log", "-1", "--format=%H", f"-S{line}", rev, "--", path).split()
+        if not lines and not removed:
+            # No line to blame (artwork, deleted files, ...): the last fork commit that touched the path.
+            shas = git("log", "-1", "--format=%H", rev, "--", path).split()
+    except subprocess.CalledProcessError as e:
+        print(f"::warning::Could not find the commit that introduced the finding in {path}: "
+              f"{e.stderr.strip()}", file=sys.stderr)
+    return list(dict.fromkeys(shas))
+
+
 def norm(line):
     """Normalise whitespace and years so a pure year bump isn't reported."""
     return YEAR_RE.sub("YYYY", " ".join(line.split())).lower()
@@ -810,11 +841,14 @@ def parse_diff(text):
 def main():
     diff = git("diff", "-M", "-U0", "--no-color", "--no-ext-diff", DIFF_RANGE)
     findings = []  # (severity, path, title, [detail lines])
+    removed = {}   # (path, title) -> raw removed lines, to find the commit that removed them
     allow = load_allow()
     relocated = load_relocated()
 
-    def add(sev, path, title, details=()):
+    def add(sev, path, title, details=(), lost=()):
         findings.append((sev, path, title, list(details)))
+        if lost:
+            removed[(path, title)] = list(lost)
 
     for f in parse_diff(diff):
         path = f["new"] or f["old"]
@@ -849,7 +883,7 @@ def main():
         if lost:
             add("violation", path,
                 f"Upstream copyright notice {'replaced' if new else 'removed'}",
-                [f"- {show(l)}" for l in lost] + [f"+ {show(l)}" for l in new])
+                [f"- {show(l)}" for l in lost] + [f"+ {show(l)}" for l in new], lost=lost)
         elif new:
             add("info", path, "Additional copyright added (upstream notice kept)",
                 [f"+ {show(l)}" for l in new])
@@ -869,7 +903,7 @@ def main():
             gone = [l for l in body(f["rem"]) if (rem_n - add_n)[norm(l)]]
             if gone:
                 add("violation", path, "License text removed or altered",
-                    [f"- {show(l)}" for l in gone[:15]] + (["  …"] if len(gone) > 15 else []))
+                    [f"- {show(l)}" for l in gone[:15]] + (["  …"] if len(gone) > 15 else []), lost=gone)
             elif add_n - rem_n:
                 add("info", path, "Lines added to license file",
                     [f"+ {show(l)}" for l in f["add"] if l.strip()][:15])
@@ -897,6 +931,13 @@ def main():
     if os.environ.get("VIOLATIONS_LIST"):
         with open(os.environ["VIOLATIONS_LIST"], "w", encoding="utf-8") as fh:
             fh.write("".join(f"{title} — {path}\n" for _, path, title, _ in v))
+    # Same keys as VIOLATIONS_LIST, plus the commits that introduced each violation, so the
+    # workflow can @mention the people who made the change.
+    if os.environ.get("BLAME_LIST"):
+        with open(os.environ["BLAME_LIST"], "w", encoding="utf-8") as fh:
+            json.dump([{"key": f"{title} — {path}", "path": path, "title": title,
+                        "commits": blame(path, details, removed.get((path, title), ()))}
+                       for _, path, title, details in v], fh, ensure_ascii=False, indent=1)
 
     out = [MARKER, "## 🛡️ License Guard", ""]
     if not v and not w:
