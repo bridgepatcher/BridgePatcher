@@ -377,9 +377,6 @@ class OCSettingsFrame(wx.Frame):
         # a different, non-T2 target should see full Security customization,
         # not the host's own T2 restrictions.
         target_is_t2_mac = (self.constants.custom_model or self.constants.computer.real_model) in model_array.T2Macs
-        target_is_t1_mac = (self.constants.custom_model or self.constants.computer.real_model) in ["MacBookPro13,2", "MacBookPro13,3", "MacBookPro14,2", "MacBookPro14,3"]
-        target_uses_simplehda = (self.constants.custom_model or self.constants.computer.real_model) in model_array.SimpleHDAAudio
-
         settings = {
             "General": {
                 "General": {
@@ -396,56 +393,19 @@ class OCSettingsFrame(wx.Frame):
                     ],
                     "condition": target_is_t2_mac,
                 },
-                "Allow native models": {
-                    "type": "checkbox",
-                    "value": self.constants.allow_oc_everywhere,
-                    "variable": "allow_oc_everywhere",
-                    "description": [
-                        "Allow OpenCore to be installed",
-                        "on natively supported Macs.",
-                        "Note this will not allow unsupported",
-                        "macOS versions to be installed on",
-                        "your system.",
-                    ],
-                    "warning": "This option should only be used if your Mac natively supports the OSes you wish to run.\n\nIf you are currently running an unsupported OS, this option will break booting. Only toggle for enabling OS features on a native Mac.\n\nAre you certain you want to continue?",
-                },
-                "FireWire Booting": {
-                    "type": "checkbox",
-                    "value": self.constants.firewire_boot,
-                    "variable": "firewire_boot",
-                    "description": [
-                        "Enable booting macOS from",
-                        "FireWire drives.",
-                    ],
-                    "condition": not (generate_smbios.check_firewire(self.constants.custom_model or self.constants.computer.real_model) is False)
-                },
-                "XHCI Booting": {
-                    "type": "checkbox",
-                    "value": self.constants.xhci_boot,
-                    "variable": "xhci_boot",
-                    "description": [
-                        "Enable booting macOS from add-in",
-                        "USB 3.0 expansion cards on systems",
-                        "without native support.",
-                    ],
-                    "condition": not gui_support.CheckProperties(self.constants).host_has_cpu_gen(cpu_data.CPUGen.ivy_bridge) # Sandy Bridge and older do not natively support XHCI booting
-                },
-                "NVMe Booting": {
-                    "type": "checkbox",
-                    "value": self.constants.nvme_boot,
-                    "variable": "nvme_boot",
-                    "description": [
-                        "Enable booting macOS from NVMe",
-                        "drives on systems without native",
-                        "support.",
-                        "Note: Requires Firmware support",
-                        "for OpenCore to load from NVMe.",
-                    ],
-                    "condition": not gui_support.CheckProperties(self.constants).host_has_cpu_gen(cpu_data.CPUGen.ivy_bridge) # Sandy Bridge and older do not natively support NVMe booting
-                },
-                "wrap_around 2": {
-                    "type": "wrap_around",
-                },
+                # "Allow native models": {
+                #     "type": "checkbox",
+                #     "value": self.constants.allow_oc_everywhere,
+                #     "variable": "allow_oc_everywhere",
+                #     "description": [
+                #         "Allow OpenCore to be installed",
+                #         "on natively supported Macs.",
+                #         "Note this will not allow unsupported",
+                #         "macOS versions to be installed on",
+                #         "your system.",
+                #     ],
+                #     "warning": "This option should only be used if your Mac natively supports the OSes you wish to run.\n\nIf you are currently running an unsupported OS, this option will break booting. Only toggle for enabling OS features on a native Mac.\n\nAre you certain you want to continue?",
+                # },
                 "Disable internal SSD": {
                     "type": "checkbox",
                     "value": self.constants.disable_internal_ssd,
@@ -457,12 +417,6 @@ class OCSettingsFrame(wx.Frame):
                         "Only applied to T2 Mac builds.",
                     ],
                     "warning": "This hides the internal SSD from macOS whenever it is booted through this OpenCore build, including the macOS Installer and Recovery started from it.\n\nThe internal SSD itself is not erased or modified. To use it again, boot it without OpenCore (hold Option at startup and pick the internal disk), or turn this option off and rebuild OpenCore.\n\nMake sure OpenCore is installed on the external drive, not on the internal SSD's EFI partition.\n\nContinue?",
-                    # Deliberately no "condition": the checkbox used to be greyed out whenever
-                    # the app didn't see a T2 build target (e.g. running on a VM/Hackintosh or a
-                    # non-T2 Mac with "Host Model" selected), so the option couldn't be prepared
-                    # there at all. It is harmless to leave selectable: efi_builder/misc.py only
-                    # injects AppleANS2Disabler inside _t2_handling(), i.e. for T2 targets, and
-                    # logs a note when it is set for a non-T2 target.
                 },
                 "OpenCore Vaulting": {
                     "type": "checkbox",
@@ -553,25 +507,6 @@ class OCSettingsFrame(wx.Frame):
                         "360 and 3602 chipsets.",
                     ],
                 },
-                "Disable Thunderbolt": {
-                    "type": "checkbox",
-                    "value": self.constants.disable_tb,
-                    "variable": "disable_tb",
-                    "description": [
-                        "For MacBookPro11,x with faulty",
-                        "PCHs that may crash sporadically.",
-                    ],
-                    "condition": (self.constants.custom_model and self.constants.custom_model in ["MacBookPro11,1", "MacBookPro11,2", "MacBookPro11,3"]) or self.constants.computer.real_model in ["MacBookPro11,1", "MacBookPro11,2", "MacBookPro11,3"]
-                },
-                "Windows GMUX": {
-                    "type": "checkbox",
-                    "value": self.constants.dGPU_switch,
-                    "variable": "dGPU_switch",
-                    "description": [
-                        "Allow iGPU to be exposed in Windows",
-                        "for dGPU-based MacBooks.",
-                    ],
-                },
                 "Disable CPUFriend": {
                     "type": "checkbox",
                     "value": self.constants.disallow_cpufriend,
@@ -581,70 +516,9 @@ class OCSettingsFrame(wx.Frame):
                         "for unsupported models.",
                     ],
                 },
-                "Disable mediaanalysisd service": {
-                    "type": "checkbox",
-                    "value": self.constants.disable_mediaanalysisd,
-                    "variable": "disable_mediaanalysisd",
-                    "description": [
-                        "For systems that are the primary iCloud",
-                        "Photo Library host with a 3802-based GPU,",
-                        "this may aid in prolonged idle stability.",
-                    ],
-                    "condition": gui_support.CheckProperties(self.constants).host_has_3802_gpu()
-                },
-                "T1 Touch ID on macOS Tahoe": {
-                    "type": "checkbox",
-                    "value": self.constants.t1_tahoe_touch_id,
-                    "variable": "t1_tahoe_touch_id",
-                    "description": [
-                        "Experimental. Loads the T1 kexts",
-                        "on Tahoe for Touch ID. Breaks",
-                        "iCloud sync and the keychain.",
-                        "Off: native keystore, no Touch ID.",
-                    ],
-                    "warning": "This loads the legacy T1 kexts (AppleKeyStore-Tahoe, AppleSSE, AppleCredentialManager, KernelRelayHost, corecrypto_T1) on macOS Tahoe to bring back Touch ID.\n\nWith them, macOS can't reach the keystore: Data Protection class C stays locked, so iCloud Photos, Messages and Maps stop syncing and the keychain keeps asking for your Mac password.\n\nAfter changing this setting, rebuild and install OpenCore, reboot, then revert and reapply root patches.\n\nEnable anyway?",
-                    "condition": target_is_t1_mac,
-                },
                 "wrap_around 1": {
                     "type": "wrap_around",
                 },
-                "Allow AppleALC Audio": {
-                    "type": "checkbox",
-                    "value": self.constants.set_alc_usage,
-                    "variable": "set_alc_usage",
-                    "description": [
-                        "Allow AppleALC to manage audio",
-                        "if applicable.",
-                        "Only disable if your host lacks",
-                        "a GOP ROM.",
-                    ],
-                },
-                # Only listed when building for an iMac (2019): it does nothing on other Macs
-                **({
-                    "SimpleHDA Tahoe Audio": {
-                        "type": "checkbox",
-                        "value": self.constants.simplehda_audio,
-                        "variable": "simplehda_audio",
-                        "description": [
-                            "macOS Tahoe: restore audio from",
-                            "OpenCore with SimpleHDA instead",
-                            "of the Modern Audio root patch.",
-                            "On by default.",
-                        ],
-                    },
-                } if target_uses_simplehda else {}),
-                "NVRAM WriteFlash": {
-                    "type": "checkbox",
-                    "value": self.constants.nvram_write,
-                    "variable": "nvram_write",
-                    "description": [
-                        "Allow OpenCore to write to NVRAM.",
-                        "Disable on systems with faulty or",
-                        "degraded NVRAM.",
-                        "Not recommended for T2 Macs",
-                    ],
-                },
-
                 "3rd Party NVMe PM": {
                     "type": "checkbox",
                     "value": self.constants.allow_nvme_fixing,
@@ -688,44 +562,8 @@ class OCSettingsFrame(wx.Frame):
                         "Ex. Missing Display, Battery, etc.",
                     ],
                 },
-                "Software DeMUX": {
-                    "type": "checkbox",
-                    "value": self.constants.software_demux,
-                    "variable": "software_demux",
-                    "description": [
-                        "Enable software based DeMUX",
-                        "for MacBookPro8,2 and MacBookPro8,3.",
-                        "Prevents faulty dGPU from turning on.",
-                        "Note: Requires associated NVRAM arg:",
-                        "'gpu-power-prefs'.",
-                    ],
-                    "warning": "This settings requires 'gpu-power-prefs' NVRAM argument to be set to '1'.\n\nIf missing and this option is toggled, the system will not boot\n\nFull command:\nnvram FA4CE28D-B62F-4C99-9CC3-6815686E30F9:gpu-power-prefs=%01%00%00%00",
-                    "condition": not bool((not self.constants.custom_model and self.constants.computer.real_model not in ["MacBookPro8,2", "MacBookPro8,3"]) or (self.constants.custom_model and self.constants.custom_model not in ["MacBookPro8,2", "MacBookPro8,3"]))
-                },
                 "wrap_around 1": {
                     "type": "wrap_around",
-                },
-                "FeatureUnlock": {
-                    "type": "choice",
-                    "choices": [
-                        "Enabled",
-                        "Partial",
-                        "Disabled",
-                    ],
-                    "value": "Enabled",
-                    "variable": "",
-                    "description": [
-                        "Configure FeatureUnlock level.",
-                        "Recommend lowering if your system",
-                        "experiences memory instability.",
-                        "Do not enable this feature on T2",
-                        "Macs, it may cause kernel panics.",
-                    ],
-                },
-                "Populate FeatureUnlock Override": {
-                    "type": "populate",
-                    "function": self._populate_fu_override,
-                    "args": wx.Frame,
                 },
                 "Hibernation Work-around": {
                     "type": "checkbox",
@@ -738,100 +576,50 @@ class OCSettingsFrame(wx.Frame):
                         "external drives.",
                     ],
                 },
-                "Graphics": {
-                    "type": "title",
-                },
-                "AMD GOP Injection": {
-                    "type": "checkbox",
-                    "value": self.constants.amd_gop_injection,
-                    "variable": "amd_gop_injection",
-                    "description": [
-                        "Inject AMD GOP for boot screen",
-                        "support on PC GPUs.",
-                    ],
-                    "condition": not bool((not self.constants.custom_model and self.constants.computer.real_model not in socketed_gpu_models) or (self.constants.custom_model and self.constants.custom_model not in socketed_gpu_models))
-                },
-                "Nvidia GOP Injection": {
-                    "type": "checkbox",
-                    "value": self.constants.nvidia_kepler_gop_injection,
-                    "variable": "nvidia_kepler_gop_injection",
-                    "description": [
-                        "Inject Nvidia Kepler GOP for boot",
-                        "screen support on PC GPUs.",
-                    ],
-                    "condition": not bool((not self.constants.custom_model and self.constants.computer.real_model not in socketed_gpu_models) or (self.constants.custom_model and self.constants.custom_model not in socketed_gpu_models))
-                },
-                "wrap_around 2": {
-                    "type": "wrap_around",
-                },
-                "Graphics Override": {
-                    "type": "choice",
-                    "choices": [
-                        "None",
-                        "Nvidia Kepler",
-                        "AMD GCN",
-                        "AMD Polaris",
-                        "AMD Lexa",
-                        "AMD Navi",
-                    ],
-                    "value": "None",
-                    "variable": "",
-                    "description": [
-                        "Override detected/assumed GPU on",
-                        "socketed MXM-based iMacs.",
-                    ],
-                    "condition": bool((not self.constants.custom_model and self.constants.computer.real_model in socketed_imac_models) or (self.constants.custom_model and self.constants.custom_model in socketed_imac_models))
-                },
-                "Populate Graphics Override": {
-                    "type": "populate",
-                    "function": self._populate_graphics_override,
-                    "args": wx.Frame,
-                },
-
             },
             "Security": {
                 "Kernel Security": {
                     "type": "title",
                 },
-                "Disable Library Validation": {
-                    "type": "checkbox",
-                    "value": self.constants.disable_cs_lv,
-                    "variable": "disable_cs_lv",
-                    "description": [
-                        "Required for loading modified",
-                        "system files from root patching.",
-                        "Not used on T2 Macs, which handle",
-                        "this differently.",
-                    ],
-                    "condition": not target_is_t2_mac,
-                },
-                "Disable AMFI": {
-                    "type": "checkbox",
-                    "value": self.constants.disable_amfi,
-                    "variable": "disable_amfi",
-                    "description": [
-                        "Extended version of 'Disable",
-                        "Library Validation', required",
-                        "for systems with deeper",
-                        "root patches. Not used on T2 Macs.",
-                    ],
-                    "condition": not target_is_t2_mac,
-                },
-                "wrap_around 1": {
-                    "type": "wrap_around",
-                },
-                "Secure Boot Model": {
-                    "type": "checkbox",
-                    "value": self.constants.secure_status,
-                    "variable": "secure_status",
-                    "description": [
-                        "Set Apple Secure Boot Model Identifier",
-                        "to matching T2 model if spoofing.",
-                        "Note: Incompatible with Root Patching.",
-                        "Always disabled on T2 targets.",
-                    ],
-                    "condition": not target_is_t2_mac,
-                },
+                # "Disable Library Validation": {
+                #     "type": "checkbox",
+                #     "value": self.constants.disable_cs_lv,
+                #     "variable": "disable_cs_lv",
+                #     "description": [
+                #         "Required for loading modified",
+                #         "system files from root patching.",
+                #         "Not used on T2 Macs, which handle",
+                #         "this differently.",
+                #     ],
+                #     "condition": not target_is_t2_mac,
+                # },
+                # "Disable AMFI": {
+                #     "type": "checkbox",
+                #     "value": self.constants.disable_amfi,
+                #     "variable": "disable_amfi",
+                #     "description": [
+                #         "Extended version of 'Disable",
+                #         "Library Validation', required",
+                #         "for systems with deeper",
+                #         "root patches. Not used on T2 Macs.",
+                #     ],
+                #     "condition": not target_is_t2_mac,
+                # },
+                # "wrap_around 1": {
+                #     "type": "wrap_around",
+                # },
+                # "Secure Boot Model": {
+                #     "type": "checkbox",
+                #     "value": self.constants.secure_status,
+                #     "variable": "secure_status",
+                #     "description": [
+                #         "Set Apple Secure Boot Model Identifier",
+                #         "to matching T2 model if spoofing.",
+                #         "Note: Incompatible with Root Patching.",
+                #         "Always disabled on T2 targets.",
+                #     ],
+                #     "condition": not target_is_t2_mac,
+                # },
                 "System Integrity Protection": {
                     "type": "title",
                 },
@@ -903,100 +691,6 @@ class OCSettingsFrame(wx.Frame):
 
 
     # MARK: helper functions
-    def _populate_graphics_override(self, panel: wx.Panel) -> None:
-        gpu_combo_box: wx.Choice = None
-        for child in panel.GetChildren():
-            if isinstance(child, wx.Choice):
-                if "AMD Polaris" in child.GetItems():
-                    gpu_combo_box = child
-                    break
-                continue
-        gpu_combo_box.Bind(wx.EVT_CHOICE, self.gpu_selection_click)
-        gpu_combo_box.SetStringSelection(f"{self.constants.imac_vendor} {self.constants.imac_model}")
-        socketed_gpu_models = ["iMac9,1", "iMac10,1", "iMac11,1", "iMac11,2", "iMac11,3", "iMac12,1", "iMac12,2"]
-        if ((not self.constants.custom_model and self.constants.computer.real_model not in socketed_gpu_models) or (self.constants.custom_model and self.constants.custom_model not in socketed_gpu_models)):
-            gpu_combo_box.Disable()
-            return
-
-    def _populate_fu_override(self, panel: wx.Panel) -> None:
-        gpu_combo_box: wx.Choice = None
-        for child in panel.GetChildren():
-            if isinstance(child, wx.Choice):
-                gpu_combo_box = child
-                break
-
-        gpu_combo_box.Bind(wx.EVT_CHOICE, self.fu_selection_click)
-        if self.constants.fu_status is False:
-            gpu_combo_box.SetStringSelection("Disabled")
-        elif self.constants.fu_arguments is None or self.constants.fu_arguments == "":
-            gpu_combo_box.SetStringSelection("Enabled")
-        else:
-            gpu_combo_box.SetStringSelection("Partial")
-
-
-    def fu_selection_click(self, event: wx.Event) -> None:
-        value = event.GetEventObject().GetStringSelection()
-        if value == "Enabled":
-            logging.info("Updating FU Status: Enabled")
-            self.constants.fu_status = True
-            self.constants.fu_arguments = None
-            global_settings.GlobalEnviromentSettings().write_property("GUI:fu_status", True)
-            global_settings.GlobalEnviromentSettings().write_property("GUI:fu_arguments", "PYTHON_NONE_VALUE")
-            return
-
-        if value == "Partial":
-            logging.info("Updating FU Status: Partial")
-            self.constants.fu_status = True
-            self.constants.fu_arguments = " -disable_sidecar_mac"
-            global_settings.GlobalEnviromentSettings().write_property("GUI:fu_status", True)
-            global_settings.GlobalEnviromentSettings().write_property("GUI:fu_arguments", " -disable_sidecar_mac")
-            return
-
-        logging.info("Updating FU Status: Disabled")
-        self.constants.fu_status = False
-        self.constants.fu_arguments = None
-        global_settings.GlobalEnviromentSettings().write_property("GUI:fu_status", False)
-        global_settings.GlobalEnviromentSettings().write_property("GUI:fu_arguments", "PYTHON_NONE_VALUE")
-
-
-    def gpu_selection_click(self, event: wx.Event) -> None:
-        gpu_choice = event.GetEventObject().GetStringSelection()
-
-        logging.info(f"Updating GPU Selection: {gpu_choice}")
-        if "AMD" in gpu_choice:
-            self.constants.imac_vendor = "AMD"
-            self.constants.metal_build = True
-            if "Polaris" in gpu_choice:
-                self.constants.imac_model = "Polaris"
-            elif "GCN" in gpu_choice:
-                self.constants.imac_model = "GCN"
-            elif "Lexa" in gpu_choice:
-                self.constants.imac_model = "Lexa"
-            elif "Navi" in gpu_choice:
-                self.constants.imac_model = "Navi"
-            else:
-                raise Exception("Unknown GPU Model")
-            global_settings.GlobalEnviromentSettings().write_property("GUI:imac_vendor", "AMD")
-            global_settings.GlobalEnviromentSettings().write_property("GUI:metal_build", True)
-            global_settings.GlobalEnviromentSettings().write_property("GUI:imac_model", self.constants.imac_model)
-        elif "Nvidia" in gpu_choice:
-            self.constants.imac_vendor = "Nvidia"
-            self.constants.metal_build = True
-            if "Kepler" in gpu_choice:
-                self.constants.imac_model = "Kepler"
-            elif "GT" in gpu_choice:
-                self.constants.imac_model = "GT"
-            else:
-                raise Exception("Unknown GPU Model")
-            global_settings.GlobalEnviromentSettings().write_property("GUI:imac_vendor", "Nvidia")
-            global_settings.GlobalEnviromentSettings().write_property("GUI:metal_build", True)
-            global_settings.GlobalEnviromentSettings().write_property("GUI:imac_model", self.constants.imac_model)
-        else:
-            self.constants.imac_vendor = "None"
-            self.constants.metal_build = False
-            global_settings.GlobalEnviromentSettings().write_property("GUI:imac_vendor", "None")
-            global_settings.GlobalEnviromentSettings().write_property("GUI:metal_build", False)
-
     def on_checkbox(self, event: wx.Event, warning_pop: str = "", override_function: bool = False) -> None:
         """
         """
@@ -1023,14 +717,7 @@ class OCSettingsFrame(wx.Frame):
 
         self._update_setting(self.settings[self._find_parent_for_key(label)][label]["variable"], value)
         if label == "Allow native models":
-            # Re-gate this frame's own Save/Install buttons: the checkbox that was just
-            # toggled is exactly what host_can_build() reads, so the answer may have
-            # changed under us.
             self._refresh_build_gated_buttons()
-            # NOTE: the main menu's "OpenCore" button (self.parent.build_button) is deliberately
-            # NOT touched here any more. It only opens this frame, and disabling it on an
-            # unsupported host is what made this checkbox unreachable in the first place -
-            # unticking it here would have re-locked the door from the inside.
 
     def on_spinctrl(self, event: wx.Event, label: str) -> None:
         """
@@ -1172,10 +859,6 @@ class OCSettingsFrame(wx.Frame):
 
 
     def on_save(self, event):
-        # Must be initialised before the branch below. If a build profile is already set
-        # (e.g. an earlier build in the same session), the prompt is skipped entirely and
-        # the reset check at the end of this method would hit an unbound local, crashing
-        # with UnboundLocalError right after the build was already written to disk.
         user_had_prompt_set = False
         if self.constants.build_profile is None or self.constants.build_profile == "":
             user_had_prompt_set = True
@@ -1210,31 +893,15 @@ class OCSettingsFrame(wx.Frame):
                     dialog.Destroy()
                     return
                 dialog.Destroy()
-            else: #We asume that the user doesn't want to save OpenCore so we stop.
+            else: # We asume that the user doesn't want to save OpenCore so we stop.
                 dialog.Destroy()
                 return
-        # Throw pop up to get save location
-        #
-        # wx.FileDialog(wx.FD_SAVE) is unusable here: wxWidgets' macOS backend
-        # (src/osx/cocoa/filedlg.mm, as pinned by wxPython 4.2.5) only sets
-        # m_useFileTypeFilter when the wildcard holds two or more filter pairs.
-        # With a single pair m_firstFileTypeFilter stays -1 and ShowModal() then
-        # evaluates m_filterExtensions[-1], which asserts with
-        # "wxArrayString: index out of bounds" (arrstr.h:227) before the dialog
-        # is ever shown. Fixed upstream, not in the wxPython we ship against.
-        #
-        # We only ever used the parent directory of the picked path anyway
-        # (constants.build_path == oc_build_path.parent), so pick the directory
-        # directly - a directory picker carries no wildcard and no filter array.
         with wx.DirDialog(self.parent, "Select where to save the OpenCore build", style=wx.DD_DEFAULT_STYLE | wx.DD_NEW_DIR_BUTTON) as dirDialog:
             if dirDialog.ShowModal() == wx.ID_CANCEL:
-                # Profile was only picked for this save, don't leak it into the next build
                 if user_had_prompt_set:
                     self.constants.build_profile = ""
                 return
 
-            # Must match constants.opencore_release_folder (build_path/oc_build_folder_name),
-            # otherwise gui_build writes Build.log into a folder that was never created.
             self.constants.oc_build_path = Path(dirDialog.GetPath()) / self.constants.oc_build_folder_name
             self.frame_modal.Destroy()
             self.parent.Hide()

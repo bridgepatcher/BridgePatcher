@@ -26,13 +26,6 @@ KEXT_DICTIONARY = {
             "Repository": "https://github.com/acidanthera/AirportBrcmFixup",
             "Constants Variable": "self.airportbcrmfixup_version",
         },
-        # Dortania stays on its modified AppleALC 1.6.3 for legacy Macs (MacBook4,1), BridgePatcher
-        # follows acidanthera's releases instead. Only AppleALC.kext is kept from the release zip
-        # (not AppleALCU.kext or alc-verb), it's the only part the EFI builder uses.
-        "AppleALC": {
-            "Repository": "https://github.com/acidanthera/AppleALC",
-            "Constants Variable": "self.applealc_version",
-        },
         "BlueToolFixup": {
             "Repository": "https://github.com/acidanthera/BrcmPatchRAM",
             "Constants Variable": "self.bluetool_version",
@@ -49,10 +42,6 @@ KEXT_DICTIONARY = {
         "DebugEnhancer": {
             "Repository": "https://github.com/acidanthera/DebugEnhancer",
             "Constants Variable": "self.debugenhancer_version",
-        },
-        "FeatureUnlock": {
-            "Repository": "https://github.com/acidanthera/FeatureUnlock",
-            "Constants Variable": "self.featureunlock_version",
         },
         "Lilu": {
             "Repository": "https://github.com/acidanthera/Lilu",
