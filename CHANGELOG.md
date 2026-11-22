@@ -71,6 +71,9 @@ This release:
   - T2 Macs are not affected, their EFI stays exactly the same
 - removes the TEST-A to TEST-D (LEVEL-B to LEVEL-D) OpenCore build profiles. Every build now uses the standard configuration, and the profile choices are gone from Build OpenCore, the OpenCore settings and Developer Mode. A stored profile choice from an earlier version is removed on the next start
 
+## 4.0.0.2000003.8.1 - 4.0.0 alpha 20.3.8.1
+This release updates WhateverGreen-Navi to the latest available version.
+
 ## 4.0.0.2000003.8 - 4.0.0 alpha 20.3.8
 This release:
 - fixes a small bug where in arguments.py the No updates available in the code was on 2 rows instead of 1:
