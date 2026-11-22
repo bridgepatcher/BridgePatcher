@@ -1,0 +1,272 @@
+name: Check bundled libT2Stage2Bypass
+
+# Fails when the bundled libT2Stage2Bypass.dylib (payloads/Kexts/T2) can't do its
+# job. It is loaded into the macOS Tahoe installer's Stage 2 and swizzles the
+# OSInstaller elements (OSIUpdateFirmwareElement, OSIVerifyROMElement,
+# OSIInstallPersonalizedManifestsElement, OSIMSUInstallElement,
+# OSIMSUCleanupElement) so the installation doesn't stop at the bridgeOS firmware
+# step on T2 Macs Apple dropped from Tahoe.
+#
+# .github/scripts/check_libt2stage2bypass.py reads the dylib from the zip
+# (nothing is extracted or run). It checks: one correctly named zip holding the
+# dylib, an x86_64 macOS MH_DYLIB, a minimum macOS of at most 26.0, a constructor
+# (the hooks are installed from it), only system libraries as dependencies, and
+# that every expected OSInstaller class/selector and the OSInstaller.framework
+# path are still in the binary. An unset dylib version, a missing code signature
+# and the dylib not being used by BridgePatcher's code are shown as notes and
+# never fail. The dylib's source isn't in this repository, so a finding has to be
+# fixed in libT2Stage2Bypass itself.
+#
+# Pull requests:
+#   Read-only token. Unlike the T2TahoeFixup check no PR code is run - the PR's
+#   zip is only read as data, by the check script from the base branch, so a PR
+#   can't change what is checked. Problems that already exist on the base branch
+#   are listed separately and don't fail the PR.
+#
+# Outside pull requests (push to main, releases, weekly, manual):
+#   The result is kept in one tracking issue ("libT2Stage2Bypass check: problems
+#   in the bundled dylib on main"). It is opened when problems are found, updated
+#   on every run and closed automatically once everything passes. A check that
+#   can't run at all is reported too.
+#   libT2Stage2Bypass's author (NOTIFY in the report step) is mentioned when the
+#   issue is opened, reopened, a release is affected and when it's closed - not
+#   on the routine update of every run. Pull request runs never mention anyone.
+
+on:
+  # No `paths` filter for PRs: with one, a required check would wait forever on
+  # PRs that don't touch the dylib. The "Decide what to check" step skips instead.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+    paths:
+      - "payloads/Kexts/T2/libT2Stage2Bypass*"
+      - ".github/scripts/check_libt2stage2bypass.py"
+      - ".github/workflows/libt2stage2bypass-check.yml"
+  release:
+    types: [published]
+  schedule:
+    - cron: "25 7 * * 1"   # Mondays 07:25 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+# Runs from other branches (manual dispatches) share ONE group instead of one per
+# branch, so starting this on many branches at once can't fan out into parallel runs.
+concurrency:
+  group: libt2stage2bypass-${{ github.event.pull_request.number || ((github.ref == 'refs/heads/main' || github.ref_type == 'tag') && github.ref) || 'other-branches' }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Decide what to check
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename'); then
+            echo "::warning::Couldn't list the PR's files - checking everything"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          relevant=$(printf '%s\n' "$files" | grep -E '^(payloads/Kexts/T2/libT2Stage2Bypass|\.github/scripts/check_libt2stage2bypass\.py$|\.github/workflows/libt2stage2bypass-check\.yml$)' || true)
+          if [ -n "$relevant" ]; then
+            echo "Relevant changes:"; printf '  %s\n' $relevant
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "This PR doesn't change libT2Stage2Bypass or the check - nothing to check"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Nothing to check
+        if: steps.scope.outputs.run != 'true'
+        run: |
+          echo "## libT2Stage2Bypass check" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ This PR doesn't change libT2Stage2Bypass or the check - nothing to check." >> "$GITHUB_STEP_SUMMARY"
+
+      # Trusted copy: the base branch for PRs, otherwise the pushed/released commit.
+      # The check script is always taken from here.
+      - uses: actions/checkout@v4
+        if: steps.scope.outputs.run == 'true'
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: trusted
+          persist-credentials: false
+
+      # The PR (merged with its base). Only its files are read, nothing from it runs.
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request' && steps.scope.outputs.run == 'true'
+        with:
+          path: pr
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        if: steps.scope.outputs.run == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Check libT2Stage2Bypass
+        id: check
+        if: steps.scope.outputs.run == 'true'
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set +e
+          out="$RUNNER_TEMP/libt2stage2bypass"
+          mkdir -p "$out"
+          script="trusted/.github/scripts/check_libt2stage2bypass.py"
+
+          if [ ! -f "$script" ]; then
+            # The base branch doesn't have the check yet (e.g. the PR that adds it)
+            echo "::notice::$script doesn't exist on the base branch yet - nothing to check"
+            echo "skipped" > "$out/skipped"
+            echo "rc=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$EVENT" = "pull_request" ]; then
+            python3 -I "$script" --root pr --baseline trusted \
+              --json "$out/result.json" --summary "$out/summary.md"
+          else
+            python3 -I "$script" --root trusted \
+              --json "$out/result.json" --summary "$out/summary.md"
+          fi
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          [ -f "$out/summary.md" ] && cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: libt2stage2bypass-result
+          path: ${{ runner.temp }}/libt2stage2bypass/
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Fail if the bundled libT2Stage2Bypass has problems
+        if: steps.check.outputs.rc != '' && steps.check.outputs.rc != '0'
+        run: |
+          if [ "${{ steps.check.outputs.rc }}" = "2" ]; then
+            echo "::error::The libT2Stage2Bypass check could not run - see the log above"
+          else
+            echo "::error::The bundled libT2Stage2Bypass.dylib has problems - see the summary"
+          fi
+          exit 1
+
+  # Outside PRs: keep the result in one tracking issue.
+  report:
+    needs: check
+    if: >-
+      always() && needs.check.result != 'skipped' && needs.check.result != 'cancelled' &&
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' || github.event_name == 'release')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: libt2stage2bypass-result
+          path: ${{ runner.temp }}/result
+
+      - name: Update tracking issue
+        uses: actions/github-script@v8
+        env:
+          CHECK_RESULT: ${{ needs.check.result }}
+        with:
+          script: |
+            const fs = require('fs');
+            const MARKER = '<!-- libt2stage2bypass-main-report -->';
+            const TITLE = 'libT2Stage2Bypass check: problems in the bundled dylib on main';
+            const MAX = 150;
+            // libT2Stage2Bypass's author: findings have to be fixed in the dylib, whose source isn't here
+            const NOTIFY = ['matteoiacca'];
+            const cc = NOTIFY.map(u => `@${u}`).join(' ');
+            const { owner, repo } = context.repo;
+            const dir = `${process.env.RUNNER_TEMP}/result`;
+            const sha = context.sha, short = sha.slice(0, 7);
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const isRelease = context.eventName === 'release';
+            const tag = isRelease ? context.payload.release.tag_name : null;
+            const where = isRelease ? `release \`${tag}\` (${short})` : `\`main\` (at ${short})`;
+
+            if (fs.existsSync(`${dir}/skipped`)) return;
+
+            let result = null;
+            try { result = JSON.parse(fs.readFileSync(`${dir}/result.json`, 'utf8')); } catch {}
+            const fatal = !result ? `no result was produced (check job: ${process.env.CHECK_RESULT})` : result.fatal;
+            const problems = result && Array.isArray(result.new) ? result.new : [];
+
+            const esc = s => String(s).replace(/[|`<>\[\]]/g, c => ({ '|': '\\|', '`': "'", '<': '&lt;', '>': '&gt;', '[': '\\[', ']': '\\]' }[c])).replace(/@/g, '@​').slice(0, 500);
+
+            // Only our own issue - anybody can paste the marker into an issue
+            const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'all', creator: 'github-actions[bot]', per_page: 100 });
+            const ours = issues.filter(i => !i.pull_request && i.body && i.body.includes(MARKER));
+            const existing = ours.find(i => i.state === 'open') || ours[0];
+
+            if (!fatal && !problems.length) {
+              if (existing && existing.state === 'open') {
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body:
+                  `✅ ${where}: the bundled libT2Stage2Bypass.dylib passes every check now ([run](${runUrl})). Closing. cc ${cc}\n\n` +
+                  `✅ ${where}: Die mitgelieferte libT2Stage2Bypass.dylib besteht jetzt alle Prüfungen. Wird geschlossen.` });
+                await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed', state_reason: 'completed' });
+              }
+              return;
+            }
+
+            let body =
+              `${MARKER}\n` +
+              `cc ${cc} (libT2Stage2Bypass)\n\n` +
+              (isRelease ? `> [!CAUTION]\n> **Release \`${tag}\` is affected.** It ships a libT2Stage2Bypass.dylib that can't be loaded in the Tahoe installer or no longer hooks every OSInstaller step it has to.\n\n` : '') +
+              `Automatic report of the libT2Stage2Bypass check on ${where}, [run](${runUrl}). ` +
+              `Updated on every push to \`main\`, every release and every Monday; closed automatically once everything passes.\n\n` +
+              `**Why this matters:** libT2Stage2Bypass is loaded into the Tahoe installer's Stage 2 and makes the OSInstaller firmware, ROM, manifest and MSU steps succeed on T2 Macs Apple dropped. If it can't be loaded or a hook target is gone, the installation stops at the bridgeOS firmware step on those Macs again. The dylib's source isn't in this repository, so a finding has to be fixed in libT2Stage2Bypass itself.\n\n` +
+              `<details><summary>Deutsch</summary>\n\n` +
+              `Automatischer Bericht des libT2Stage2Bypass-Checks auf ${where}. Wird bei jedem Push auf \`main\`, jedem Release und jeden Montag aktualisiert ` +
+              `und automatisch geschlossen, sobald alles besteht.\n\n` +
+              `**Warum das wichtig ist:** libT2Stage2Bypass wird in Stage 2 des Tahoe-Installers geladen und lässt die OSInstaller-Schritte für Firmware, ROM, Manifeste und MSU auf von Apple fallengelassenen T2-Macs gelingen. Kann sie nicht geladen werden oder fehlt ein Hook-Ziel, bricht die Installation auf diesen Macs wieder beim bridgeOS-Firmware-Schritt ab. Der Quellcode der Dylib liegt nicht in diesem Repository; Funde müssen in libT2Stage2Bypass selbst behoben werden.\n` +
+              (isRelease ? `\n**Release \`${tag}\` ist betroffen.**\n` : '') +
+              `</details>\n\n`;
+
+            if (fatal) {
+              body += `## ❌ The check could not run\n\n\`${esc(fatal)}\`\n\n` +
+                      `Until it runs again, nothing protects against this bug. See the [run log](${runUrl}).\n\n` +
+                      `Der Check konnte nicht laufen - bis er wieder läuft, schützt nichts vor diesem Fehler.\n\n`;
+            }
+            if (problems.length) {
+              body += `## ❌ ${problems.length} problem(s)\n\n| Rule | Where | Problem |\n|---|---|---|\n` +
+                      problems.slice(0, MAX).map(p => `| \`${esc(p.rule)}\` | \`${esc(p.subject)}\` | ${esc(p.message)} |`).join('\n') +
+                      (problems.length > MAX ? `\n\n…and ${problems.length - MAX} more - see the [run log](${runUrl}).` : '') + `\n\n`;
+            }
+            const notes = result && Array.isArray(result.notes) ? result.notes : [];
+            if (notes.length) {
+              body += `<details><summary>${notes.length} note(s) - don't fail the check</summary>\n\n` +
+                      notes.slice(0, 20).map(n => `- ${esc(n.message)}`).join('\n') + `\n</details>\n`;
+            }
+            if (body.length > 65000) body = body.slice(0, 64000) + `\n\n…truncated - see the [run log](${runUrl}).`;
+
+            if (existing) {
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, title: TITLE, body, state: 'open' });
+              if (existing.state === 'closed' || isRelease) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body:
+                  `⚠️ ${isRelease ? `Release \`${tag}\` is affected` : 'Back on main'} (${short}, [run](${runUrl})) - see the updated description. cc ${cc}` });
+              }
+            } else {
+              await github.rest.issues.create({ owner, repo, title: TITLE, body });
+            }
