@@ -1,4 +1,17 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.0.0.5 - 4.0.0 alpha 20.4 Preview
+This release:
+- on T2 Macs, removes two Intel graphics settings that made macOS hang at the Apple logo unless the "T2 Installer Workaround" was turned on:
+  - `igfxfw=2` is no longer added. It forced Apple's GuC graphics firmware, which genuine Macs leave turned off
+  - the Mac mini 2018 and the MacBookPro16,1 and 16,4 keep their own Intel graphics settings from the firmware instead of the ones BridgePatcher injected when building OpenCore on the Mac itself. On the MacBookPro16,1 and 16,4, which macOS Tahoe supports natively, the injected settings turned off the Intel GPU's display outputs
+  - the other T2 Macs keep their graphics settings; only `igfxfw=2` is gone
+  - on a Mac mini 2018, the mouse pointer now shows up at the Apple logo, but the macOS Tahoe installer still stalls there: T2TahoeFixup.kext 1.0.24 doesn't recognize the Mac mini 2018 and the MacBook Air 2020 (MacBookAir9,1) as Macs macOS Tahoe dropped, so it stays inactive. Until a fixed T2TahoeFixup is bundled, keep the "T2 Installer Workaround" turned on on these Macs while macOS Tahoe installs
+  - build and install OpenCore again with this version. Not yet confirmed on real hardware
+- fixes a crash ("segmentation fault") while installing OpenCore to a disk when the Privileged Helper Tool rejects the build (`BRIDGEPATCHER_PHT_ERROR_INVALID_CERTIFICATES`) and BridgePatcher asks for the administrator password instead. The password prompt went through Apple's Authorization Services in a way that could read memory that had already been freed. The Developer Mode marker file fix in Settings used the same code and is fixed too
+- installing OpenCore: when the EFI partition can't be unmounted right after copying OpenCore because it's still busy (e.g. while Spotlight indexes the new files), BridgePatcher now tries again up to four times before reporting it. It never forces the unmount. As before, OpenCore is installed either way
+- after installing OpenCore on a T2 Mac, the guide on turning off Secure Boot and SIP is opened in the browser through macOS's `open` command instead of Python's web browser module, which runs an AppleScript through a shell. The app crashed with a "bus error" right at this point on a Mac mini 2018. Not yet confirmed to fix the crash
+- fixes the custom board serial number never reaching NVRAM with the "Minimal" serial setting. BridgePatcher wrote it to `PlatformInfo > PlatformNVRAM > BoardSerialNumber`, a key neither OpenCore 1.0.8 nor BridgePatcher's own OpenCorePkg have, so OpenCore skipped it. It now goes to `PlatformNVRAM > MLB` on every Mac. On T2 Macs, this means macOS now sees the custom board serial number you entered in NVRAM, not the Mac's real one, which can affect iCloud and Apple Account sign-in
+
 ## 4.0.0.2000004.0.0.4 - 4.0.0 alpha 20.4 Preview
 This release:
 - fixes a small bug where in arguments.py the No updates available in the code was on 2 rows instead of 1:
