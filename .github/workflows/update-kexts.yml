@@ -18,7 +18,9 @@ name: Update kexts
 #   - rebuilds the WhateverGreen Navi variant when WhateverGreen is updated (needs
 #     Xcode, so the job runs on macOS)
 #   - updates bridgepatcher/constants.py and THIRD-PARTY-NOTICES.txt
-# Pinned kexts (RestrictEvents) are skipped.
+# Pinned kexts (RestrictEvents) and watch-only kexts (AppleALC) are never updated, but
+# a newer release (or, for RestrictEvents, a move of its pinned branch) is reported.
+# The WhateverGreen Navi build is rebuilt whenever it is older than WhateverGreen.
 # BridgePatcher's own T2 kexts (payloads/Kexts/T2) are updated by hand and never checked,
 # see the comments in the script.
 #
@@ -38,6 +40,12 @@ name: Update kexts
 # bot app of the update-user-agents workflow is set up (variable UA_APP_ID, secret
 # UA_APP_PRIVATE_KEY), its token is used here as well and the checks start
 # normally. Without it, close and reopen the PR to start them.
+#
+# Anything that needs a maintainer (a warning in the summary: a watch-only or pinned kext
+# with a newer release, a failed Navi build, kexts sharing a version that Dortania has
+# split, ...) or a failed run is kept in one tracking issue ("Kext update check needs
+# attention"), opened by the report job, updated on every run and closed once a run is
+# clean again. Without it these only showed up as a warning on a green run.
 #
 # Run it by hand from the Actions tab ("Run workflow") to check right away.
 
@@ -75,6 +83,7 @@ jobs:
         run: python3 -m pip install --quiet requests packaging
 
       - name: Update kexts
+        id: update
         env:
           # Read-only, only raises GitHub's API rate limit
           GITHUB_TOKEN: ${{ github.token }}
@@ -108,6 +117,23 @@ jobs:
           key=$( { git diff --cached --name-status; git diff --cached -- bridgepatcher/constants.py THIRD-PARTY-NOTICES.txt; grep '^| ' "$RUNNER_TEMP/summary.md" | cut -d'|' -f1-4; } | shasum -a 256 | cut -c1-12)
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "key=$key" >> "$GITHUB_OUTPUT"
+
+      # For the report job: the summary (if the script got that far) and whether it ran
+      - name: Save the check result
+        if: always()
+        env:
+          UPDATE_OUTCOME: ${{ steps.update.outcome }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/result"
+          echo "$UPDATE_OUTCOME" > "$RUNNER_TEMP/result/outcome"
+          if [ -f "$RUNNER_TEMP/summary.md" ]; then cp "$RUNNER_TEMP/summary.md" "$RUNNER_TEMP/result/summary.md"; fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kext-check
+          path: ${{ runner.temp }}/result/
+          retention-days: 7
 
       - uses: actions/upload-artifact@v4
         if: steps.diff.outputs.changed == 'true'
@@ -248,3 +274,83 @@ jobs:
           if [ "$HAS_APP" != true ]; then
             echo "::warning::UA_APP_ID isn't set, so the required checks won't start on ${url##*/} by themselves (PRs opened with GITHUB_TOKEN don't trigger workflows). Close and reopen the PR to start them, or set up the app."
           fi
+
+  # Keeps whatever needs a maintainer in one tracking issue
+  report:
+    needs: update
+    if: >-
+      always() && needs.update.result != 'skipped' && needs.update.result != 'cancelled' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: kext-check
+          path: ${{ runner.temp }}/result
+
+      - name: Update tracking issue
+        uses: actions/github-script@v8
+        env:
+          UPDATE_RESULT: ${{ needs.update.result }}
+        with:
+          script: |
+            const fs = require('fs');
+            const MARKER = '<!-- update-kexts-report -->';
+            const TITLE = 'Kext update check needs attention';
+            const { owner, repo } = context.repo;
+            const dir = `${process.env.RUNNER_TEMP}/result`;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const read = f => { try { return fs.readFileSync(`${dir}/${f}`, 'utf8').trim(); } catch { return null; } };
+
+            const outcome = read('outcome') || 'unknown';
+            const summary = read('summary.md');
+            const failed = process.env.UPDATE_RESULT !== 'success' || outcome !== 'success' || summary === null;
+            // The summary is written by the update script, which reads text from other repositories'
+            // releases: keep only its warnings, without mentions
+            const warnings = (summary || '').split('\n')
+              .filter(l => l.startsWith('> ') && !l.startsWith('> [!'))
+              .map(l => l.slice(2).replace(/@/g, '@\u200b').slice(0, 1000));
+
+            // Only our own issue - anybody can paste the marker into an issue
+            const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'all', creator: 'github-actions[bot]', per_page: 100 });
+            const ours = issues.filter(i => !i.pull_request && i.body && i.body.includes(MARKER));
+            const existing = ours.find(i => i.state === 'open') || ours[0];
+
+            if (!failed && !warnings.length) {
+              if (existing && existing.state === 'open') {
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body:
+                  `✅ The kext update check has nothing left that needs a maintainer ([run](${runUrl})). Closing.\n\n` +
+                  `✅ Der Kext-Update-Check hat nichts mehr, das einen Maintainer braucht. Wird geschlossen.` });
+                await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed', state_reason: 'completed' });
+              }
+              return;
+            }
+
+            let body =
+              `${MARKER}\n` +
+              `Automatic report of the daily update-kexts run ([run](${runUrl})). ` +
+              `Updated on every run and closed automatically once a run is clean.\n\n` +
+              `<details><summary>Deutsch</summary>\n\n` +
+              `Automatischer Bericht des täglichen update-kexts-Laufs. Wird bei jedem Lauf aktualisiert und automatisch geschlossen, ` +
+              `sobald ein Lauf nichts mehr findet. Fehlgeschlagen = kein Kext wurde geprüft; Warnungen = ein Kext braucht einen Menschen ` +
+              `(neuere Version eines gepinnten oder nur beobachteten Kexts, fehlgeschlagener Navi-Build, ...).\n</details>\n\n`;
+            if (failed) {
+              body += `## ❌ The check failed\n\nThe update script stopped (${outcome}), so kexts weren't checked and no update PR was opened. ` +
+                      `See the [run log](${runUrl}).\n\n`;
+            }
+            if (warnings.length) {
+              body += `## ⚠️ ${warnings.length} kext(s) need a maintainer\n\n` + warnings.map(w => `- ${w}`).join('\n') + `\n`;
+            }
+
+            if (existing) {
+              if (existing.body === body && existing.state === 'open') return;
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, title: TITLE, body, state: 'open' });
+              if (existing.state !== 'open') {
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body: `Reopened: the kext update check needs attention again ([run](${runUrl})).` });
+              }
+            } else {
+              await github.rest.issues.create({ owner, repo, title: TITLE, body });
+            }
