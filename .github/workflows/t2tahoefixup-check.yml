@@ -1,0 +1,298 @@
+name: Check bundled T2TahoeFixup.kext
+
+# Fails when the bundled T2TahoeFixup.kext doesn't match BridgePatcher's model
+# data or EFI builder. T2TahoeFixup only turns its installer hooks on for boards
+# in its own "dropped" list; 1.0.24 lacked the Mac mini 2018 and the MacBook Air
+# 2020 there (its bridge-model list had them), so the Tahoe installer stalled at
+# the Apple logo unless the T2 Installer Workaround forced it on.
+#
+# .github/scripts/check_t2tahoefixup.py reads the built kext from
+# payloads/Kexts/T2 (inside the zip; nothing is extracted or run) and finds its
+# lists through their symbols. It checks: the payload (version, x86_64, Lilu
+# dependency), every T2 Mac macOS Tahoe doesn't support is in the dropped
+# board-ID and bridge-model lists, no Tahoe-supported Mac is in the dropped list,
+# every board ID in the binary belongs to a real Mac, and every T2TahoeFixup
+# boot-arg the EFI builder writes exists in the kext. The kext's source isn't in
+# this repository, so a finding has to be fixed in T2TahoeFixup itself (or in
+# BridgePatcher's data, if that's what's wrong).
+#
+# Pull requests:
+#   Read-only token, no write access - the check imports and runs the PR's
+#   builder code to collect its boot-args. The check script itself always comes
+#   from the base branch, so a PR can't change what is checked. Problems that
+#   already exist on the base branch are listed separately and don't fail the PR.
+#
+# Outside pull requests (push to main, releases, weekly, manual):
+#   The result is kept in one tracking issue ("T2TahoeFixup check: problems in
+#   the bundled kext on main"). It is opened when problems are found, updated on
+#   every run and closed automatically once everything passes. A check that
+#   can't run at all is reported too.
+#   T2TahoeFixup's author (NOTIFY in the report step) is mentioned when the issue
+#   is opened, reopened, a release is affected and when it's closed - not on the
+#   routine update of every run. Pull request runs never mention anyone.
+
+on:
+  # No `paths` filter for PRs: with one, PRs that don't touch the builder get
+  # no check at all (a required check would wait forever). The "Decide what to
+  # check" step skips the expensive part instead.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+    paths:
+      - "payloads/Kexts/T2/**"
+      - "bridgepatcher/datasets/**"
+      - "bridgepatcher/constants.py"
+      - "bridgepatcher/efi_builder/**"
+      - "requirements.txt"
+      - ".github/scripts/check_t2tahoefixup.py"
+      - ".github/scripts/check_secure_boot_model.py"
+      - ".github/workflows/t2tahoefixup-check.yml"
+  release:
+    types: [published]
+  schedule:
+    - cron: "15 7 * * 1"   # Mondays 07:15 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+# Runs from other branches (manual dispatches) share ONE group instead of one per
+# branch, so starting this on many branches at once can't fan out into parallel runs.
+concurrency:
+  group: t2tahoefixup-${{ github.event.pull_request.number || ((github.ref == 'refs/heads/main' || github.ref_type == 'tag') && github.ref) || 'other-branches' }}
+  cancel-in-progress: true
+
+env:
+  # What the builder imports besides the macOS-only modules (pyobjc, wx, ...),
+  # which the script replaces with inert stubs on Linux.
+  CHECK_DEPS: "requests packaging py_sip_xnu markdown markdown2"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # PRs that change nothing the builder or the check depends on pass right
+      # away - their EFI builds are identical to main's, which is checked on push.
+      - name: Decide what to check
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename'); then
+            echo "::warning::Couldn't list the PR's files - checking everything"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          relevant=$(printf '%s\n' "$files" | grep -E '^(payloads/Kexts/T2/|bridgepatcher/datasets/|bridgepatcher/constants\.py$|bridgepatcher/efi_builder/|requirements\.txt$|\.github/scripts/check_t2tahoefixup\.py$|\.github/scripts/check_secure_boot_model\.py$|\.github/workflows/t2tahoefixup-check\.yml$)' || true)
+          if [ -n "$relevant" ]; then
+            echo "Relevant changes:"; printf '  %s\n' $relevant
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "This PR doesn't change T2TahoeFixup, the model data, the EFI builder or the check - nothing to check"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Nothing to check
+        if: steps.scope.outputs.run != 'true'
+        run: |
+          echo "## T2TahoeFixup check" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ This PR doesn't change T2TahoeFixup, the model data, the EFI builder or the check - nothing to check." >> "$GITHUB_STEP_SUMMARY"
+
+      # Trusted copy: the base branch for PRs, otherwise the pushed/released commit.
+      # The check script is always taken from here.
+      - uses: actions/checkout@v4
+        if: steps.scope.outputs.run == 'true'
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: trusted
+          persist-credentials: false
+
+      # The PR (merged with its base, as GitHub tests it). Its code is executed
+      # by the check - fine here, this job can't write anything.
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request' && steps.scope.outputs.run == 'true'
+        with:
+          path: pr
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        if: steps.scope.outputs.run == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        if: steps.scope.outputs.run == 'true'
+        run: python3 -m pip install --quiet --disable-pip-version-check $CHECK_DEPS
+
+      - name: Check T2TahoeFixup
+        id: check
+        if: steps.scope.outputs.run == 'true'
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set +e
+          out="$RUNNER_TEMP/t2tahoefixup"
+          mkdir -p "$out"
+          script="trusted/.github/scripts/check_t2tahoefixup.py"
+
+          if [ ! -f "$script" ]; then
+            # The base branch doesn't have the check yet (e.g. the PR that adds it)
+            echo "::notice::$script doesn't exist on the base branch yet - nothing to check"
+            echo "skipped" > "$out/skipped"
+            echo "rc=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$EVENT" = "pull_request" ]; then
+            python3 "$script" --root pr --baseline trusted \
+              --json "$out/result.json" --summary "$out/summary.md"
+          else
+            python3 "$script" --root trusted \
+              --json "$out/result.json" --summary "$out/summary.md"
+          fi
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          [ -f "$out/summary.md" ] && cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t2tahoefixup-result
+          path: ${{ runner.temp }}/t2tahoefixup/
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Fail if the bundled T2TahoeFixup has problems
+        if: steps.check.outputs.rc != '' && steps.check.outputs.rc != '0'
+        run: |
+          if [ "${{ steps.check.outputs.rc }}" = "2" ]; then
+            echo "::error::The T2TahoeFixup check could not run - see the log above"
+          else
+            echo "::error::The bundled T2TahoeFixup.kext has problems - see the summary"
+          fi
+          exit 1
+
+  # Outside PRs: keep the result in one tracking issue.
+  report:
+    needs: check
+    if: >-
+      always() && needs.check.result != 'skipped' && needs.check.result != 'cancelled' &&
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' || github.event_name == 'release')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: t2tahoefixup-result
+          path: ${{ runner.temp }}/result
+
+      - name: Update tracking issue
+        uses: actions/github-script@v8
+        env:
+          CHECK_RESULT: ${{ needs.check.result }}
+        with:
+          script: |
+            const fs = require('fs');
+            const MARKER = '<!-- t2tahoefixup-main-report -->';
+            const TITLE = 'T2TahoeFixup check: problems in the bundled kext on main';
+            const MAX = 150;
+            // T2TahoeFixup's author: findings have to be fixed in the kext, whose source isn't here
+            const NOTIFY = ['matteoiacca'];
+            const cc = NOTIFY.map(u => `@${u}`).join(' ');
+            const { owner, repo } = context.repo;
+            const dir = `${process.env.RUNNER_TEMP}/result`;
+            const sha = context.sha, short = sha.slice(0, 7);
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const isRelease = context.eventName === 'release';
+            const tag = isRelease ? context.payload.release.tag_name : null;
+            const where = isRelease ? `release \`${tag}\` (${short})` : `\`main\` (at ${short})`;
+
+            if (fs.existsSync(`${dir}/skipped`)) return;
+
+            let result = null;
+            try { result = JSON.parse(fs.readFileSync(`${dir}/result.json`, 'utf8')); } catch {}
+            const fatal = !result ? `no result was produced (check job: ${process.env.CHECK_RESULT})` : result.fatal;
+            const problems = result && Array.isArray(result.new) ? result.new : [];
+            const errors = result && Array.isArray(result.errors) ? result.errors : [];
+
+            const esc = s => String(s).replace(/[|`<>\[\]]/g, c => ({ '|': '\\|', '`': "'", '<': '&lt;', '>': '&gt;', '[': '\\[', ']': '\\]' }[c])).replace(/@/g, '@​').slice(0, 500);
+
+            // Only our own issue - anybody can paste the marker into an issue
+            const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'all', creator: 'github-actions[bot]', per_page: 100 });
+            const ours = issues.filter(i => !i.pull_request && i.body && i.body.includes(MARKER));
+            const existing = ours.find(i => i.state === 'open') || ours[0];
+
+            if (!fatal && !problems.length) {
+              if (existing && existing.state === 'open') {
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body:
+                  `✅ ${where}: the bundled T2TahoeFixup.kext passes every check now ([run](${runUrl})). Closing. cc ${cc}\n\n` +
+                  `✅ ${where}: Das mitgelieferte T2TahoeFixup.kext besteht jetzt alle Prüfungen. Wird geschlossen.` });
+                await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed', state_reason: 'completed' });
+              }
+              return;
+            }
+
+            let body =
+              `${MARKER}\n` +
+              `cc ${cc} (T2TahoeFixup)\n\n` +
+              (isRelease ? `> [!CAUTION]\n> **Release \`${tag}\` is affected.** It ships a T2TahoeFixup.kext that doesn't cover every T2 Mac or doesn't match the EFI builder.\n\n` : '') +
+              `Automatic report of the T2TahoeFixup check on ${where}, [run](${runUrl}). ` +
+              `Updated on every push to \`main\`, every release and every Monday; closed automatically once everything passes.\n\n` +
+              `**Why this matters:** T2TahoeFixup only turns its installer hooks on for boards in its own "dropped" list. A T2 Mac missing there ` +
+              `(the Mac mini 2018 and MacBook Air 2020 in 1.0.24) stalls at the Apple logo in the Tahoe installer unless the T2 Installer Workaround forces the kext on. ` +
+              `The kext's source isn't in this repository, so a finding has to be fixed in T2TahoeFixup itself, or in BridgePatcher's model data if that's what's wrong.\n\n` +
+              `<details><summary>Deutsch</summary>\n\n` +
+              `Automatischer Bericht des T2TahoeFixup-Checks auf ${where}. Wird bei jedem Push auf \`main\`, jedem Release und jeden Montag aktualisiert ` +
+              `und automatisch geschlossen, sobald alles besteht.\n\n` +
+              `**Warum das wichtig ist:** T2TahoeFixup aktiviert seine Installer-Hooks nur für Boards aus seiner eigenen "dropped"-Liste. Fehlt ein T2-Mac dort ` +
+              `(in 1.0.24 der Mac mini 2018 und das MacBook Air 2020), bleibt der Tahoe-Installer beim Apple-Logo hängen, außer der T2 Installer Workaround erzwingt das Kext. ` +
+              `Der Quellcode des Kexts liegt nicht in diesem Repository; Funde müssen in T2TahoeFixup selbst behoben werden, oder in BridgePatchers Modelldaten, falls die falsch sind.\n` +
+              (isRelease ? `\n**Release \`${tag}\` ist betroffen.**\n` : '') +
+              `</details>\n\n`;
+
+            if (fatal) {
+              body += `## ❌ The check could not run\n\n\`${esc(fatal)}\`\n\n` +
+                      `Until it runs again, nothing protects against this bug. See the [run log](${runUrl}).\n\n` +
+                      `Der Check konnte nicht laufen - bis er wieder läuft, schützt nichts vor diesem Fehler.\n\n`;
+            }
+            if (problems.length) {
+              body += `## ❌ ${problems.length} problem(s)\n\n| Rule | Where | Problem |\n|---|---|---|\n` +
+                      problems.slice(0, MAX).map(p => `| \`${esc(p.rule)}\` | \`${esc(p.subject)}\` | ${esc(p.message)} |`).join('\n') +
+                      (problems.length > MAX ? `\n\n…and ${problems.length - MAX} more - see the [run log](${runUrl}).` : '') + `\n\n`;
+            }
+            if (result && result.cases) {
+              body += `<details><summary>Check</summary>\n\n| Build | Checked | Problems | Couldn't check |\n|---|---|---|---|\n` +
+                      Object.entries(result.cases).map(([k, c]) => `| \`${esc(k)}\` | ${+c.checked || 0} | ${+c.problems || 0} | ${+c.errors || 0} |`).join('\n') +
+                      `\n</details>\n`;
+            }
+            if (errors.length) {
+              body += `\n<details><summary>${errors.length} EFI build(s) failed, so their boot-args weren't checked</summary>\n\n| Build | Model | Error |\n|---|---|---|\n` +
+                      errors.slice(0, 50).map(e => `| \`${esc(e.case)}\` | \`${esc(e.subject)}\` | ${esc(e.message)} |`).join('\n') + `\n</details>\n`;
+            }
+            if (body.length > 65000) body = body.slice(0, 64000) + `\n\n…truncated - see the [run log](${runUrl}).`;
+
+            if (existing) {
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, title: TITLE, body, state: 'open' });
+              if (existing.state === 'closed' || isRelease) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body:
+                  `⚠️ ${isRelease ? `Release \`${tag}\` is affected` : 'Back on main'} (${short}, [run](${runUrl})) - see the updated description. cc ${cc}` });
+              }
+            } else {
+              await github.rest.issues.create({ owner, repo, title: TITLE, body });
+            }
