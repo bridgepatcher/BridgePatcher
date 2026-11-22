@@ -8,7 +8,6 @@ from .. import support
 
 from ... import constants
 
-from ...support import utilities
 
 from ...detections import device_probe
 
@@ -53,12 +52,13 @@ class BuildWiredNetworking:
         elif self.constants.computer.ethernet:
             # On-model with detected controllers: only inject what is actually present
             self._on_model()
-        elif self.model in self._ADAPTER_ONLY_MODELS:
+        elif self.model in self._ADAPTER_ONLY_MODELS or self.constants.opencore_build_for_t2 is False:
             # No built-in Ethernet, but Apple's Thunderbolt Ethernet adapter (BCM57762)
-            # may be hot-plugged later, so keep the SMBIOS based assumption
+            # may be hot-plugged later, so keep the SMBIOS based assumption.
+            # Macs without a T2 chip always fall back to it, as in Dortania's builder.
             self._prebuilt_assumption()
         else:
-            # On-model, but no supported Ethernet controller was detected.
+            # T2 Mac on-model, but no supported Ethernet controller was detected.
             # Previously this fell through to _prebuilt_assumption(), which injected
             # CatalinaBCM5701Ethernet.kext on every model whose SMBIOS data lists a
             # Broadcom chipset - including 10GbE (Aquantia only) Mac mini/iMac
@@ -108,27 +108,15 @@ class BuildWiredNetworking:
         CatalinaBCM5701Ethernet.kext Handling
 
         Single injection point for CatalinaBCM5701Ethernet.kext, used by both
-        on-model detection and the SMBIOS based fallback.
-
-        Only ever injected on non-T2 Macs. Some T2 models (e.g. Macmini8,1,
-        iMac20,1) list a "Broadcom" Ethernet chipset in smbios_data, which
-        previously caused this kext to be injected on them; the guard below
-        stops that for both the on-model and the SMBIOS fallback path.
-        Checks the build target (self.model, honouring custom_model) so a T2
-        host can still build for a non-T2 Mac that does need it.
+        on-model detection and the SMBIOS based fallback. As in Dortania's builder
+        it is only needed before Ivy Bridge, so T2 Macs (some list a "Broadcom"
+        chipset in smbios_data, e.g. Macmini8,1, iMac20,1) never get it.
         """
-        if utilities.is_t2_mac(self.model, self.constants):
-            logging.info(f"- Skipping CatalinaBCM5701Ethernet.kext on T2 model {self.model}")
-            return
-
         if not self.model in smbios_data.smbios_dictionary:
             return
 
-        support.BuildSupport(self.model, self.constants, self.config).enable_kext("CatalinaBCM5701Ethernet.kext", self.constants.bcm570_version, self.constants.bcm570_path)
-        # Pre-Ivy Bridge: always required due to Big Sur's BCM5701 requiring VT-D support
-        # Ivy Bridge and newer: only from macOS 15 Sequoia, which dropped AppleBCM5701Ethernet completely
-        if smbios_data.smbios_dictionary[self.model]["CPU Generation"] >= cpu_data.CPUGen.ivy_bridge.value:
-            support.BuildSupport(self.model, self.constants, self.config).get_kext_by_bundle_path("CatalinaBCM5701Ethernet.kext")["MinKernel"] = "24.0.0"
+        if smbios_data.smbios_dictionary[self.model]["CPU Generation"] < cpu_data.CPUGen.ivy_bridge.value:
+            support.BuildSupport(self.model, self.constants, self.config).enable_kext("CatalinaBCM5701Ethernet.kext", self.constants.bcm570_version, self.constants.bcm570_path)
 
 
     def _on_model(self) -> None:

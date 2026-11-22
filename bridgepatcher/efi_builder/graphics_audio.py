@@ -67,28 +67,6 @@ class BuildGraphicsAudio:
             if not support.BuildSupport(self.model, self.constants, self.config).get_kext_by_bundle_path("WhateverGreen.kext")["Enabled"] is True:
                 support.BuildSupport(self.model, self.constants, self.config).enable_kext("WhateverGreen.kext", self.constants.whatevergreen_version, self.constants.whatevergreen_path)
 
-        # MacBookPro14,3 GPU Profile Handling
-        if self.model == "MacBookPro14,3" or (self.computer and self.computer.real_model == "MacBookPro14,3"):
-            logging.info("Adding agdpmod=pikera to boot-args for Tahoe DisplayPolicy mitigation (Photo Booth fix)")
-            if "agdpmod=pikera" not in self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"]:
-                self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] += " agdpmod=pikera"
-
-        # MacBookPro13,x (Skylake 2016) Display & WhateverGreen Optimization
-        if self.model in ["MacBookPro13,1", "MacBookPro13,2", "MacBookPro13,3"] or (
-            self.computer and self.computer.real_model in ["MacBookPro13,1", "MacBookPro13,2", "MacBookPro13,3"]
-        ):
-            if not support.BuildSupport(self.model, self.constants, self.config).get_kext_by_bundle_path("WhateverGreen.kext")["Enabled"] is True:
-                support.BuildSupport(self.model, self.constants, self.config).enable_kext(
-                    "WhateverGreen.kext", self.constants.whatevergreen_version, self.constants.whatevergreen_path
-                )
-            # Ensure AppleGraphicsDevicePolicy doesn't black out internal display
-            if "agdpmod=vit9696" not in self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"]:
-                self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] += " agdpmod=vit9696"
-            # Force online status for internal panel
-            if "igfxonln=1" not in self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"]:
-                self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] += " igfxonln=1"
-
-
         # Mac Pro handling
         if self.model in model_array.MacPro:
             if not self.constants.custom_model:
@@ -396,6 +374,8 @@ class BuildGraphicsAudio:
                 # Used to enable Audio support for non-standard dGPUs
                 support.BuildSupport(self.model, self.constants, self.config).enable_kext("AppleALC.kext", self.constants.applealc_version, self.constants.applealc_path)
 
+        self._simplehda_handling()
+
         # Due to regression in AppleALC 1.6.4+, temporarily use 1.6.3 and set override
         # NOTE: Skip adding -lilubetaall for T2 Macs — build.py already injects -liluforce
         # to avoid corecrypto FIPS POST panic on Tahoe. Adding -lilubetaall here would
@@ -404,6 +384,58 @@ class BuildGraphicsAudio:
             if self.model not in model_array.T2Macs:
                 if "-lilubetaall" not in self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"]:
                     self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] += " -lilubetaall"
+
+
+    def _simplehda_handling(self) -> None:
+        """
+        macOS Tahoe audio through SimpleHDA (model_array.SimpleHDAAudio)
+
+        Tahoe dropped AppleHDA. On these Macs the "Modern Audio" root patch can fail
+        (SIP/AMFI) or leave the Mac at the "no entry" symbol, so AppleHDA is injected from
+        the EFI instead: Lilu -> AppleALC -> SimpleHDA, plus the model's alcid. Nothing on
+        the system volume changes, so no root patching, KDK or SIP change is needed.
+
+        SimpleHDA is downloaded during the build (it can't be redistributed). Without it,
+        nothing here is added and the Modern Audio root patch remains available.
+        """
+        if self.model not in model_array.SimpleHDAAudio:
+            return
+        if self.constants.set_alc_usage is False or self.constants.simplehda_audio is False:
+            return
+
+        if (
+            not self.constants.custom_model
+            and self.constants.detected_os >= os_data.os_data.tahoe
+            and utilities.modern_audio_root_patch_installed()
+        ):
+            # Both would load AppleHDA. Keep the working root patch; SimpleHDA is used
+            # once root patches are reverted and OpenCore is built again.
+            logging.info("- Modern Audio root patch is installed, not adding SimpleHDA.kext (revert root patches and build OpenCore again to switch to SimpleHDA)")
+            return
+
+        build_support = support.BuildSupport(self.model, self.constants, self.config)
+        if support.BuildSupport(self.model, self.constants, self.config).enable_simplehda() is False:
+            logging.info("- SimpleHDA unavailable: connect to the internet and build OpenCore again, or use the Modern Audio root patch for audio on macOS Tahoe")
+            return
+
+        applealc = build_support.get_kext_by_bundle_path("AppleALC.kext")
+        if applealc["Enabled"] is False:
+            build_support.enable_kext("AppleALC.kext", self.constants.applealc_version, self.constants.applealc_path)
+            # These Macs have native audio up to Sequoia: keep AppleALC off older macOS
+            # installs (dual boot), matching SimpleHDA's own Darwin 25 range
+            applealc["MinKernel"] = "25.0.0"
+        if applealc["Enabled"] is False:
+            # SimpleHDA can't attach without AppleALC: don't leave a kext that does nothing
+            logging.info("- AppleALC.kext missing, not adding SimpleHDA.kext")
+            build_support.get_kext_by_bundle_path("SimpleHDA.kext")["Enabled"] = False
+            shutil.rmtree(Path(self.constants.kexts_path) / "SimpleHDA.kext", ignore_errors=True)
+            return
+
+        boot_args = self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"]
+        if "alcid=" not in boot_args:
+            layout = model_array.SimpleHDAAudio[self.model]
+            logging.info(f"- Setting audio layout alcid={layout} for SimpleHDA")
+            self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = f"{boot_args} alcid={layout}".strip()
 
 
     def _firmware_handling(self) -> None:

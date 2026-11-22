@@ -301,7 +301,7 @@ class BuildSecurity:
                 logging.error(f"By accident, we executed logic for non-T2 Macs while {self.model} has the T2 chip. Aborting. Try reinstalling BridgePatcher.")
                 sys.exit(3) # sollte normalerweise niemals hier erreichen - falls die Programme durch einen Angreifer ausgetrickst wurde, dass ein T2 Mac nicht ein T2 Mac ist, nur denn wird es hier erreichen
             else:
-                if smbios_data.smbios_dictionary[self.model]["Max OS Supported"] < os_data.os_data.sonoma or self.model == "MacBookPro14,3":
+                if smbios_data.smbios_dictionary[self.model]["Max OS Supported"] < os_data.os_data.sonoma:
                     needs_amfipass = True
 
         # ==============================================================

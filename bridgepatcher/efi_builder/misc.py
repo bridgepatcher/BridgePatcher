@@ -8,7 +8,7 @@ import binascii
 import sys
 from pathlib import Path
 
-from . import support
+from . import support, usb_map
 from .. import constants
 from ..support import generate_smbios, utilities
 from ..detections import device_probe
@@ -185,7 +185,7 @@ class BuildMiscellaneous:
 
     def _cpu_friend_handling(self) -> None:
         """CPUFriend Handler."""
-        if self.constants.allow_oc_everywhere is False and self.model not in ["iMac7,1", "Xserve2,1", "Dortania1,1"] and self.constants.disallow_cpufriend is False and self.constants.serial_settings != "None":
+        if self.constants.allow_oc_everywhere is False and self.model not in model_array.NoCPUFriendData and self.constants.disallow_cpufriend is False and self.constants.serial_settings != "None":
             support.BuildSupport(self.model, self.constants, self.config).enable_kext(
                 "CPUFriend.kext", self.constants.cpufriend_version, self.constants.cpufriend_path
             )
@@ -203,28 +203,23 @@ class BuildMiscellaneous:
                 kf_obj["Enabled"] = True
 
     def _firewire_handling(self) -> None:
-        """FireWire Handler."""
+        """
+        FireWire Handler
+        """
+
         if self.constants.firewire_boot is False:
             return
         if generate_smbios.check_firewire(self.model) is False:
             return
-        else: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, unerwünschte FireWire-Treibern zu injizieren
-            if self.constants.detected_os < os_data.os_data.tahoe: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, FireWire-Treibern auf macOS 26 zu injizieren, obwohl FireWire auf macOS 26 Tahoe gar nicht mehr funktioniert und dies Kernel Panics verursachen können
-                logging.info("- Enabling FireWire Boot Support")
-                builder = support.BuildSupport(self.model, self.constants, self.config)
-                builder.enable_kext("IOFireWireFamily.kext", self.constants.fw_kext, self.constants.fw_family_path)
-                builder.enable_kext("IOFireWireSBP2.kext", self.constants.fw_kext, self.constants.fw_sbp2_path)
-                builder.enable_kext("IOFireWireSerialBusProtocolTransport.kext", self.constants.fw_kext, self.constants.fw_bus_path)
 
-                # get_kext_by_bundle_path() raises IndexError when the entry is absent, it never
-                # returns None - so a falsy check here would be dead code. Catch the exception instead.
-                try:
-                    builder.get_kext_by_bundle_path("IOFireWireFamily.kext/Contents/PlugIns/AppleFWOHCI.kext")["Enabled"] = True
-                except IndexError:
-                    logging.error("- AppleFWOHCI.kext plugin entry missing from config")
-                    sys.exit(3)
-            else:
-                logging.error("FireWire support for macOS 26 Tahoe is gone - Apple has deprecated FireWire. Skipping injection of FireWire related kexts.")
+        # Enable FireWire Boot Support
+        # Applicable for both native FireWire and Thunderbolt to FireWire adapters
+        logging.info("- Enabling FireWire Boot Support")
+        support.BuildSupport(self.model, self.constants, self.config).enable_kext("IOFireWireFamily.kext", self.constants.fw_kext, self.constants.fw_family_path)
+        support.BuildSupport(self.model, self.constants, self.config).enable_kext("IOFireWireSBP2.kext", self.constants.fw_kext, self.constants.fw_sbp2_path)
+        support.BuildSupport(self.model, self.constants, self.config).enable_kext("IOFireWireSerialBusProtocolTransport.kext", self.constants.fw_kext, self.constants.fw_bus_path)
+        support.BuildSupport(self.model, self.constants, self.config).get_kext_by_bundle_path("IOFireWireFamily.kext/Contents/PlugIns/AppleFWOHCI.kext")["Enabled"] = True
+
 
     def _enable_topcase_panic_patch(self) -> None:
         """
@@ -291,7 +286,7 @@ class BuildMiscellaneous:
                     builder.enable_kext("AppleUSBMultitouch.kext", self.constants.multitouch_version, self.constants.multitouch_path)
                     self._enable_topcase_panic_patch()
 
-            if self.model == "MacBook5,2":
+            if self.model in ["MacBook4,1", "MacBook5,2"]:
                 builder = support.BuildSupport(self.model, self.constants, self.config)
                 builder.enable_kext("AppleUSBTrackpad.kext", self.constants.apple_trackpad, self.constants.apple_trackpad_path)
                 builder.enable_kext("LegacyKeyboardInjector.kext", self.constants.legacy_keyboard, self.constants.legacy_keyboard_path)
@@ -336,82 +331,29 @@ class BuildMiscellaneous:
 
     def _usb_handling(self) -> None:
         """USB Handler."""
-        if not self._is_t2_mac():
-            logging.info("Your Mac is not affected by Unsupported Mantissa speed kernel panics, continuing with USB mapping.")
-            usb_map_path = Path(self.constants.plist_folder_path) / Path("AppleUSBMaps/Info.plist")
-            usb_map_tahoe_path = Path(self.constants.plist_folder_path) / Path("AppleUSBMaps/Info-Tahoe.plist")
-
-            spoofing = self.constants.serial_settings in ["Moderate", "Advanced"]
-            if (
-                usb_map_path.exists() and usb_map_tahoe_path.exists()
-                and (self.constants.allow_oc_everywhere is False or self.constants.allow_native_spoofs is True)
-                and self.model not in ["Xserve2,1", "Dortania1,1"]
-                and ((self.model in model_array.Missing_USB_Map or self.model in model_array.Missing_USB_Map_Ventura)
-                     or spoofing)
-            ):
-                if support.usb_map_personality_count(usb_map_path, self.model) == 0:
-                    # e.g. Moderate/Advanced spoofing on a model the combined maps don't cover
-                    logging.info(f"- No USB map available for {self.model}, skipping USB-Map.kext")
-                else:
-                    logging.info("- Adding USB-Map.kext and USB-Map-Tahoe.kext")
-                    Path(self.constants.map_kext_folder).mkdir(parents=True, exist_ok=True)
-                    Path(self.constants.map_kext_folder_tahoe).mkdir(parents=True, exist_ok=True)
-                    Path(self.constants.map_contents_folder).mkdir(parents=True, exist_ok=True)
-                    Path(self.constants.map_contents_folder_tahoe).mkdir(parents=True, exist_ok=True)
-
-                    shutil.copy(usb_map_path, self.constants.map_contents_folder)
-                    shutil.copy(usb_map_tahoe_path, self.constants.map_contents_folder_tahoe / Path("Info.plist"))
-
-                    # Reduce the maps to this model right away. Previously only BuildSMBIOS.set_smbios()
-                    # did this, under its own (different) conditions, and set_smbios() is skipped for
-                    # e.g. "Allow native models" + "Allow spoofing native Macs". Every
-                    # personality in the combined maps carries a mangled "model" value, so an unstripped
-                    # map was an enabled kext that matched nothing. set_smbios() re-targets the
-                    # personalities at the spoofed model afterwards when spoofing.
-                    for map_plist in [
-                        Path(self.constants.map_contents_folder) / Path("Info.plist"),
-                        Path(self.constants.map_contents_folder_tahoe) / Path("Info.plist"),
-                    ]:
-                        support.prepare_usb_map(map_plist, self.model, self.model, self.constants.serial_settings)
-
-                    builder = support.BuildSupport(self.model, self.constants, self.config)
-                    m1 = builder.get_kext_by_bundle_path("USB-Map.kext")
-                    m2 = builder.get_kext_by_bundle_path("USB-Map-Tahoe.kext")
-                    if m1: m1["Enabled"] = True
-                    if m2: m2["Enabled"] = True
-
-                    # Without spoofing the map is only needed from the macOS version that dropped the
-                    # model's native map (same as Dortania upstream). With spoofing the native map of
-                    # the spoofed model must be replaced on every version, so MinKernel stays empty.
-                    if m1 and not spoofing:
-                        if self.model in model_array.Missing_USB_Map_Ventura:
-                            m1["MinKernel"] = "22.0.0"
-                        elif self.model in model_array.Missing_USB_Map_Since_El_Capitan:
-                            m1["MinKernel"] = "15.0.0"
-                        elif self.model in model_array.Missing_USB_Map_Since_Sierra:
-                            m1["MinKernel"] = "16.0.0"
-                        elif self.model in model_array.Missing_USB_Map:
-                            m1["MinKernel"] = "18.0.0"
-
-            if self.model in smbios_data.smbios_dictionary and (
-                smbios_data.smbios_dictionary[self.model]["CPU Generation"] <= cpu_data.CPUGen.penryn.value or \
-                self.model in ["MacPro4,1", "MacPro5,1", "Xserve3,1"]
-            ):
-                logging.info("- Adding UHCI/OHCI USB support")
-                shutil.copy(self.constants.apple_usb_11_injector_path, self.constants.kexts_path)
-                builder = support.BuildSupport(self.model, self.constants, self.config)
-                for injector in ["AppleUSBOHCI.kext", "AppleUSBOHCIPCI.kext", "AppleUSBUHCI.kext", "AppleUSBUHCIPCI.kext"]:
-                    obj = builder.get_kext_by_bundle_path(f"USB1.1-Injector.kext/Contents/PlugIns/{injector}")
-                    if obj: obj["Enabled"] = True
-
-                # No USB-Map/USB-Map-Tahoe juggling needed here: Info-Tahoe.plist carries both the
-                # Tahoe keys (usb-port-type/usb-port-number) and the legacy keys (UsbConnector/port)
-                # on every port, same as Dortania upstream. So USB-Map-Tahoe.kext (MinKernel 25.0.0)
-                # works with the native Tahoe USB stack (installer, first boot) as well as with the
-                # stack downgraded by the 'Legacy USB 1.1' patchset after root patching, and
-                # USB-Map.kext keeps its MaxKernel 24.99.99.
-        else:
+        if self._is_t2_mac():
             logging.info("Your Mac is affected by Unsupported Mantissa speed kernel panics. Skipping USB port mapping.")
+            return
+
+        # Macs without a T2 chip: Dortania's per-model USB maps (efi_builder/usb_map.py)
+        usb_map.BuildUSBMap(self.model, self.constants, self.config)
+
+        # Add UHCI/OHCI drivers
+        # All Penryn Macs lack an internal USB hub to route USB 1.1 devices to the EHCI controller
+        # And MacPro4,1, MacPro5,1 and Xserve3,1 are the only post-Penryn Macs that lack an internal USB hub
+        # - Ref: https://techcommunity.microsoft.com/t5/microsoft-usb-blog/reasons-to-avoid-companion-controllers/ba-p/270710
+        #
+        # To be paired for usb11.py's 'Legacy USB 1.1' patchset
+        if self.model in smbios_data.smbios_dictionary and (
+            smbios_data.smbios_dictionary[self.model]["CPU Generation"] <= cpu_data.CPUGen.penryn.value or \
+            self.model in ["MacPro4,1", "MacPro5,1", "Xserve3,1"]
+        ):
+            logging.info("- Adding UHCI/OHCI USB support")
+            shutil.copy(self.constants.apple_usb_11_injector_path, self.constants.kexts_path)
+            builder = support.BuildSupport(self.model, self.constants, self.config)
+            for injector in ["AppleUSBOHCI.kext", "AppleUSBOHCIPCI.kext", "AppleUSBUHCI.kext", "AppleUSBUHCIPCI.kext"]:
+                obj = builder.get_kext_by_bundle_path(f"USB1.1-Injector.kext/Contents/PlugIns/{injector}")
+                if obj: obj["Enabled"] = True
 
     def _debug_handling(self) -> None:
         """Debug Handler for OpenCorePkg and Kernel Space."""
@@ -514,9 +456,6 @@ class BuildMiscellaneous:
                 logging.exception("Stack Trace:")
                 logging.info("Please try again later.")
                 sys.exit(3)
-        else:
-            logging.error(f"{self.model} is not a T1 Mac.")
-            return
 
     def _validate_patch(self, patch_dict):
         try:

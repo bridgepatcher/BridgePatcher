@@ -3,6 +3,11 @@
 This release:
 - adds "Power Button NMI" under Settings → Debugging. It sets `debug=0x8104` in the boot-args of every EFI, for T2 Macs and Macs without a T2 chip alike. On top of `debug=0x104` (no reboot on panic, NMI from the keyboard combo Control + Option + Command + Shift + Esc), the added 0x8000 lets a short press on the power button trigger the NMI. That helps when macOS hangs during boot before the keyboard works (e.g. while the USB ports come up on a Mac mini 2018), so the hang can still be turned into a panic with a backtrace. Hold the button and the Mac turns off as usual. Off by default
 - Updates WhateverGreen-Navi to the latest available version
+- merges the separate EFI builder for Macs without a T2 chip (`efi_builder/non_t2`, added for #788) back into the main EFI builder, so there's one set of builder files again. Macs without a T2 chip keep Dortania's behaviour, BridgePatcher's T2 handling only runs behind T2 checks. EFIs built for every supported Mac (macOS Tahoe, Sequoia and Sonoma, with and without the debug options) were compared before and after: T2 EFIs are unchanged, and EFIs for Macs without a T2 chip only change where the main builder was better:
+  - the app's legacy NVRAM variables (from builds before the rename) are also deleted at boot, as on T2 Macs
+  - kexts are copied from their payload one by one, so the unused AppleALCU.kext no longer ends up next to AppleALC.kext in the EFI
+  - when the EFI is built on the Mac itself, the iMac15,1, iMac17,1 and MacPro6,1 get the AMD GCN `agdpmod`/power-gating properties (the yellow screen fix), and on Macs with more than one GPU the properties go to the real GFX0 device
+- these older BridgePatcher additions for Macs without a T2 chip are removed, as they haven't been used since #788 and aren't in Dortania's builder: the MacBookPro14,x and MacBookPro13,x boot-args and build profile folder, the Haswell/Broadwell GPU boot-args, `dart=0` on every Mac without a T2 chip, `ipc_control_port_options=0 -amfipassbeta` for legacy Wi-Fi on Sonoma+, AMFIPass for the MacBookPro14,3, CatalinaBCM5701Ethernet.kext on Ivy Bridge and newer, blocking ACPI_SMC_PlatformPlugin on macOS Tahoe, and skipping the FireWire boot kexts when the host runs macOS Tahoe
 
 ## 4.0.0.2000004.0.0.6 - 4.0.0 alpha 20.4 Preview
 This release:

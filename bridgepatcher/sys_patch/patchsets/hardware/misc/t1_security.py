@@ -55,7 +55,7 @@ class T1SecurityChip(BaseHardware):
         BridgePatcher: KernelRelayHost is gone from macOS since 15.0 Beta 3, so on Tahoe it's
         only loaded when OpenCore injected it, i.e. when the EFI was built with "T1 Touch ID on
         macOS Tahoe" (constants.t1_tahoe_touch_id). By default the EFI leaves Tahoe on its native
-        keystore (efi_builder/non_t2/misc.py _t1_handling()): the Touch ID userspace below can't
+        keystore (efi_builder/misc.py _t1_handling()): the Touch ID userspace below can't
         do anything there, so it isn't installed.
         """
         if self._t1_kexts_loaded is None:

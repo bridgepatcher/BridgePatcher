@@ -5,10 +5,10 @@ import shutil
 
 from . import support
 
-from ... import constants
+from .. import constants
 
-from ...datasets import usb_map_data
-from ...datasets.os_data import os_data
+from ..datasets import usb_map_data
+from ..datasets.os_data import os_data
 
 
 class BuildUSBMap:
