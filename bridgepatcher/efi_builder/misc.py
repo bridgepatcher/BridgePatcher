@@ -635,9 +635,12 @@ class BuildMiscellaneous:
                 # AMFIPass=0x1 was dropped: AMFIPass only reads -amfipassbeta/-amfipassdbg/
                 # -amfipassoff, so it was a no-op.
                 _agdpmod = "pikera" if self.computer.dgpu and getattr(self.computer.dgpu, "arch", None) == device_probe.AMD.Archs.Navi else "vit9696"
-                _guc = "" if self.constants.t2_installer_workaround else "igfxfw=2 "
+                # No igfxfw=2: it makes WhateverGreen force-load Apple's GuC firmware, which genuine
+                # Macs leave disabled (WhateverGreen's author: not beneficial in modern WhateverGreen).
+                # T2 Macs hung at the Apple logo unless the T2 Installer Workaround, which drops it,
+                # was enabled.
                 self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args",
-                    f"-v rddelay=10 {_guc}igfxonln=1 -disable_ext_panics -no_compat_check "
+                    f"-v rddelay=10 igfxonln=1 -disable_ext_panics -no_compat_check "
                     f"agdpmod={_agdpmod} forceRenderStandby=0 ipc_control_port_options=0 amfi=0x80")
 
                 # SEP/AppleKeyStore boot-args for macOS 26 Tahoe on T2 Macs:

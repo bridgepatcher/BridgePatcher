@@ -47,6 +47,17 @@ _T2_NO_IGPU_MODELS = {
     "iMacPro1,1",      # iMac Pro 2017
 }
 
+# T2 Macs macOS Tahoe supports natively.
+_TAHOE_NATIVE_T2_MODELS = ("MacBookPro16,1", "MacBookPro16,2", "MacBookPro16,4", "iMac20,1", "iMac20,2", "MacPro7,1")
+
+# T2 Macs whose own firmware already gives the Intel iGPU AAPL,ig-platform-id/device-id values
+# macOS Tahoe's Coffee Lake framebuffer handles, so they get no framebuffer DeviceProperties:
+# - Macmini8,1: a real one reports device-id 0x3E9B / AAPL,ig-platform-id 0x3E9B0007 (and
+#   AAPL,GfxYTile 1). BridgePatcher injected the same two values plus a framebuffer-con0 patch.
+# - Models Tahoe supports natively boot with their firmware's values. The "connector-less"
+#   platform-id injected for MacBookPro16,1/16,4 turned off the iGPU's display outputs.
+_T2_NATIVE_FRAMEBUFFER_MODELS = {"Macmini8,1"} | set(_TAHOE_NATIVE_T2_MODELS)
+
 
 def is_unsupported_t2_mac(model: str) -> bool:
     """
@@ -85,7 +96,6 @@ class BuildSecurity:
             or is_unsupported_t2_mac(self.model)
         )
         self.is_ice_lake: bool = (self.model == "MacBookAir9,1")
-        self.is_mac_mini: bool = (self.model == "Macmini8,1")
 
         self._build()
 
@@ -152,7 +162,7 @@ class BuildSecurity:
 
     def _should_skip_t2_graphics_injection(self) -> bool:
         """Return True if this T2 model should explicitly skip Intel graphics injection."""
-        return self.model in _T2_NO_IGPU_MODELS
+        return self.model in _T2_NO_IGPU_MODELS or self.model in _T2_NATIVE_FRAMEBUFFER_MODELS
 
     # ------------------------------------------------------------------
     # Graphics injection helpers
@@ -214,14 +224,9 @@ class BuildSecurity:
                     logging.info("  > Appended LP display sync flags safely.")
 
             elif self.model in _T2_UHD630_MODELS:
-                if self.is_mac_mini:
-                    logging.info(f"- {self.model}: Injecting desktop UHD630 DeviceProperties (Tahoe fix)")
-                    gfx["AAPL,ig-platform-id"] = binascii.unhexlify("07009B3E")  # 0x3E9B0007 LE
-                    gfx["device-id"]           = binascii.unhexlify("9B3E0000")  # 0x3E9B0000 LE
-                else:
-                    logging.info(f"- {self.model}: Injecting connector-less UHD630 DeviceProperties (Tahoe fix)")
-                    gfx["AAPL,ig-platform-id"] = binascii.unhexlify("06009B3E")  # 0x3E9B0006 LE
-                    gfx["device-id"]           = binascii.unhexlify("9B3E0000")  # 0x3E9B0000 LE
+                logging.info(f"- {self.model}: Injecting connector-less UHD630 DeviceProperties (Tahoe fix)")
+                gfx["AAPL,ig-platform-id"] = binascii.unhexlify("06009B3E")  # 0x3E9B0006 LE
+                gfx["device-id"]           = binascii.unhexlify("9B3E0000")  # 0x3E9B0000 LE
             else:
                 logging.error(f"FATAL: Model {self.model} lacks specific GPU patch data.")
                 sys.exit(3)
@@ -230,14 +235,14 @@ class BuildSecurity:
             try:
                 gfx["framebuffer-patch-enable"] = binascii.unhexlify("01000000")
 
-                if self.model in _T2_UHD630_MODELS and not self.is_mac_mini:
+                if self.model in _T2_UHD630_MODELS:
                     # Connector-less ig-platform-id (0x3E9B0006) has no connectors defined,
                     # so con0 must stay in headless isolation for ALL UHD630 T2 models —
                     # this includes the MBP15/16 models (dGPU present).
                     gfx["framebuffer-con0-enable"]  = binascii.unhexlify("01000000")
                     gfx["framebuffer-con0-type"]    = binascii.unhexlify("00000000")
                     logging.info(f"  > {self.model}: Enforced strict headless isolation structure on con0 (connector-less platform-id)")
-                elif self.is_mac_mini or self.is_ice_lake:
+                elif self.is_ice_lake:
                     gfx["framebuffer-con0-enable"]  = binascii.unhexlify("01000000")
                     gfx["framebuffer-con0-type"]    = binascii.unhexlify("00040000")
                     logging.info(f"  > {self.model}: Enforced active physical mapping layout on con0 (iGPU-only fix)")
@@ -320,7 +325,7 @@ class BuildSecurity:
                 #  - -disable_sidecar_mac: FeatureUnlock arg, but FeatureUnlock is only injected
                 #    for models with Max OS Supported < Sonoma, i.e. never on a T2 Mac.
                 #  - -disable_media_analysis: not read by FeatureUnlock or the kernel.
-                #  - igfxonln=1 igfxfw=2 forceRenderStandby=0: misc.py _t2_handling() adds
+                #  - igfxonln=1 forceRenderStandby=0: misc.py _t2_handling() adds
                 #    them for every T2 Mac anyway.
                 #  - agdpmod=vit9696: misc.py picks agdpmod per GPU (pikera for Navi). Adding
                 #    vit9696 here first made it win over pikera on Navi Macs.
@@ -359,7 +364,7 @@ class BuildSecurity:
                     # entirely and forces its Stage 1/2 hooks on, which brings back the Stage 1
                     # duplicate extraction (Code=1004) 1.0.22 fixed on MacBookPro16,1/16,4.
                     # So these models never get -t2tahoeforce (a leftover one is removed).
-                    tahoe_native_t2 = self.model in ("MacBookPro16,1", "MacBookPro16,2", "MacBookPro16,4", "iMac20,1", "iMac20,2", "MacPro7,1")
+                    tahoe_native_t2 = self.model in _TAHOE_NATIVE_T2_MODELS
                     removed_args = ("igfxgl=1", "igfxmetal=1", "igfxfw=2") + (("-t2tahoeforce",) if tahoe_native_t2 else ())
                     current_args = self._read_nvram_string(APPLE_NVRAM_UUID, "boot-args").split()
                     cleaned_args = [arg for arg in current_args if arg not in removed_args]
