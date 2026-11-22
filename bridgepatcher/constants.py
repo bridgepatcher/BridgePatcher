@@ -89,7 +89,7 @@ class Constants:
         ## https://github.com/acidanthera
         self.lilu_version:               str = "1.7.2"  #      Lilu
         self.whatevergreen_version:      str = "1.7.1"  #      WhateverGreen
-        self.whatevergreen_navi_version: str = "1.7.0-Navi"  # WhateverGreen (Navi Patch)
+        self.whatevergreen_navi_version: str = "1.7.1-Navi"  # WhateverGreen (Navi Patch)
         self.airportbcrmfixup_version:   str = "2.2.1"  #      AirPortBrcmFixup
         self.nvmefix_version:            str = "1.1.3"  #      NVMeFix
         self.applealc_version:           str = "1.9.8"  #      AppleALC
