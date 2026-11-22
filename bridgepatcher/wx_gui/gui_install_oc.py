@@ -10,6 +10,7 @@ import webbrowser
 import platform
 import time
 import sys
+import subprocess
 
 from .. import constants
 
@@ -375,7 +376,14 @@ class InstallOCFrame(wx.Frame):
                 if self.constants.computer.real_model in model_array.T2Macs:
                     logging.info(f"Now building OpenCore EFI is done for {self.constants.computer.real_model}. A new browser tab will open automatically in your default browser of your choice that explains how to disable Secure Boot and SIP exactly. Make sure to follow the guide.")
                     url = "https://bridgepatcher.github.io/T2.html"
-                    webbrowser.open(url)
+                    # /usr/bin/open instead of webbrowser.open(): on macOS webbrowser runs
+                    # osascript through a shell from inside the GUI process; open(1) just
+                    # hands the URL to Launch Services. The app crashed ("bus error") right
+                    # here after installing OpenCore on a Mac mini 2018.
+                    try:
+                        subprocess.run(["/usr/bin/open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+                    except (OSError, subprocess.TimeoutExpired) as error:
+                        logging.warning(f"Could not open {url} in the browser ({error}), please open it manually")
                 gui_support.RestartHost(self).restart(message="OpenCore has finished installing to disk.\n\nYou will need to restart and hold the Option key and select OpenCore/Boot EFI's option.\n\nWould you like to restart?")
             else:
                 popup_message = wx.MessageDialog(
