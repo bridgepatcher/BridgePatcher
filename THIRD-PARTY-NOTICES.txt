@@ -22,7 +22,7 @@ Contents:
   - RestrictEvents 1.1.7 (BSD-3-Clause)
   - RSRHelper 1.0.2 (BSD-3-Clause)
   - SimpleMSR 1.0 (BSD-2-Clause)
-  - WhateverGreen 1.7.0, 1.7.1 (BSD-3-Clause)
+  - WhateverGreen 1.7.1 (BSD-3-Clause)
 
 ------------------------------------------------------------------------------
 AirportBrcmFixup 2.2.1
@@ -1018,7 +1018,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ------------------------------------------------------------------------------
-WhateverGreen 1.7.0, 1.7.1
+WhateverGreen 1.7.1
 License: BSD-3-Clause
 Project: https://github.com/acidanthera/WhateverGreen
 ------------------------------------------------------------------------------
