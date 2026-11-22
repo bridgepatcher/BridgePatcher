@@ -23,7 +23,41 @@ jobs:
             const LABEL = 'apple-silicon';
 
             const issue = context.payload.issue;
-            const text = context.eventName === 'issue_comment'
+            const isComment = context.eventName === 'issue_comment';
+
+            // Never on pull requests (issue_comment also fires for PR comments)
+            if (issue.pull_request) {
+              core.info('Pull request - skipping.');
+              return;
+            }
+
+            // Never react to maintainers: they discuss Apple Silicon in other contexts
+            // (e.g. quoting a typosquat site), they don't ask whether it's supported.
+            const MAINTAINER = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            const association = isComment
+              ? context.payload.comment.author_association
+              : issue.author_association;
+            if (MAINTAINER.includes(association)) {
+              core.info(`Author is ${association} - skipping.`);
+              return;
+            }
+
+            // In comments, only the person who opened the issue counts. Other
+            // participants mentioning Apple Silicon don't change what the issue is about.
+            if (isComment && context.payload.comment.user.login !== issue.user.login) {
+              core.info('Comment is not from the issue author - skipping.');
+              return;
+            }
+
+            // Issues that are clearly about something else
+            const SKIP_LABELS = ['bot-ignore', 'typosquat'];
+            const labels = (issue.labels || []).map(l => l.name);
+            if (labels.some(l => SKIP_LABELS.includes(l))) {
+              core.info(`Issue has a skip label (${labels.join(', ')}) - skipping.`);
+              return;
+            }
+
+            const text = isComment
               ? context.payload.comment.body || ''
               : `${issue.title}\n${issue.body || ''}`;
 
