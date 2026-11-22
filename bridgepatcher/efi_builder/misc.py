@@ -420,6 +420,10 @@ class BuildMiscellaneous:
             logging.info("- Enabling Verbose boot")
             self._update_nvram_string(APPLE_UUID, "boot-args", "-v")
 
+        if self.constants.power_button_nmi is True:
+            logging.info("- Enabling power button NMI (debug=0x8104)")
+            self._update_nvram_string(APPLE_UUID, "boot-args", "debug=0x8104")
+
         if self.constants.kext_debug is True:
             logging.info("- Enabling DEBUG Kexts")
             self._update_nvram_string(APPLE_UUID, "boot-args", "-liludbgall liludump=90")
@@ -652,9 +656,12 @@ class BuildMiscellaneous:
                 # - TSC_sync_margin=0: no TSC sync margin check panic.
                 # - debug=0x104 keepsyms=1: no reboot on panic (0x100), symbolicated backtraces,
                 #   and an NMI drops into a panic (0x4), so a silent boot hang can be turned into
-                #   a backtrace of where the kernel is stuck.
+                #   a backtrace of where the kernel is stuck. With "Power Button NMI" enabled this
+                #   stays debug=0x8104 (set in _debug_handling), so a short power button press also
+                #   triggers the NMI when the keyboard isn't up yet.
+                debug_flags = "0x8104" if self.constants.power_button_nmi is True else "0x104"
                 self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args",
-                    "debug=0x104 keepsyms=1 TSC_sync_margin=0 "
+                    f"debug={debug_flags} keepsyms=1 TSC_sync_margin=0 "
                     "acm_panic_on_sep_response_timeout=0")
             except Exception as e:
                 logging.error("Injecting T2 specific boot arguments failed due to the following error:")

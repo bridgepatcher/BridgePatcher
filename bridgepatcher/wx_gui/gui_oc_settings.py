@@ -529,6 +529,16 @@ class OCSettingsFrame(wx.Frame):
                         "and enables additional logging.",
                     ],
                 },
+                "Power Button NMI": {
+                    "type": "checkbox",
+                    "value": self.constants.power_button_nmi,
+                    "variable": "power_button_nmi",
+                    "description": [
+                        "Sets debug=0x8104: a short press on",
+                        "the power button during a boot hang",
+                        "triggers a panic with a backtrace.",
+                    ],
+                },
             },
 
             "Extras": {

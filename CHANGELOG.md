@@ -1,4 +1,8 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.0.0.7 - 4.0.0 alpha 20.4 Preview
+This release:
+- adds "Power Button NMI" under Settings → Debugging. It sets `debug=0x8104` in the boot-args of every EFI, for T2 Macs and Macs without a T2 chip alike. On top of `debug=0x104` (no reboot on panic, NMI from the keyboard combo Control + Option + Command + Shift + Esc), the added 0x8000 lets a short press on the power button trigger the NMI. That helps when macOS hangs during boot before the keyboard works (e.g. while the USB ports come up on a Mac mini 2018), so the hang can still be turned into a panic with a backtrace. Hold the button and the Mac turns off as usual. Off by default
+
 ## 4.0.0.2000004.0.0.6 - 4.0.0 alpha 20.4 Preview
 This release:
 - on T2 Macs, updates T2TahoeFixup.kext to 1.0.25, a patched 1.0.24 that also recognizes the Mac mini 2018 (Macmini8,1, `Mac-7BA5B2DFE22DDD8C`) and the MacBook Air 2020 (MacBookAir9,1, `Mac-0CFF9C7C2B63DF8D`) as Macs macOS Tahoe dropped (#834). Its list of dropped board IDs had a garbled entry (`Mac-0C5CE0FB34C44A19`) instead of the MacBook Air 2020 and no entry for the Mac mini 2018, so the kext stayed inactive on both and the Tahoe installer stalled at the Apple logo unless the "T2 Installer Workaround" was turned on. The kext's source isn't available, so this is a patch of the binary, not a new build:

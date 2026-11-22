@@ -265,6 +265,7 @@ class Constants:
 
         ## NVRAM Settings
         self.verbose_debug: bool = False  # -v
+        self.power_button_nmi: bool = False  # debug=0x8104, a short power button press triggers an NMI panic
 
         ## SMBIOS Settings
         self.serial_settings:     str  = "None"  #    Set SMBIOS level used

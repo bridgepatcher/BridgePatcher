@@ -12,7 +12,7 @@ from . import support, usb_map
 
 from ... import constants
 
-from ...support import generate_smbios
+from ...support import generate_smbios, utilities
 from ...detections import device_probe
 
 from ...datasets import (
@@ -329,6 +329,14 @@ xw
         if self.constants.verbose_debug is True:
             logging.info("- Enabling Verbose boot")
             self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] += " -v"
+
+        if self.constants.power_button_nmi is True:
+            logging.info("- Enabling power button NMI (debug=0x8104)")
+            # merge_boot_args replaces the template's debug=0x100 instead of appending a second
+            # debug= that XNU would ignore.
+            self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = utilities.merge_boot_args(
+                self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"], "debug=0x8104"
+            )
 
         if self.constants.kext_debug is True:
             logging.info("- Enabling DEBUG Kexts")
