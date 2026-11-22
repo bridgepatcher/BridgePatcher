@@ -302,13 +302,9 @@ class BuildSMBIOS:
 
             # Board Serial Number
             self.config["PlatformInfo"]["SMBIOS"]["BoardSerialNumber"] = mlb
-            if self.constants.opencore_build_for_t2 is True:
-                # T2 Macs (own OpenCorePkg fork): unchanged behaviour
-                self.config["PlatformInfo"]["PlatformNVRAM"]["BoardSerialNumber"] = mlb
-            else:
-                # Non-T2 Macs (OpenCore 1.0.8): PlatformNVRAM has no "BoardSerialNumber" key, OpenCore
-                # skips it and never writes the board serial to NVRAM. "MLB" is the key for it.
-                self.config["PlatformInfo"]["PlatformNVRAM"]["MLB"] = mlb
+            # PlatformNVRAM has no "BoardSerialNumber" key (OpenCore 1.0.8 and our OpenCorePkg fork),
+            # OpenCore skips it and never writes the board serial to NVRAM. "MLB" is the key for it.
+            self.config["PlatformInfo"]["PlatformNVRAM"]["MLB"] = mlb
             self.config["NVRAM"]["Add"][constants.NVRAM_GUID][f"{constants.NVRAM_PREFIX}Spoofed-MLB"] = mlb
 
 
