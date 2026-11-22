@@ -1,4 +1,7 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000003.8.1 - 4.0.0 alpha 20.3.8.1
+This release updates WhateverGreen-Navi to the latest available version.
+
 ## 4.0.0.2000003.8 - 4.0.0 alpha 20.3.8
 This release:
 - fixes a small bug where in arguments.py the No updates available in the code was on 2 rows instead of 1:
