@@ -413,11 +413,6 @@ class Constants:
     def plist_template(self):
         return self.payload_path / Path("Config/config.plist")
 
-    @property
-    def plist_template_non_t2(self):
-        # config.plist template for efi_builder/non_t2 (Dortania's builder, Macs without a T2 chip)
-        return self.payload_path / Path("Config/config-non-t2.plist")
-
     # Launch Services
     @property
     def launch_services_path(self):
@@ -938,9 +933,12 @@ class Constants:
     # Tools
     def _opencore_utility_path(self, utility: str, for_t2: bool = None) -> Path:
         """
-        Path to an OpenCore utility (macserial, ocvalidate) matching the OpenCore payload:
+        Path to an OpenCore utility matching the OpenCore payload:
         payloads/OpenCore/<utility> for T2 Macs (our OpenCorePkg fork),
         payloads/OpenCore/<utility>-non-t2 for every other Mac (OpenCore 1.0.8)
+
+        Only ocvalidate differs between the two; macserial is the same binary for both,
+        see macserial_path
 
         for_t2 defaults to opencore_build_for_t2, which efi_builder/build.py sets for the target model
         """
@@ -957,15 +955,13 @@ class Constants:
         # binaries, which used to abort the whole OpenCore build/installation
         return gatekeeper.prepare_executable(utility_path)
 
-    def macserial_path_for(self, for_t2: bool) -> Path:
-        return self._opencore_utility_path("macserial", for_t2)
-
     def ocvalidate_path_for(self, for_t2: bool) -> Path:
         return self._opencore_utility_path("ocvalidate", for_t2)
 
     @property
     def macserial_path(self):
-        return self._opencore_utility_path("macserial")
+        # Shared by T2 and non-T2 builds: our OpenCorePkg fork and OpenCore 1.0.8 ship the same macserial
+        return self._opencore_utility_path("macserial", for_t2=True)
 
     @property
     def vault_path(self):

@@ -1136,8 +1136,7 @@ class OCSettingsFrame(wx.Frame):
             return
 
         target_model = self.constants.custom_model or self.constants.computer.real_model
-        # No EFI build has run yet, so opencore_build_for_t2 may not match this model - pick macserial explicitly
-        macserial_path = self.constants.macserial_path_for(target_model in model_array.T2Macs)
+        macserial_path = self.constants.macserial_path
         try:
             macserial_output = subprocess.run([macserial_path, "--generate", "--model", target_model, "--num", "1"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
         except subprocess.TimeoutExpired:

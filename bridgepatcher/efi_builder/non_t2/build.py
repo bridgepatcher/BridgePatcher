@@ -5,7 +5,8 @@ efi_builder/non_t2 is a port of Dortania's EFI builder, used for every Mac witho
 a T2 chip (OpenCore 1.0.8). It is kept as close to Dortania's code as possible, so
 upstream changes can be ported file by file. BridgePatcher changes are limited to:
 - BridgePatcher names (NVRAM keys via constants.NVRAM_PREFIX / NVRAM_GUID)
-- its own config.plist template (constants.plist_template_non_t2)
+- the shared config.plist template (constants.plist_template); entries the builder
+  doesn't enable are removed by support.cleanup(), as in Dortania's builder
 - renaming the extracted OpenCore folder to the model specific build folder
 - support.py: validate_pathing() skips macOS metadata files (.DS_Store)
 - security.py: SecureBootModel is also disabled whenever SIP is lowered (Issue #465)
@@ -16,6 +17,8 @@ upstream changes can be ported file by file. BridgePatcher changes are limited t
 - moving the finished EFI to oc_build_path when the GUI saves the build
 - SMBIOS is built by the shared efi_builder/smbios.py (Dortania's code, T2 changes
   only behind T2 checks)
+- smbios.py: the custom board serial goes to PlatformNVRAM MLB, OpenCore 1.0.8 has no
+  PlatformNVRAM BoardSerialNumber key
 T2 Macs are built by efi_builder/build.py.
 """
 
@@ -142,7 +145,7 @@ class BuildOpenCore:
 
         # Setup config.plist for editing
         logging.info("- Adding config.plist for OpenCore")
-        shutil.copy(self.constants.plist_template_non_t2, self.constants.plist_path)
+        shutil.copy(self.constants.plist_template, self.constants.plist_path)
         self.config = plistlib.load(Path(self.constants.plist_path).open("rb"))
 
 
