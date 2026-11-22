@@ -27,6 +27,9 @@ name: Check bundled T2TahoeFixup.kext
 #   the bundled kext on main"). It is opened when problems are found, updated on
 #   every run and closed automatically once everything passes. A check that
 #   can't run at all is reported too.
+#   T2TahoeFixup's author (NOTIFY in the report step) is mentioned when the issue
+#   is opened, reopened, a release is affected and when it's closed - not on the
+#   routine update of every run. Pull request runs never mention anyone.
 
 on:
   # No `paths` filter for PRs: with one, PRs that don't touch the builder get
@@ -209,6 +212,9 @@ jobs:
             const MARKER = '<!-- t2tahoefixup-main-report -->';
             const TITLE = 'T2TahoeFixup check: problems in the bundled kext on main';
             const MAX = 150;
+            // T2TahoeFixup's author: findings have to be fixed in the kext, whose source isn't here
+            const NOTIFY = ['matteoiacca'];
+            const cc = NOTIFY.map(u => `@${u}`).join(' ');
             const { owner, repo } = context.repo;
             const dir = `${process.env.RUNNER_TEMP}/result`;
             const sha = context.sha, short = sha.slice(0, 7);
@@ -235,7 +241,7 @@ jobs:
             if (!fatal && !problems.length) {
               if (existing && existing.state === 'open') {
                 await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body:
-                  `✅ ${where}: the bundled T2TahoeFixup.kext passes every check now ([run](${runUrl})). Closing.\n\n` +
+                  `✅ ${where}: the bundled T2TahoeFixup.kext passes every check now ([run](${runUrl})). Closing. cc ${cc}\n\n` +
                   `✅ ${where}: Das mitgelieferte T2TahoeFixup.kext besteht jetzt alle Prüfungen. Wird geschlossen.` });
                 await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed', state_reason: 'completed' });
               }
@@ -244,6 +250,7 @@ jobs:
 
             let body =
               `${MARKER}\n` +
+              `cc ${cc} (T2TahoeFixup)\n\n` +
               (isRelease ? `> [!CAUTION]\n> **Release \`${tag}\` is affected.** It ships a T2TahoeFixup.kext that doesn't cover every T2 Mac or doesn't match the EFI builder.\n\n` : '') +
               `Automatic report of the T2TahoeFixup check on ${where}, [run](${runUrl}). ` +
               `Updated on every push to \`main\`, every release and every Monday; closed automatically once everything passes.\n\n` +
@@ -284,7 +291,7 @@ jobs:
               await github.rest.issues.update({ owner, repo, issue_number: existing.number, title: TITLE, body, state: 'open' });
               if (existing.state === 'closed' || isRelease) {
                 await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body:
-                  `⚠️ ${isRelease ? `Release \`${tag}\` is affected` : 'Back on main'} (${short}, [run](${runUrl})) - see the updated description.` });
+                  `⚠️ ${isRelease ? `Release \`${tag}\` is affected` : 'Back on main'} (${short}, [run](${runUrl})) - see the updated description. cc ${cc}` });
               }
             } else {
               await github.rest.issues.create({ owner, repo, title: TITLE, body });
