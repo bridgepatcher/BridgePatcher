@@ -5,7 +5,7 @@ name: Check T2 graphics settings
 # a framebuffer override on Macs whose own firmware values work, installer
 # workaround boot-args leaking into normal builds (or missing from workaround
 # builds), or a boot-arg given twice with different values. T2 Macs hung at the
-# Apple logo unless the T2 Installer Workaround was enabled (fixed in 075e24b).
+# Apple logo unless the T2 Installer Workaround was enabled (fixed in PR #790).
 #
 # .github/scripts/check_t2_graphics.py runs the real EFI builder for every T2
 # model, built on the Mac itself and externally, with and without the
@@ -243,12 +243,12 @@ jobs:
               `Automatic report of the T2 graphics check on ${where}, [run](${runUrl}). ` +
               `Updated on every push to \`main\`, every release and every Monday; closed automatically once everything passes.\n\n` +
               `**Why this matters:** T2 Macs hung at the Apple logo unless the T2 Installer Workaround (software rendering) was enabled, ` +
-              `because the EFI forced Apple's GuC firmware (\`igfxfw=2\`) and overrode the Intel framebuffer on Macs whose own firmware values work (fixed in 075e24b).\n\n` +
+              `because the EFI forced Apple's GuC firmware (\`igfxfw=2\`) and overrode the Intel framebuffer on Macs whose own firmware values work (fixed in PR #790).\n\n` +
               `<details><summary>Deutsch</summary>\n\n` +
               `Automatischer Bericht des T2-Grafik-Checks auf ${where}. Wird bei jedem Push auf \`main\`, jedem Release und jeden Montag aktualisiert ` +
               `und automatisch geschlossen, sobald alles besteht.\n\n` +
               `**Warum das wichtig ist:** T2-Macs blieben beim Apple-Logo hängen, außer der T2 Installer Workaround (Software-Rendering) war aktiv, ` +
-              `weil das EFI Apples GuC-Firmware erzwang (\`igfxfw=2\`) und den Intel-Framebuffer auf Macs überschrieb, deren eigene Firmware-Werte funktionieren (behoben in 075e24b).\n` +
+              `weil das EFI Apples GuC-Firmware erzwang (\`igfxfw=2\`) und den Intel-Framebuffer auf Macs überschrieb, deren eigene Firmware-Werte funktionieren (behoben in PR #790).\n` +
               (isRelease ? `\n**Release \`${tag}\` ist betroffen.**\n` : '') +
               `</details>\n\n`;
 

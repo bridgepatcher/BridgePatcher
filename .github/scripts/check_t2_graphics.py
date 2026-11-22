@@ -6,7 +6,7 @@ the boot at the Apple logo or leave the screen black.
 T2 Macs hung at the Apple logo unless the "T2 Installer Workaround" (software
 rendering) was enabled, because the builder forced Apple's GuC firmware
 (igfxfw=2) and overrode the Intel framebuffer on Macs whose own firmware values
-already work (fixed in 075e24b). This script runs the real EFI builder for every
+already work (fixed in PR #790). This script runs the real EFI builder for every
 T2 model and checks what ends up in config.plist.
 
 Builds:
