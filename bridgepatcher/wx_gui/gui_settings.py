@@ -8,7 +8,6 @@ import logging
 import os
 import time
 import subprocess
-import Security
 import threading
 from datetime import date, timedelta
 from pathlib import Path
@@ -25,6 +24,7 @@ from ..support import (
     kdk_handler,
     update_channel_availability,
     endpoint_health,
+    utilities,
 )
 from ..datasets import (
     smbios_data,
@@ -1028,8 +1028,9 @@ Hardware Information:
         Best-effort recovery when the Developer Mode marker file can't be
         touched/removed as the current user. Uses macOS Authorization
         Services for a one-off privileged fix via a native admin prompt,
-        the same approach subprocess_wrapper.repair_privileged_helper_permissions()
-        already uses to fix the Privileged Helper Tool's own permissions -
+        through utilities.get_admin_permission(), as
+        subprocess_wrapper.repair_privileged_helper_permissions()
+        already does to fix the Privileged Helper Tool's own permissions -
         deliberately not routed through the helper tool itself, since this
         needs to work even if the helper tool is unrelated/unavailable.
 
@@ -1037,49 +1038,26 @@ Hardware Information:
         guarantee the marker file now matches the requested state - the
         caller re-checks that itself).
         """
-        try:
-            status, auth_ref = Security.AuthorizationCreate(None, None, Security.kAuthorizationFlagDefaults, None)
-            if status != Security.errAuthorizationSuccess:
-                logging.error(f"AuthorizationCreate failed with status {status}")
-                return False
+        if create:
+            action = "/usr/bin/touch"
+            arguments = [str(marker_path)]
+        else:
+            action = "/bin/rm"
+            arguments = ["-f", str(marker_path)]
 
-            try:
-                rights = (Security.AuthorizationItem(Security.kAuthorizationRightExecute, 0, None, 0),)
-                prompt = b"BridgePatcher needs administrator permission to fix the Developer Mode marker file, which appears to be owned by another user."
-                environment = (Security.AuthorizationItem(Security.kAuthorizationEnvironmentPrompt, len(prompt), prompt, 0),)
-
-                status, _ = Security.AuthorizationCopyRights(
-                    auth_ref,
-                    rights,
-                    environment,
-                    Security.kAuthorizationFlagInteractionAllowed | Security.kAuthorizationFlagExtendRights,
-                    None,
-                )
-                if status == Security.errAuthorizationCanceled:
-                    logging.info("User canceled the Developer Mode marker file fix")
-                    return False
-                if status != Security.errAuthorizationSuccess:
-                    logging.error(f"AuthorizationCopyRights failed with status {status}")
-                    return False
-
-                if create:
-                    binary = b"/usr/bin/touch"
-                    arguments = (str(marker_path).encode("utf-8"),)
-                else:
-                    binary = b"/bin/rm"
-                    arguments = (b"-f", str(marker_path).encode("utf-8"))
-
-                status, _ = Security.AuthorizationExecuteWithPrivileges(auth_ref, binary, Security.kAuthorizationFlagDefaults, arguments, None)
-                if status != Security.errAuthorizationSuccess:
-                    logging.error(f"AuthorizationExecuteWithPrivileges failed with status {status}")
-                    return False
-
-                return True
-            finally:
-                Security.AuthorizationFree(auth_ref, Security.kAuthorizationFlagDefaults)
-        except Exception as e:
-            logging.error(f"Failed to run privileged Developer Mode marker file fix: {e}")
+        result = utilities.get_admin_permission(
+            action=action,
+            args=arguments,
+            reason="BridgePatcher needs administrator permission to fix the Developer Mode marker file, which appears to be owned by another user.",
+        )
+        if result.returncode == 1:
+            logging.info("User canceled the Developer Mode marker file fix")
             return False
+        if result.returncode != 0:
+            logging.error(f"Failed to run privileged Developer Mode marker file fix: {result.stderr}")
+            return False
+
+        return True
 
 
     def _restart_app(self, reason: str = "") -> None:
