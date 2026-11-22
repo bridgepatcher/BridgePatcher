@@ -2,6 +2,7 @@
 ## 4.0.0.2000004.0.0.7 - 4.0.0 alpha 20.4 Preview
 This release:
 - adds "Power Button NMI" under Settings → Debugging. It sets `debug=0x8104` in the boot-args of every EFI, for T2 Macs and Macs without a T2 chip alike. On top of `debug=0x104` (no reboot on panic, NMI from the keyboard combo Control + Option + Command + Shift + Esc), the added 0x8000 lets a short press on the power button trigger the NMI. That helps when macOS hangs during boot before the keyboard works (e.g. while the USB ports come up on a Mac mini 2018), so the hang can still be turned into a panic with a backtrace. Hold the button and the Mac turns off as usual. Off by default
+- Updates WhateverGreen-Navi to the latest available version
 
 ## 4.0.0.2000004.0.0.6 - 4.0.0 alpha 20.4 Preview
 This release:
