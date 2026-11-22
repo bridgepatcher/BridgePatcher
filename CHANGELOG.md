@@ -1,10 +1,10 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
 ## 4.0.0.2000004.0.0.6 - 4.0.0 alpha 20.4 Preview
 This release:
-- on T2 Macs, the bundled T2TahoeFixup.kext 1.0.24 is patched so it also recognizes the Mac mini 2018 (Macmini8,1, `Mac-7BA5B2DFE22DDD8C`) and the MacBook Air 2020 (MacBookAir9,1, `Mac-0CFF9C7C2B63DF8D`) as Macs macOS Tahoe dropped (#834). Its list of dropped board IDs had a garbled entry (`Mac-0C5CE0FB34C44A19`) instead of the MacBook Air 2020 and no entry for the Mac mini 2018, so the kext stayed inactive on both and the Tahoe installer stalled at the Apple logo unless the "T2 Installer Workaround" was turned on. The kext's source isn't available, so this is a patch of the binary, not a new build:
+- on T2 Macs, updates T2TahoeFixup.kext to 1.0.25, a patched 1.0.24 that also recognizes the Mac mini 2018 (Macmini8,1, `Mac-7BA5B2DFE22DDD8C`) and the MacBook Air 2020 (MacBookAir9,1, `Mac-0CFF9C7C2B63DF8D`) as Macs macOS Tahoe dropped (#834). Its list of dropped board IDs had a garbled entry (`Mac-0C5CE0FB34C44A19`) instead of the MacBook Air 2020 and no entry for the Mac mini 2018, so the kext stayed inactive on both and the Tahoe installer stalled at the Apple logo unless the "T2 Installer Workaround" was turned on. The kext's source isn't available, so this is a patch of the binary, not a new build:
   - the garbled entry is replaced by the MacBook Air 2020's board ID
   - the Mac mini 2018's board ID is added as a 10th entry, and the loop in `shouldAliasManifest()` that walks the list now checks 10 entries instead of 9
-  - nothing else in the kext changes; it still reports version 1.0.24. Two other unknown board IDs in the kext (`Mac-27AD2020579F6309`, `Mac-5A49A3736D181579`) are left as they are, as it's not clear which Macs they were meant for
+  - nothing else in the kext changes apart from its version in Info.plist (1.0.24 -> 1.0.25), so users see the update. Two other unknown board IDs in the kext (`Mac-27AD2020579F6309`, `Mac-5A49A3736D181579`) are left as they are, as it's not clear which Macs they were meant for
   - not yet tested on real hardware. Until it's confirmed, keep the "T2 Installer Workaround" at hand on these Macs in case the installer still stalls. A fixed T2TahoeFixup build from @matteoiacca will replace this patch
 ## 4.0.0.2000004.0.0.5 - 4.0.0 alpha 20.4 Preview
 This release:
