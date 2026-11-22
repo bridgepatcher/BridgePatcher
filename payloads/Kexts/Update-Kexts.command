@@ -26,11 +26,13 @@ KEXT_DICTIONARY = {
             "Repository": "https://github.com/acidanthera/AirportBrcmFixup",
             "Constants Variable": "self.airportbcrmfixup_version",
         },
-        # Due to issues with legacy Macs, don't update
-        # "AppleALC": {
-        #     "Repository": "https://github.com/acidanthera/AppleALC",
-        #     "Constants Variable": "self.applealc_version",
-        # },
+        "AppleALC": {
+            "Repository": "https://github.com/acidanthera/AppleALC",
+            "Constants Variable": "self.applealc_version",
+            # Due to issues with legacy Macs, never updated automatically. Its latest release is
+            # still looked up, and a newer one is reported for a maintainer to test.
+            "Watch Only": "issues with legacy Macs, update by hand after testing",
+        },
         "BlueToolFixup": {
             "Repository": "https://github.com/acidanthera/BrcmPatchRAM",
             "Constants Variable": "self.bluetool_version",
@@ -69,6 +71,10 @@ KEXT_DICTIONARY = {
             # have it, so updating from GitHub releases would silently drop the fix. Only unpin once a
             # tagged release contains the JavaScriptCore patch.
             "Pinned": "rolling build b70aaa4 with the JavaScriptCore AVX patch (revpatch=jsc)",
+            # Reported when the branch moves past the pinned commit (a newer rolling build may
+            # exist) or a tagged release reaches the pinned version (it may carry the patch now)
+            "Pinned Branch": "javascriptcore",
+            "Pinned Commit": "b70aaa4",
         },
         "RSRHelper": {
             "Repository": "https://github.com/khronokernel/RSRHelper",
@@ -151,15 +157,16 @@ class GenerateKexts:
         if self.weg_version is None or self.lilu_version is None or self.weg_old is None:
             raise Exception("Unable to find latest WEG version!")
 
-        if packaging.version.parse(self.weg_version) <= packaging.version.parse(self.weg_old):
-            print("   WEG is up to date!")
+        # The Navi build is compared with WhateverGreen's latest release on every run, not only
+        # when WhateverGreen itself is updated: otherwise a Navi build that failed once, or a
+        # WhateverGreen updated by hand, leaves it behind for good
+        weg_navi_old = self._get_local_version("Acidanthera", "WhateverGreen", "RELEASE", suffix="-Navi")
+        if packaging.version.parse(self.weg_version) <= packaging.version.parse(weg_navi_old):
+            print(f"   WEG (Navi patch) is up to date: v{weg_navi_old}")
             return
 
-        # The Navi build can lag behind WhateverGreen, so look up its own version
-        weg_navi_old = self._get_local_version("Acidanthera", "WhateverGreen", "RELEASE", suffix="-Navi")
-
         # WhateverGreen
-        print("Building modified WhateverGreen...")
+        print(f"Building modified WhateverGreen (Navi patch {weg_navi_old} -> {self.weg_version})...")
         # We have to compile WEG ourselves
         lilu_asset = next((asset for asset in self.lilu_assets if asset["name"].endswith("DEBUG.zip")), None)
         if lilu_asset is None:
@@ -183,13 +190,23 @@ class GenerateKexts:
             # Unzip Lilu into WEG source
             subprocess.run(["/usr/bin/unzip", lilu_zip, "-d", f"{temp_dir}/WhateverGreen-{self.weg_version}"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-            # Apply patch
+            # Apply patch and build WEG. If the patch no longer applies to the new release or the
+            # build fails, the Navi build is reported in the summary and the other kext updates of
+            # this run still go ahead (nothing in payloads/Kexts has been changed yet at this point)
             patch_path = Path("./Acidanthera/WhateverGreen-Navi-Backlight.patch").absolute()
-            subprocess.run(["/usr/bin/git", "apply", patch_path], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=f"{temp_dir}/WhateverGreen-{self.weg_version}")
-
-            # Build WEG
-            for variant in ["Release", "Debug"]:
-                subprocess.run(["/usr/bin/xcodebuild", "-configuration", variant], cwd=f"{temp_dir}/WhateverGreen-{self.weg_version}", check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            step = "git apply WhateverGreen-Navi-Backlight.patch"
+            try:
+                subprocess.run(["/usr/bin/git", "apply", patch_path], check=True, capture_output=True, text=True, cwd=f"{temp_dir}/WhateverGreen-{self.weg_version}")
+                for variant in ["Release", "Debug"]:
+                    step = f"xcodebuild -configuration {variant}"
+                    subprocess.run(["/usr/bin/xcodebuild", "-configuration", variant], cwd=f"{temp_dir}/WhateverGreen-{self.weg_version}", check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError as error:
+                output = (error.stderr or error.stdout or "").strip().splitlines()[-5:]
+                print("\n".join(output))
+                message = f"WhateverGreen (Navi patch) is {weg_navi_old}, but building it for WhateverGreen {self.weg_version} failed at '{step}', update it by hand"
+                print(f"  Warning: {message}")
+                self.warnings.append(message)
+                return
 
 
             # Zip Release
@@ -210,13 +227,67 @@ class GenerateKexts:
                 if "Pinned" in KEXT_DICTIONARY[kext_folder][kext_name]:
                     # Never replace pinned kexts with the latest GitHub release, not even when the
                     # release has the same or a higher version number (see the comment at the entry).
-                    print(f"  {kext_name} is pinned, skipping: {KEXT_DICTIONARY[kext_folder][kext_name]['Pinned']}")
+                    # Only report when the pin may need a look.
+                    print(f"  {kext_name} is pinned, not updating: {KEXT_DICTIONARY[kext_folder][kext_name]['Pinned']}")
                     self.not_checked.append((kext_name, f"pinned: {KEXT_DICTIONARY[kext_folder][kext_name]['Pinned']}"))
+                    self._check_pinned(kext_folder, kext_name)
+                    continue
+                if "Watch Only" in KEXT_DICTIONARY[kext_folder][kext_name]:
+                    self._check_watch_only(kext_folder, kext_name)
                     continue
                 if "Override" in KEXT_DICTIONARY[kext_folder][kext_name]:
                     self._get_latest_release(kext_folder, kext_name, override_kext_zip_name=KEXT_DICTIONARY[kext_folder][kext_name]["Override"])
                 else:
                     self._get_latest_release(kext_folder, kext_name)
+
+
+    def _get_constants_version(self, variable_name):
+        constants = Path("../../bridgepatcher/constants.py").read_text()
+        values = {match["variable"]: match["value"] for match in CONSTANTS_VALUE_RE.finditer(constants)}
+        variable = variable_name.removeprefix("self.")
+        if variable not in values:
+            raise Exception(f"{variable_name} not found in constants.py")
+        return values[variable]
+
+
+    def _get_latest_release_version(self, kext_name, repository):
+        latest_release = self._github_api(f"{repository.replace('https://github.com', 'https://api.github.com/repos')}/releases/latest")
+        if "tag_name" not in latest_release:
+            raise Exception(f"No release found for {kext_name}: {latest_release.get('message')}")
+        return latest_release["tag_name"].removeprefix("v"), latest_release["html_url"]
+
+
+    def _check_watch_only(self, kext_folder, kext_name):
+        # Kexts that are never updated automatically: only report a newer release
+        entry = KEXT_DICTIONARY[kext_folder][kext_name]
+        local_version = self._get_constants_version(entry["Constants Variable"])
+        remote_version, url = self._get_latest_release_version(kext_name, entry["Repository"])
+        if packaging.version.parse(remote_version) <= packaging.version.parse(local_version):
+            print(f"  {kext_name} is up to date: v{local_version} (not updated automatically)")
+            return
+        message = f"{kext_name} {remote_version} is out ({url}), BridgePatcher ships {local_version}. It isn't updated automatically ({entry['Watch Only']})"
+        print(f"  Warning: {message}")
+        self.warnings.append(message)
+
+
+    def _check_pinned(self, kext_folder, kext_name):
+        entry = KEXT_DICTIONARY[kext_folder][kext_name]
+        local_version = self._get_constants_version(entry["Constants Variable"])
+        remote_version, url = self._get_latest_release_version(kext_name, entry["Repository"])
+        if packaging.version.parse(remote_version) >= packaging.version.parse(local_version.split("-")[0]):
+            message = f"{kext_name} {remote_version} is out ({url}), as new as the pinned build {local_version}. Check whether it can replace the pin ({entry['Pinned']})"
+            print(f"  Warning: {message}")
+            self.warnings.append(message)
+
+        if "Pinned Branch" in entry:
+            api = entry["Repository"].replace("https://github.com", "https://api.github.com/repos")
+            head = self._github_api(f"{api}/branches/{entry['Pinned Branch']}")["commit"]["sha"]
+            if not head.startswith(entry["Pinned Commit"]):
+                message = f"{kext_name}: branch {entry['Pinned Branch']} moved from the pinned commit {entry['Pinned Commit']} to {head[:7]} ({entry['Repository']}/commits/{entry['Pinned Branch']}), a newer rolling build may exist"
+                print(f"  Warning: {message}")
+                self.warnings.append(message)
+            else:
+                print(f"  {kext_name} branch {entry['Pinned Branch']} is still at the pinned commit {entry['Pinned Commit']}")
 
 
     def _get_upstream_kexts(self):
@@ -594,7 +665,9 @@ class GenerateKexts:
         else:
             lines.append("All checked kexts are up to date.")
         if self.warnings:
-            lines += [""] + [f"> [!WARNING]\n> {warning}" for warning in self.warnings]
+            # A blank line between the alerts, otherwise GitHub merges them into one block
+            for warning in self.warnings:
+                lines += ["", f"> [!WARNING]\n> {warning}"]
         if self.not_checked:
             lines += ["", "<details><summary>Not checked</summary>", ""]
             lines += [f"- {kexts}: {reason}" for kexts, reason in self.not_checked]
