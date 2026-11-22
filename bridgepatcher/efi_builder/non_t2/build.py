@@ -14,6 +14,8 @@ upstream changes can be ported file by file. BridgePatcher changes are limited t
 - misc.py: T1 kexts stop at Sequoia unless constants.t1_tahoe_touch_id is set,
   see _t1_handling()
 - moving the finished EFI to oc_build_path when the GUI saves the build
+- SMBIOS is built by the shared efi_builder/smbios.py (Dortania's code, T2 changes
+  only behind T2 checks)
 T2 Macs are built by efi_builder/build.py.
 """
 
@@ -42,10 +44,11 @@ from . import (
     graphics_audio,
     support,
     storage,
-    smbios,
     security,
     misc
 )
+# SMBIOS is shared with the T2 builder: efi_builder/smbios.py keeps Dortania's behaviour for non-T2 Macs
+from .. import smbios
 
 
 def rmtree_handler(func, path, exc_info) -> None:
