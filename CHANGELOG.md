@@ -6,6 +6,7 @@ This release:
   - the Mac mini 2018's board ID is added as a 10th entry, and the loop in `shouldAliasManifest()` that walks the list now checks 10 entries instead of 9
   - nothing else in the kext changes apart from its version in Info.plist (1.0.24 -> 1.0.25), so users see the update. Two other unknown board IDs in the kext (`Mac-27AD2020579F6309`, `Mac-5A49A3736D181579`) are left as they are, as it's not clear which Macs they were meant for
   - not yet tested on real hardware. Until it's confirmed, keep the "T2 Installer Workaround" at hand on these Macs in case the installer still stalls. A fixed T2TahoeFixup build from @matteoiacca will replace this patch
+- on T2 Macs, EFIs built for macOS Tahoe now set `debug=0x104` instead of `debug=0x100`. 0x100 still keeps the Mac on the panic screen instead of rebooting; the added 0x4 lets a non-maskable interrupt (NMI) trigger a panic, so when macOS hangs during boot without any message (e.g. right after `apfs_sysctl_register: done registering sysctls` on a Mac mini 2018), an NMI shows a backtrace of where the kernel is stuck. Build and install OpenCore again to get it
 ## 4.0.0.2000004.0.0.5 - 4.0.0 alpha 20.4 Preview
 This release:
 - on T2 Macs, removes two Intel graphics settings that made macOS hang at the Apple logo unless the "T2 Installer Workaround" was turned on:

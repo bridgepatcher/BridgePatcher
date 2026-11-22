@@ -650,9 +650,11 @@ class BuildMiscellaneous:
                 # - acm_panic_on_sep_response_timeout=0: AppleCredentialManager doesn't panic
                 #   on a SEP response timeout.
                 # - TSC_sync_margin=0: no TSC sync margin check panic.
-                # - debug=0x100 keepsyms=1: no reboot on panic and symbolicated backtraces.
+                # - debug=0x104 keepsyms=1: no reboot on panic (0x100), symbolicated backtraces,
+                #   and an NMI drops into a panic (0x4), so a silent boot hang can be turned into
+                #   a backtrace of where the kernel is stuck.
                 self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args",
-                    "debug=0x100 keepsyms=1 TSC_sync_margin=0 "
+                    "debug=0x104 keepsyms=1 TSC_sync_margin=0 "
                     "acm_panic_on_sep_response_timeout=0")
             except Exception as e:
                 logging.error("Injecting T2 specific boot arguments failed due to the following error:")
