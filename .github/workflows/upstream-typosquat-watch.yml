@@ -79,7 +79,7 @@ jobs:
           # Sites that don't imitate the name but mislead visitors about the project or serve
           # malicious ads. One per line: host | what was found | where it's documented
           OTHER_SITES: |
-            en.soydemac.com | Machine-written article that falsely claims Dortania's OpenCore Legacy Patcher now supports T2 Macs; its ads led to a fake payment page, a fake Steam login (phishing), notification spam and a browser hijacker | bridgepatcher/BridgePatcher#599
+            en.soydemac.com | Machine-written article that falsely claims Dortania's OpenCore Legacy Patcher now supports T2 Macs, made to rank in searches for the project (SEO poisoning). Its ads used to lead to a fake payment page, fake Steam login (phishing), notification spam and a browser hijacker; no longer seen | bridgepatcher/BridgePatcher#599
           # --- Misleading articles and risky-ad sites (found automatically) ---
           # News and blog posts, often machine-translated editions like en.soydemac.com, that present
           # an unofficial fork's T2 support as news about OpenCore Legacy Patcher, or that write about
