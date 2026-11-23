@@ -322,7 +322,8 @@ def render(state):
         "handled (it moves to *Dismissed* and is never listed again), or `/undismiss <name>` to list it again. "
         "Copies whose issues are enabled get a rename request automatically if they look unintentional; "
         "suspicious ones are only listed, so they can be reported (**Report repository** in their sidebar). "
-        "Every copy of this project's code also gets a license violation notice, suspicious or not. "
+        "Every copy of this project's code also gets a license violation notice, suspicious or not; renamed "
+        "copies stay listed (⚠️) until their license file keeps the copyright notices. "
         f"Entries no watch has seen for {FORGET_DAYS} days, or taken down / resolved for {RESOLVED_DAYS} days, "
         "are removed. Closing this issue pauses the watches. Names are shown as code on purpose, so they "
         "aren't clickable.</sub>",
