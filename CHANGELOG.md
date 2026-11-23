@@ -7,7 +7,6 @@ This release:
   - the Mac Pro 2019 (MacPro7,1) was paired with `Mac-27AD2020579F6309`, which is no Mac's board ID, so on a genuine Mac Pro 2019 the kext turned itself on instead of staying inactive. It's now `Mac-27AD2F918AE68F61`, the Mac Pro 2019's real board ID
   - in the list of board IDs the kext leaves alone because macOS Tahoe supports them, `Mac-5A49A3736D181579` is replaced by `Mac-E1008331FDC96864` (MacBookPro16,1)
   - not changed, flagged for the kext's author: that list still has the MacBookPro16,3 (`Mac-E7203C0F68AA0004`), which macOS Tahoe doesn't support, and lacks the MacBookPro16,4 (`Mac-A61BADE1FDAD7B05`)
-  - build and install OpenCore again to get it. Not yet confirmed on real hardware
 
 ## 4.0.0.2000004.0.0.7 - 4.0.0 alpha 20.4 Preview
 This release:
