@@ -68,8 +68,12 @@ class MainFrame(wx.Frame):
         # _check_updates_handler()). Without this timer an app that was opened before
         # a release never learned about it, so a user could be kept on a vulnerable
         # build simply by leaving the window open. See _on_update_check_timer().
-        self.update_check_timer = wx.Timer(self)
-        self.Bind(wx.EVT_TIMER, self._on_update_check_timer, self.update_check_timer)
+        # wx.PyTimer, not wx.Timer(self) + EVT_TIMER: a timer with an owner sends its
+        # event to that owner, and once this frame was destroyed (every move to another
+        # frame) that is freed memory. _on_destroy() didn't stop the timer then, so a
+        # tick a while later crashed the app in wxTimerImpl::SendEvent ("segmentation
+        # fault" / "bus error"), e.g. right after installing OpenCore.
+        self.update_check_timer = wx.PyTimer(self._on_update_check_timer)
         self.Bind(wx.EVT_WINDOW_DESTROY, self._on_destroy)
         # Ticks every constants.update_check_retry_interval, not every update_check_interval:
         # a check that had to wait for the network or for the main menu to be idle
@@ -487,7 +491,7 @@ class MainFrame(wx.Frame):
             return False
         return not any(window is not self and window.IsShown() for window in wx.GetTopLevelWindows())
 
-    def _on_update_check_timer(self, event: wx.TimerEvent) -> None:
+    def _on_update_check_timer(self) -> None:
         """
         Repeat the automatic update check while the app stays open
 
@@ -496,6 +500,10 @@ class MainFrame(wx.Frame):
         done), which must not happen underneath a build, root patching or a dialog.
         A busy main menu just tries again on the next tick.
         """
+        if not self:
+            # This frame is gone (a dead wx object is falsy): nothing left to check from
+            self.update_check_timer.Stop()
+            return
         if not self._automatic_check_due() or not self._main_menu_idle():
             return
         thread = getattr(self.constants, "update_thread", None)
@@ -519,7 +527,10 @@ class MainFrame(wx.Frame):
         self.on_update(*args)
 
     def _on_destroy(self, event: wx.WindowDestroyEvent) -> None:
-        if event.GetEventObject() is self:
+        # When wx sends this for the frame itself, wxPython can already have detached
+        # 'self' from it: GetEventObject() is then a new wrapper, not 'self', and 'self'
+        # is falsy. The timer wasn't stopped in that case, see __init__.
+        if event.GetEventObject() is self or not self:
             self.update_check_timer.Stop()
         event.Skip()
 
