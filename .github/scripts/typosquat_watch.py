@@ -10,7 +10,9 @@ Real forks of this repository are never flagged.
 
 Copies of this project's history also get a license violation issue, whether they
 look suspicious or not (once): unintentional ones are asked to rename (and to update
-when they are behind), suspicious ones to take the repository down."""
+when they are behind), suspicious ones to take the repository down. Renamed copies are
+still checked for the license on every run: their notice gets one reminder while the
+copyright notices are missing, and is closed once the license conditions are met."""
 
 import base64
 import json
@@ -44,6 +46,8 @@ LABEL = "typosquat"
 OUR_MARKER = "<!-- typosquat:{} -->"
 THEIR_MARKER = f"<!-- typosquat-notice-from:{ORIGINAL} -->"
 LICENSE_MARKER = f"<!-- license-notice-from:{ORIGINAL} -->"
+# On the reminder posted (once) on a license notice when a copy was renamed but still breaks the license
+LICENSE_REMINDER_MARKER = f"<!-- license-reminder-from:{ORIGINAL} -->"
 
 HEADERS = {
     "Authorization": f"Bearer {TOKEN}",
@@ -510,30 +514,41 @@ To the owner{" (" + ", ".join(f"@{a}" for a in authors) + ")" if authors else ""
 """
 
 
-def close_request(me, link, full):
-    """Once a copy has been renamed, thank its owner and close the rename request we opened on it
-    (link: its issue URL from the tracker; full: the copy's new name, since API writes to the old
-    name aren't redirected). Only our own, still open issue carrying the marker is touched, so
-    later runs leave it alone. Requests posted as commit comments can't be closed."""
+def our_open_issue(me, link, full, marker):
+    """The API path of the issue at link (an issue URL from the tracker) when it's our own, still
+    open and carries marker, else None. full is the copy's current name, since API writes to the
+    old name aren't redirected. Requests posted as commit comments never match."""
     m = re.fullmatch(r"https://github\.com/[^/]+/[^/]+/issues/(\d+)", link or "")
     if not me or not m:
-        return
+        return None
     path = f"/repos/{full}/issues/{m.group(1)}"
     issue = get(path)
     if (not issue or issue.get("state") != "open" or (issue.get("user") or {}).get("login") != me
-            or THEIR_MARKER not in (issue.get("body") or "")):
+            or marker not in (issue.get("body") or "")):
+        return None
+    return path
+
+
+def close_issue(me, link, full, marker, text, what):
+    """Comment text on our own open issue at link (see our_open_issue()) and close it as completed.
+    Later runs leave it alone, because it's no longer open."""
+    path = our_open_issue(me, link, full, marker)
+    if not path:
         return
-    status, _ = post(f"{path}/comments", {"body": f"""Thanks for renaming the repository to **{full}**! 🎉
-
-Its name no longer looks like [{ORIGINAL}](https://github.com/{ORIGINAL}), so this request is resolved and is closed automatically.
-
-{THEIR_MARKER}
-"""})
+    status, _ = post(f"{path}/comments", {"body": f"{text}\n\n{marker}\n"})
     if status < 300:
         status, _, _ = request("PATCH", path, {"state": "closed", "state_reason": "completed"})
     time.sleep(3)
     if status >= 300:
-        print(f"::warning::Couldn't close the rename request {link} (HTTP {status})")
+        print(f"::warning::Couldn't close the {what} {link} (HTTP {status})")
+
+
+def close_request(me, link, full):
+    """Once a copy has been renamed, thank its owner and close the rename request we opened on it."""
+    close_issue(me, link, full, THEIR_MARKER, f"""Thanks for renaming the repository to **{full}**! 🎉
+
+Its name no longer looks like [{ORIGINAL}](https://github.com/{ORIGINAL}), so this request is resolved and is closed automatically.""",
+                "rename request")
 
 
 # --------------------------------------------------------------- license --
@@ -586,9 +601,10 @@ def outdated(sha):
     return behind, patcher_version(sha), patcher_version(branch), branch
 
 
-def license_findings(full, cand, sha, named):
-    """The license conditions a copy breaks: always condition 4 (its typosquatted name), and
-    condition 1 when the copyright notices it copied are missing. Returns (findings, license path)."""
+def license_findings(full, cand, sha, named, renamed=False):
+    """The license conditions a copy breaks: condition 4 (its typosquatted name) unless it has been
+    renamed, and condition 1 when the copyright notices it copied are missing. Returns (findings,
+    license path)."""
     if named == "former":
         name_use = (f"its name uses a former name of this project ({', '.join(ALIASES)}), which is built on "
                     "\"OpenCore Legacy Patcher\"")
@@ -598,7 +614,8 @@ def license_findings(full, cand, sha, named):
                   "or Mykola Grymalyuk may be used to endorse or promote products derived from this software without "
                   "specific prior written permission\"; the same applies to the names of BridgePatcher's contributors): "
                   f"{name_use}. No such permission was given.")
-    findings = [condition4]
+    # A renamed copy's name no longer imitates the project, so condition 4 is met
+    findings = [] if renamed else [condition4]
     path, missing = missing_notices(full, sha)
     if path and missing:
         findings.append("**Condition 1** (\"Redistributions of source code must retain the above copyright notice, "
@@ -607,7 +624,7 @@ def license_findings(full, cand, sha, named):
     return findings, path
 
 
-def license_notice(full, sha, path, findings, authors=(), behind=None, suspicious=False):
+def license_notice(full, sha, path, findings, authors=(), behind=None, suspicious=False, renamed=False):
     bullet = "\n".join(f"- {f}" for f in findings)
     link = f"https://github.com/{ORIGINAL}/blob/{sha}/{path}" if path else f"https://github.com/{ORIGINAL}"
     update = ""
@@ -621,8 +638,10 @@ def license_notice(full, sha, path, findings, authors=(), behind=None, suspiciou
 git pull https://github.com/{ORIGINAL}.git {branch}
 ```
 """
-    # Copies that look deliberate (see assess()) are asked to take the repository down, not to fix it
-    fix = ("""**Please take this repository down** (Settings → General → Danger Zone → **Delete this repository**). """
+    # Copies that look deliberate (see assess()) are asked to take the repository down, not to fix it;
+    # renamed ones only have the license file left to fix
+    fix = ("""To fix this, keep the license file with **all** copyright notices, the list of conditions and the disclaimer.
+""" if renamed else """**Please take this repository down** (Settings → General → Danger Zone → **Delete this repository**). """
            f"""It looks like a deliberate imitation of {ORIGINAL}, and people downloading from it can't tell that it """
            """isn't the official project.
 """ if suspicious else f"""To fix this:
@@ -717,24 +736,66 @@ def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons, ours
                      CONTACT_VIA_COMMIT and not suspicious)
 
 
-def license_owner(me, full, cand, sha, named, suspicious, ours):
+def license_owner(me, full, cand, sha, named, suspicious, ours, renamed=False):
     """Open one license violation issue on a copy of this project's history, whether it looks
     suspicious or unintentional: the license applies to every copy of the code, and a typosquatted
     name breaks it either way. Copies that look unintentional are asked to fix it (and, when they
     are behind this project, to update to the latest version); suspicious ones to take it down. Copies without this project's history aren't under its
     license, so they get none. Never twice: an earlier one (found by its marker, open or closed) is
-    reused. Returns (their issue URL, note)."""
+    reused. renamed: the copy no longer has a typosquatted name, so only the license file is
+    asked for. Returns (their issue URL, note)."""
     if not sha:
         return None, "not applicable, because it contains none of this project's code"
     if not me:
         return None, "not contacted, because no TYPOSQUAT_PAT secret is configured"
-    findings, path = license_findings(full, cand, sha, named)
-    behind = None if suspicious else outdated(sha)
+    findings, path = license_findings(full, cand, sha, named, renamed)
+    behind = None if suspicious or renamed else outdated(sha)
     return post_once(me, full, cand, ours, LICENSE_MARKER,
                      f"License violation: this copy of {ORIGINAL} doesn't meet the license conditions",
-                     lambda authors: license_notice(full, sha, path, findings, authors, behind, suspicious),
+                     lambda authors: license_notice(full, sha, path, findings, authors, behind, suspicious, renamed),
                      "License violation",
                      CONTACT_VIA_COMMIT)
+
+
+def recheck_license(me, full, cand, e, shas, ours):
+    """After a copy has been renamed: does it still break the license? Its copyright notices are
+    checked on every run. While they're missing, the license notice gets one reminder (or is
+    posted, if it never could be); once they're kept, the notice is closed. Returns (the tracker
+    status, the license link)."""
+    link = e.get("license", "")
+    sha, _ = shared_history(full)
+    sha = sha or copied_commit(full, shas)
+    if not sha:
+        return f"✅ renamed to {full}", link  # none of this project's code, so its license doesn't apply
+    findings, path = license_findings(full, cand, sha, None, renamed=True)
+    if not path:
+        return f"✅ renamed to {full} (license couldn't be checked)", link
+    if not findings:
+        close_issue(me, link, full, LICENSE_MARKER, f"""Thanks for renaming the repository to **{full}**! 🎉
+
+Its name no longer imitates [{ORIGINAL}](https://github.com/{ORIGINAL}) and its license file keeps the copyright notices, so the license conditions are met now. This notice is closed automatically.""",
+                    "license notice")
+        return f"✅ renamed to {full}, license conditions met", link
+    status = f"⚠️ renamed to {full}, but still breaks the license"
+    if not link.startswith("http"):
+        their_url, note = license_owner(me, full, cand, sha, None, False, ours, renamed=True)
+        return status, their_url or note
+    issue = our_open_issue(me, link, full, LICENSE_MARKER)
+    if issue and not any(LICENSE_REMINDER_MARKER in (c.get("body") or "") and (c.get("user") or {}).get("login") == me
+                         for c in paginate(f"{issue}/comments?per_page=100")):
+        bullet = "\n".join(f"- {f}" for f in findings)
+        post(f"{issue}/comments", {"body": f"""Thanks for renaming the repository to **{full}**! Its name no longer imitates [{ORIGINAL}](https://github.com/{ORIGINAL}), so condition 4 is met now.
+
+The license is still broken, though:
+
+{bullet}
+
+To fix this, keep the license file with **all** copyright notices, the list of conditions and the disclaimer. This notice is closed automatically once that's done.
+
+{LICENSE_REMINDER_MARKER}
+"""})
+        time.sleep(3)
+    return status, link
 
 
 def main():
@@ -868,8 +929,10 @@ def main():
                 tracker.upsert("repos", key, {"status": "🔴 deleted or made private"})
             elif cand["full_name"].lower() != key and not (contains_name(cand["name"], [name] + ALIASES)
                                                           or any(looks_like(cand["name"], n) for n in [name] + ALIASES)):
-                tracker.upsert("repos", key, {"status": f"✅ renamed to {cand['full_name']}"})
                 close_request(me, e.get("request"), cand["full_name"])
+                # A new name doesn't fix the license file: keep checking it until it does
+                status, license_link = recheck_license(me, cand["full_name"], cand, e, shas, authors)
+                tracker.upsert("repos", key, {"status": status, "license": license_link})
             else:
                 tracker.upsert("repos", key, {})  # still there: keep it listed
         tracker.save()
