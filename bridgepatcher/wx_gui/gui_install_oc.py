@@ -265,13 +265,7 @@ class InstallOCFrame(wx.Frame):
                 if blocked_reason not in blocked_reasons:
                     blocked_reasons.append(blocked_reason)
             else:
-                # Deferred: _install_oc_process() runs the whole install, pumping events
-                # in wait_for_thread(), and the deferred Destroy() of this sheet from
-                # _dismiss_dialog() fires in there. Run from the click itself, the button
-                # was freed while its handler was still on the stack, and AppKit crashed
-                # ("segmentation fault" / "bus error") using it once the handler returned
-                # after "OpenCore has finished installing".
-                disk_button.Bind(wx.EVT_BUTTON, lambda event, partition=partition: wx.CallAfter(self._install_oc_process, partition))
+                disk_button.Bind(wx.EVT_BUTTON, lambda event, partition=partition: self._install_oc_process(partition))
                 if items == 1 or self.constants.booted_oc_disk == partitions[partition]['partition']:
                     disk_button.SetDefault()
 
@@ -303,11 +297,6 @@ class InstallOCFrame(wx.Frame):
         """
         Install OpenCore to disk
         """
-        # Runs from wx.CallAfter (see _display_volumes()): the frame may have been
-        # closed between the click and now.
-        if self.is_closing:
-            return
-
         self._dismiss_dialog()
 
         dialog = wx.Dialog(
@@ -389,7 +378,8 @@ class InstallOCFrame(wx.Frame):
                     url = "https://bridgepatcher.github.io/T2.html"
                     # /usr/bin/open instead of webbrowser.open(): on macOS webbrowser runs
                     # osascript through a shell from inside the GUI process; open(1) just
-                    # hands the URL to Launch Services.
+                    # hands the URL to Launch Services. The app crashed ("bus error") right
+                    # here after installing OpenCore on a Mac mini 2018.
                     try:
                         subprocess.run(["/usr/bin/open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
                     except (OSError, subprocess.TimeoutExpired) as error:
