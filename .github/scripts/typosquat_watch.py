@@ -331,6 +331,27 @@ def our_authors():
     return ids
 
 
+def their_authors(full, cand, ours, me=None, limit=10):
+    """GitHub logins of the people behind a copy, to @mention in the rename request: its owner
+    (when that's a user account; organizations can't be mentioned) and the authors of the newest
+    commits on its default branch, leaving out this project's own authors, bots and ourselves."""
+    logins = []
+    if (cand.get("owner") or {}).get("type") == "User":
+        logins.append(cand["owner"]["login"])
+    branch = urllib.parse.quote(cand.get("default_branch") or "main", safe="")
+    for c in get(f"/repos/{full}/commits?sha={branch}&per_page=100") or []:
+        login = (c.get("author") or {}).get("login") or ""
+        if login and not commit_identities(c) & ours:
+            logins.append(login)
+    out = []
+    for login in logins:
+        # Logins only contain letters, digits and hyphens; anything else isn't mentioned
+        if (re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})", login) and not is_bot(login.lower())
+                and login.lower() != (me or "").lower() and login.lower() not in {o.lower() for o in out}):
+            out.append(login)
+    return out[:limit]
+
+
 def assess(cand, owner_squat, our_owner, extra=()):
     score, reasons = 0, []
     for points, reason in extra:
@@ -406,8 +427,13 @@ def how_to_rename(full):
     ]
     return "\n".join(lines)
 
-def rename_request(full, sha):
-    return f"""Hi! 👋
+def greeting(authors):
+    """"Hi @owner, @author! 👋" - the mentions notify the copy's owner and authors."""
+    return f"Hi {', '.join(f'@{a}' for a in authors)}! 👋" if authors else "Hi! 👋"
+
+
+def rename_request(full, sha, authors=()):
+    return f"""{greeting(authors)}
 
 This repository contains the history of [{ORIGINAL}](https://github.com/{ORIGINAL}) (for example commit `{sha[:12]}`), but it is not a GitHub fork of it, and its name is very close to the original. Users can easily confuse the two, and to them it can look like typosquatting.
 
@@ -426,10 +452,10 @@ Thanks for understanding!
 """
 
 
-def name_request(full, fork_of=None):
+def name_request(full, fork_of=None, authors=()):
     origin = (f"It is a fork of [{fork_of}](https://github.com/{fork_of}), not of {ORIGINAL}"
               if fork_of else f"It is not a GitHub fork of {ORIGINAL}")
-    return f"""Hi! 👋
+    return f"""{greeting(authors)}
 
 This repository's name uses the name of [{ORIGINAL}](https://github.com/{ORIGINAL}), but it isn't part of that project's fork network. {origin}, so nothing on GitHub tells users that it isn't the real thing - to them it can look like the official project, or like typosquatting.
 
@@ -446,8 +472,8 @@ Thanks for understanding!
 """
 
 
-def former_name_request(full):
-    return f"""Hi! 👋
+def former_name_request(full, authors=()):
+    return f"""{greeting(authors)}
 
 This repository's name still uses a former name of [{ORIGINAL}](https://github.com/{ORIGINAL}) ({", ".join(ALIASES)}). The project has been renamed, and repositories still using the old name look like typosquats of it (and of Dortania's OpenCore Legacy Patcher) to users.
 
@@ -461,7 +487,7 @@ Thanks for understanding!
 """
 
 
-def suspicious_notice(full, sha, reasons):
+def suspicious_notice(full, sha, reasons, authors=()):
     bullet = "\n".join(f"- {r}" for r in reasons)
     return f"""**Notice for users of this repository**
 
@@ -472,10 +498,36 @@ Automated checks flagged the following:
 
 The official project lives at https://github.com/{ORIGINAL}. Please download source code and releases only from there.
 
-To the owner: if this was not intentional, please rename the repository or re-create it as a regular fork, and reply here.
+To the owner{" (" + ", ".join(f"@{a}" for a in authors) + ")" if authors else ""}: if this was not intentional, please rename the repository or re-create it as a regular fork, and reply here.
 
 {THEIR_MARKER}
 """
+
+
+def close_request(me, link, full):
+    """Once a copy has been renamed, thank its owner and close the rename request we opened on it
+    (link: its issue URL from the tracker; full: the copy's new name, since API writes to the old
+    name aren't redirected). Only our own, still open issue carrying the marker is touched, so
+    later runs leave it alone. Requests posted as commit comments can't be closed."""
+    m = re.fullmatch(r"https://github\.com/[^/]+/[^/]+/issues/(\d+)", link or "")
+    if not me or not m:
+        return
+    path = f"/repos/{full}/issues/{m.group(1)}"
+    issue = get(path)
+    if (not issue or issue.get("state") != "open" or (issue.get("user") or {}).get("login") != me
+            or THEIR_MARKER not in (issue.get("body") or "")):
+        return
+    status, _ = post(f"{path}/comments", {"body": f"""Thanks for renaming the repository to **{full}**! 🎉
+
+Its name no longer looks like [{ORIGINAL}](https://github.com/{ORIGINAL}), so this request is resolved and is closed automatically.
+
+{THEIR_MARKER}
+"""})
+    if status < 300:
+        status, _, _ = request("PATCH", path, {"state": "closed", "state_reason": "completed"})
+    time.sleep(3)
+    if status >= 300:
+        print(f"::warning::Couldn't close the rename request {link} (HTTP {status})")
 
 
 # ------------------------------------------------------------------ main --
@@ -488,17 +540,17 @@ def summary(line):
             f.write(line + "\n")
 
 
-def request_text(full, sha, named, fork_of):
+def request_text(full, sha, named, fork_of, authors=()):
     """The rename request that fits: the name is the problem when it uses this project's current
     or former name (forks of other copies included); otherwise the unmarked copy of its history."""
     if named == "former":
-        return former_name_request(full)
+        return former_name_request(full, authors)
     if named == "current":
-        return name_request(full, fork_of)
-    return rename_request(full, sha) if sha else name_request(full, fork_of)
+        return name_request(full, fork_of, authors)
+    return rename_request(full, sha, authors) if sha else name_request(full, fork_of, authors)
 
 
-def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons):
+def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons, ours):
     """Open one issue on the copy: a rename request with name ideas when it looks unintentional
     (a notice for its users when it looks suspicious, only with CONTACT_SUSPICIOUS). Never twice:
     an earlier one (found by its marker) is reused. Returns (their issue URL, note)."""
@@ -514,6 +566,7 @@ def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons):
     for c in paginate(f"/repos/{full}/comments?per_page=100"):
         if THEIR_MARKER in (c.get("body") or "") and (c.get("user") or {}).get("login") == me:
             return c["html_url"], ""
+    authors = their_authors(full, cand, ours, me)
     if not cand.get("has_issues"):
         if not CONTACT_VIA_COMMIT or suspicious:
             return None, "not possible, because issues are disabled"
@@ -522,7 +575,7 @@ def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons):
         head = get(f"/repos/{full}/commits/{urllib.parse.quote(cand.get('default_branch') or 'main', safe='')}")
         if not head:
             return None, "not possible, because issues are disabled (and the newest commit couldn't be read)"
-        body = request_text(full, sha, named, fork_of)
+        body = request_text(full, sha, named, fork_of, authors)
         status, data = post(f"/repos/{full}/commits/{head['sha']}/comments",
                             {"body": f"**Please consider renaming this repository** (issues are disabled here, so "
                                      f"this is a commit comment)\n\n{body}"})
@@ -532,7 +585,8 @@ def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons):
         return None, f"issues are disabled and the commit comment failed with HTTP {status}"
     title = (f"Notice: this repository is an unofficial copy of {ORIGINAL}" if suspicious
              else f"Please consider renaming: the name is very close to {ORIGINAL}")
-    body = suspicious_notice(full, sha, reasons) if suspicious and sha else request_text(full, sha, named, fork_of)
+    body = (suspicious_notice(full, sha, reasons, authors) if suspicious and sha
+            else request_text(full, sha, named, fork_of, authors))
     status, data = post(f"/repos/{full}/issues", {"title": title, "body": body})
     time.sleep(3)
     if status < 300:
@@ -644,7 +698,7 @@ def main():
         # (e.g. issues disabled), never posted twice (an earlier one is found by its marker)
         link = (prior or {}).get("request", "")
         if not link.startswith("http"):
-            their_url, note = contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons)
+            their_url, note = contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons, authors)
             link = their_url or note
 
         # 4. Entry in the tracker issue
@@ -667,6 +721,7 @@ def main():
             elif cand["full_name"].lower() != key and not (contains_name(cand["name"], [name] + ALIASES)
                                                           or any(looks_like(cand["name"], n) for n in [name] + ALIASES)):
                 tracker.upsert("repos", key, {"status": f"✅ renamed to {cand['full_name']}"})
+                close_request(me, e.get("request"), cand["full_name"])
             else:
                 tracker.upsert("repos", key, {})  # still there: keep it listed
         tracker.save()
