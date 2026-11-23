@@ -6,8 +6,12 @@ Also flagged, even without copied code: any repository outside the fork
 network whose name contains this project's name or one of its former names
 (ALIASES) - including forks of other projects (e.g. of Dortania's OpenCore
 Legacy Patcher) renamed to "BridgePatcher" or "OpenCore-Legacy-Patcher-T2".
-Real forks of this repository are never flagged."""
+Real forks of this repository are never flagged.
 
+Copies of this project's history also get a license violation issue, whether they
+look suspicious or not (once; unintentional ones that are behind are asked to update)."""
+
+import base64
 import json
 import os
 import re
@@ -38,6 +42,7 @@ LABEL = "typosquat"
 
 OUR_MARKER = "<!-- typosquat:{} -->"
 THEIR_MARKER = f"<!-- typosquat-notice-from:{ORIGINAL} -->"
+LICENSE_MARKER = f"<!-- license-notice-from:{ORIGINAL} -->"
 
 HEADERS = {
     "Authorization": f"Bearer {TOKEN}",
@@ -530,6 +535,110 @@ Its name no longer looks like [{ORIGINAL}](https://github.com/{ORIGINAL}), so th
         print(f"::warning::Couldn't close the rename request {link} (HTTP {status})")
 
 
+# --------------------------------------------------------------- license --
+
+def file_text(full, path, ref=None):
+    """A text file of a repository (its default branch without ref), or None."""
+    q = f"?ref={urllib.parse.quote(ref, safe='')}" if ref else ""
+    data = get(f"/repos/{full}/contents/{urllib.parse.quote(path)}{q}")
+    if not isinstance(data, dict) or data.get("encoding") != "base64":
+        return None
+    return base64.b64decode(data.get("content") or "").decode("utf-8", "replace")
+
+
+def holder(line):
+    """Who a copyright line names, without "Copyright", "(c)", years and punctuation, so a copy
+    that only bumped the years still counts as keeping the notice."""
+    text = re.sub(r"(?i)copyright|\(c\)|©|\d{4}(\s*[-–]\s*\d{4})?", " ", line)
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def missing_notices(full, sha):
+    """(license path, copyright lines missing in the copy) for the license file this project had
+    at the copied commit: the copy is compared with what it copied, not with today's file.
+    (None, []) when that can't be read."""
+    path = ((get(f"/repos/{ORIGINAL}/license") or {}).get("path")) or "LICENSE.txt"
+    ours = file_text(ORIGINAL, path, sha)
+    if ours is None:
+        return None, []
+    theirs = file_text(full, path) or file_text(full, (get(f"/repos/{full}/license") or {}).get("path") or path) or ""
+    kept = " " + holder(theirs) + " "
+    lines = [l.strip() for l in ours.splitlines() if re.match(r"\s*Copyright\b", l)]
+    return path, [l for l in lines if holder(l) and f" {holder(l)} " not in kept]
+
+
+def patcher_version(ref):
+    """The app version (constants.py) at a commit of this project, or None."""
+    m = re.search(r'patcher_version:\s*str\s*=\s*"([^"]+)"', file_text(ORIGINAL, "bridgepatcher/constants.py", ref) or "")
+    return m.group(1) if m else None
+
+
+def outdated(sha):
+    """How far a copy is behind this project: (commits behind, its version, the latest version,
+    the default branch), or None when it's up to date or that can't be told. A version is None
+    when constants.py can't be read at that commit."""
+    branch = (get(f"/repos/{ORIGINAL}") or {}).get("default_branch") or "main"
+    cmp = get(f"/repos/{ORIGINAL}/compare/{sha}...{urllib.parse.quote(branch, safe='')}")
+    behind = (cmp or {}).get("ahead_by") or 0
+    if not behind:
+        return None
+    return behind, patcher_version(sha), patcher_version(branch), branch
+
+
+def license_findings(full, cand, sha, named):
+    """The license conditions a copy breaks: always condition 4 (its typosquatted name), and
+    condition 1 when the copyright notices it copied are missing. Returns (findings, license path)."""
+    if named == "former":
+        name_use = (f"its name uses a former name of this project ({', '.join(ALIASES)}), which is built on "
+                    "\"OpenCore Legacy Patcher\"")
+    else:
+        name_use = f"its name (`{cand['name']}`) is confusingly close to {ORIGINAL.split('/')[1]}, so it presents itself as that project"
+    condition4 = ("**Condition 4** (\"Neither the name of OpenCore Legacy Patcher, nor the names of Dortania, Dhinak G, "
+                  "or Mykola Grymalyuk may be used to endorse or promote products derived from this software without "
+                  "specific prior written permission\"; the same applies to the names of BridgePatcher's contributors): "
+                  f"{name_use}. No such permission was given.")
+    findings = [condition4]
+    path, missing = missing_notices(full, sha)
+    if path and missing:
+        findings.append("**Condition 1** (\"Redistributions of source code must retain the above copyright notice, "
+                        f"this list of conditions and the following disclaimer\"): the license file on the default branch "
+                        f"(`{path}`) is missing or doesn't carry these notices from the copied code: " + "; ".join(f"\"{l}\"" for l in missing))
+    return findings, path
+
+
+def license_notice(full, sha, path, findings, authors=(), behind=None):
+    bullet = "\n".join(f"- {f}" for f in findings)
+    link = f"https://github.com/{ORIGINAL}/blob/{sha}/{path}" if path else f"https://github.com/{ORIGINAL}"
+    update = ""
+    if behind:
+        count, theirs, latest, branch = behind
+        update = f"""
+**Please also update to the latest version.** This copy is {count} commit{"s" if count != 1 else ""} behind {ORIGINAL}""" + (
+            f" (it has version {theirs}, the latest is {latest})" if theirs and latest and theirs != latest else "") + f""". The latest version carries the up-to-date license, copyright and third-party notices, so updating is the easiest way to keep them complete:
+
+```bash
+git pull https://github.com/{ORIGINAL}.git {branch}
+```
+"""
+    return f"""{greeting(authors)}
+
+This repository contains the history of [{ORIGINAL}](https://github.com/{ORIGINAL}) (for example commit `{sha[:12]}`), so its code is distributed under [the project's license]({link}). The license allows copies and modified versions, but only under its conditions, and this copy doesn't meet them:
+
+{bullet}
+
+To fix this:
+
+- **Rename the repository** to something that doesn't use or imitate the project's names (Settings → General → Repository name), and
+- keep the license file with **all** copyright notices, the list of conditions and the disclaimer.
+{update}
+{how_to_rename(full)}
+
+Thanks for understanding!
+
+{LICENSE_MARKER}
+"""
+
+
 # ------------------------------------------------------------------ main --
 
 def summary(line):
@@ -550,6 +659,42 @@ def request_text(full, sha, named, fork_of, authors=()):
     return rename_request(full, sha, authors) if sha else name_request(full, fork_of, authors)
 
 
+def post_once(me, full, cand, ours, marker, title, body, commit_title, via_commit):
+    """Post a request on the copy once: an issue, or, when its issues are disabled and via_commit,
+    a comment on the newest commit of its default branch. body(authors) builds the text, with the
+    copy's owner and authors to @mention. Never twice: an earlier one of ours carrying marker
+    (an issue in any state, or a commit comment) is reused. Returns (its URL, note)."""
+    existing = paginate(f"/repos/{full}/issues?creator={me}&state=all&per_page=100") if cand.get("has_issues") else []
+    prior = next((i for i in existing if marker in (i.get("body") or "")), None)
+    if prior:
+        return prior["html_url"], ""
+    # An earlier request posted as a commit comment (see below) counts too
+    for c in paginate(f"/repos/{full}/comments?per_page=100"):
+        if marker in (c.get("body") or "") and (c.get("user") or {}).get("login") == me:
+            return c["html_url"], ""
+    authors = their_authors(full, cand, ours, me)
+    if not cand.get("has_issues"):
+        if not via_commit:
+            return None, "not possible, because issues are disabled"
+        # Issues are off: a comment on the newest commit of their default branch reaches the owner
+        # (GitHub notifies a repository's owner of comments on its commits; they can't be turned off)
+        head = get(f"/repos/{full}/commits/{urllib.parse.quote(cand.get('default_branch') or 'main', safe='')}")
+        if not head:
+            return None, "not possible, because issues are disabled (and the newest commit couldn't be read)"
+        status, data = post(f"/repos/{full}/commits/{head['sha']}/comments",
+                            {"body": f"**{commit_title}** (issues are disabled here, so "
+                                     f"this is a commit comment)\n\n{body(authors)}"})
+        time.sleep(3)
+        if status < 300:
+            return data.get("html_url") or f"https://github.com/{full}/commit/{head['sha']}", ""
+        return None, f"issues are disabled and the commit comment failed with HTTP {status}"
+    status, data = post(f"/repos/{full}/issues", {"title": title, "body": body(authors)})
+    time.sleep(3)
+    if status < 300:
+        return data["html_url"], ""
+    return None, f"failed with HTTP {status} (issues may be restricted, or you may be blocked)"
+
+
 def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons, ours):
     """Open one issue on the copy: a rename request with name ideas when it looks unintentional
     (a notice for its users when it looks suspicious, only with CONTACT_SUSPICIOUS). Never twice:
@@ -558,40 +703,31 @@ def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons, ours
         return None, "not contacted, because it looks suspicious (CONTACT_SUSPICIOUS=false)"
     if not me:
         return None, "not contacted, because no TYPOSQUAT_PAT secret is configured"
-    existing = paginate(f"/repos/{full}/issues?creator={me}&state=all&per_page=100") if cand.get("has_issues") else []
-    prior = next((i for i in existing if THEIR_MARKER in (i.get("body") or "")), None)
-    if prior:
-        return prior["html_url"], ""
-    # An earlier request posted as a commit comment (see below) counts too
-    for c in paginate(f"/repos/{full}/comments?per_page=100"):
-        if THEIR_MARKER in (c.get("body") or "") and (c.get("user") or {}).get("login") == me:
-            return c["html_url"], ""
-    authors = their_authors(full, cand, ours, me)
-    if not cand.get("has_issues"):
-        if not CONTACT_VIA_COMMIT or suspicious:
-            return None, "not possible, because issues are disabled"
-        # Issues are off: a comment on the newest commit of their default branch reaches the owner
-        # (GitHub notifies a repository's owner of comments on its commits; they can't be turned off)
-        head = get(f"/repos/{full}/commits/{urllib.parse.quote(cand.get('default_branch') or 'main', safe='')}")
-        if not head:
-            return None, "not possible, because issues are disabled (and the newest commit couldn't be read)"
-        body = request_text(full, sha, named, fork_of, authors)
-        status, data = post(f"/repos/{full}/commits/{head['sha']}/comments",
-                            {"body": f"**Please consider renaming this repository** (issues are disabled here, so "
-                                     f"this is a commit comment)\n\n{body}"})
-        time.sleep(3)
-        if status < 300:
-            return data.get("html_url") or f"https://github.com/{full}/commit/{head['sha']}", ""
-        return None, f"issues are disabled and the commit comment failed with HTTP {status}"
     title = (f"Notice: this repository is an unofficial copy of {ORIGINAL}" if suspicious
              else f"Please consider renaming: the name is very close to {ORIGINAL}")
-    body = (suspicious_notice(full, sha, reasons, authors) if suspicious and sha
-            else request_text(full, sha, named, fork_of, authors))
-    status, data = post(f"/repos/{full}/issues", {"title": title, "body": body})
-    time.sleep(3)
-    if status < 300:
-        return data["html_url"], ""
-    return None, f"failed with HTTP {status} (issues may be restricted, or you may be blocked)"
+    body = lambda authors: (suspicious_notice(full, sha, reasons, authors) if suspicious and sha
+                            else request_text(full, sha, named, fork_of, authors))
+    return post_once(me, full, cand, ours, THEIR_MARKER, title, body, "Please consider renaming this repository",
+                     CONTACT_VIA_COMMIT and not suspicious)
+
+
+def license_owner(me, full, cand, sha, named, suspicious, ours):
+    """Open one license violation issue on a copy of this project's history, whether it looks
+    suspicious or unintentional: the license applies to every copy of the code, and a typosquatted
+    name breaks it either way. Copies that look unintentional and are behind this project are also
+    asked to update to the latest version. Copies without this project's history aren't under its
+    license, so they get none. Never twice: an earlier one (found by its marker, open or closed) is
+    reused. Returns (their issue URL, note)."""
+    if not sha:
+        return None, "not applicable, because it contains none of this project's code"
+    if not me:
+        return None, "not contacted, because no TYPOSQUAT_PAT secret is configured"
+    findings, path = license_findings(full, cand, sha, named)
+    behind = None if suspicious else outdated(sha)
+    return post_once(me, full, cand, ours, LICENSE_MARKER,
+                     f"License violation: this copy of {ORIGINAL} doesn't meet the license conditions",
+                     lambda authors: license_notice(full, sha, path, findings, authors, behind), "License violation",
+                     CONTACT_VIA_COMMIT)
 
 
 def main():
@@ -700,13 +836,18 @@ def main():
         if not link.startswith("http"):
             their_url, note = contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons, authors)
             link = their_url or note
+        # License violation issue on their repo, suspicious or not: once, retried like the rename request
+        license_link = (prior or {}).get("license", "")
+        if not license_link.startswith("http"):
+            their_url, note = license_owner(me, full, cand, sha, named, suspicious, authors)
+            license_link = their_url or note
 
         # 4. Entry in the tracker issue
         tracker.upsert("repos", full, {
             "name": cand["full_name"], "source": "typosquat",
             "status": "⚠️ suspicious" if suspicious else "🟢 active",
             "what": f"{verdict}: " + "; ".join(reasons + [describe_copy(sha, own)]),
-            "request": link,
+            "request": link, "license": license_link,
         })
 
     # Copies listed before that this run's searches didn't return: still there, renamed, or gone?

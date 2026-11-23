@@ -283,10 +283,11 @@ def render(state):
         f"### Repositories ({len(repos)})",
     ]
     if repos:
-        out += ["| Repository | Status | What we found | Rename request | First seen | Last seen |",
-                "|---|---|---|---|---|---|"]
+        out += ["| Repository | Status | What we found | Rename request | License notice | First seen | Last seen |",
+                "|---|---|---|---|---|---|---|"]
         out += [f"| `{e.get('name') or k}` | {cell(e.get('status'), 80)} | {cell(e.get('what'))} "
-                f"| {cell(e.get('request') or '—', 120)} | {e['first_seen']} | {e['last_seen']} |"
+                f"| {cell(e.get('request') or '—', 120)} | {cell(e.get('license') or '—', 120)} "
+                f"| {e['first_seen']} | {e['last_seen']} |"
                 for k, e in sorted(repos.items())]
     else:
         out.append("None right now.")
@@ -321,6 +322,7 @@ def render(state):
         "handled (it moves to *Dismissed* and is never listed again), or `/undismiss <name>` to list it again. "
         "Copies whose issues are enabled get a rename request automatically if they look unintentional; "
         "suspicious ones are only listed, so they can be reported (**Report repository** in their sidebar). "
+        "Every copy of this project's code also gets a license violation notice, suspicious or not. "
         f"Entries no watch has seen for {FORGET_DAYS} days, or taken down / resolved for {RESOLVED_DAYS} days, "
         "are removed. Closing this issue pauses the watches. Names are shown as code on purpose, so they "
         "aren't clickable.</sub>",
