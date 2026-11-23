@@ -8,8 +8,6 @@ This release:
   - in the list of board IDs the kext leaves alone because macOS Tahoe supports them, `Mac-5A49A3736D181579` is replaced by `Mac-E1008331FDC96864` (MacBookPro16,1)
   - not changed, flagged for the kext's author: that list still has the MacBookPro16,3 (`Mac-E7203C0F68AA0004`), which macOS Tahoe doesn't support, and lacks the MacBookPro16,4 (`Mac-A61BADE1FDAD7B05`)
   - build and install OpenCore again to get it. Not yet confirmed on real hardware
-- repository: the typosquat watch now @mentions the owner and the latest commit authors of a lookalike copy in rename requests, and closes its rename issue with a thank-you once the copy is renamed
-- repository: the typosquat article watch no longer flags correction notes ("This article originally said…") or questions as false claims about this project
 
 ## 4.0.0.2000004.0.0.7 - 4.0.0 alpha 20.4 Preview
 This release:
