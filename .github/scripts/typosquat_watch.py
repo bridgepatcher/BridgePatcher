@@ -9,7 +9,8 @@ Legacy Patcher) renamed to "BridgePatcher" or "OpenCore-Legacy-Patcher-T2".
 Real forks of this repository are never flagged.
 
 Copies of this project's history also get a license violation issue, whether they
-look suspicious or not (once; unintentional ones that are behind are asked to update)."""
+look suspicious or not (once): unintentional ones are asked to rename (and to update
+when they are behind), suspicious ones to take the repository down."""
 
 import base64
 import json
@@ -606,7 +607,7 @@ def license_findings(full, cand, sha, named):
     return findings, path
 
 
-def license_notice(full, sha, path, findings, authors=(), behind=None):
+def license_notice(full, sha, path, findings, authors=(), behind=None, suspicious=False):
     bullet = "\n".join(f"- {f}" for f in findings)
     link = f"https://github.com/{ORIGINAL}/blob/{sha}/{path}" if path else f"https://github.com/{ORIGINAL}"
     update = ""
@@ -620,19 +621,24 @@ def license_notice(full, sha, path, findings, authors=(), behind=None):
 git pull https://github.com/{ORIGINAL}.git {branch}
 ```
 """
+    # Copies that look deliberate (see assess()) are asked to take the repository down, not to fix it
+    fix = ("""**Please take this repository down** (Settings → General → Danger Zone → **Delete this repository**). """
+           f"""It looks like a deliberate imitation of {ORIGINAL}, and people downloading from it can't tell that it """
+           """isn't the official project.
+""" if suspicious else f"""To fix this:
+
+- **Rename the repository** to something that doesn't use or imitate the project's names (Settings → General → Repository name), and
+- keep the license file with **all** copyright notices, the list of conditions and the disclaimer.
+{update}
+{how_to_rename(full)}
+""")
     return f"""{greeting(authors)}
 
 This repository contains the history of [{ORIGINAL}](https://github.com/{ORIGINAL}) (for example commit `{sha[:12]}`), so its code is distributed under [the project's license]({link}). The license allows copies and modified versions, but only under its conditions, and this copy doesn't meet them:
 
 {bullet}
 
-To fix this:
-
-- **Rename the repository** to something that doesn't use or imitate the project's names (Settings → General → Repository name), and
-- keep the license file with **all** copyright notices, the list of conditions and the disclaimer.
-{update}
-{how_to_rename(full)}
-
+{fix}
 Thanks for understanding!
 
 {LICENSE_MARKER}
@@ -714,8 +720,8 @@ def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons, ours
 def license_owner(me, full, cand, sha, named, suspicious, ours):
     """Open one license violation issue on a copy of this project's history, whether it looks
     suspicious or unintentional: the license applies to every copy of the code, and a typosquatted
-    name breaks it either way. Copies that look unintentional and are behind this project are also
-    asked to update to the latest version. Copies without this project's history aren't under its
+    name breaks it either way. Copies that look unintentional are asked to fix it (and, when they
+    are behind this project, to update to the latest version); suspicious ones to take it down. Copies without this project's history aren't under its
     license, so they get none. Never twice: an earlier one (found by its marker, open or closed) is
     reused. Returns (their issue URL, note)."""
     if not sha:
@@ -726,7 +732,8 @@ def license_owner(me, full, cand, sha, named, suspicious, ours):
     behind = None if suspicious else outdated(sha)
     return post_once(me, full, cand, ours, LICENSE_MARKER,
                      f"License violation: this copy of {ORIGINAL} doesn't meet the license conditions",
-                     lambda authors: license_notice(full, sha, path, findings, authors, behind), "License violation",
+                     lambda authors: license_notice(full, sha, path, findings, authors, behind, suspicious),
+                     "License violation",
                      CONTACT_VIA_COMMIT)
 
 
