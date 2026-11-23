@@ -1,4 +1,16 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.0.0.8 - 4.0.0 alpha 20.4 Preview
+This release:
+- fixes the app crashing with "segmentation fault" (sometimes "bus error") after installing OpenCore, right after the message that the guide on turning off Secure Boot and SIP will open. The crash wasn't in the install: the main menu checks for updates again every 60 seconds while the app stays open, and that timer kept running after the main menu was closed (e.g. by Build and Install OpenCore). Each tick was sent to the closed window, which crashed the app as soon as its memory was reused. The timer now stops once the main menu is gone. Opening the guide with macOS's `open` command in 4.0.0.2000004.0.0.5 wasn't the fix for this. Not yet confirmed on real hardware
+- when the app crashes in native code (wxWidgets, macOS frameworks), the log file now ends with the Python stack of every thread instead of stopping without a word, so crash reports show where it happened
+- on T2 Macs, updates T2TahoeFixup.kext to 1.0.26, a patched 1.0.25 that fixes the two unknown board IDs left in 1.0.25 (#834). The kext's source isn't available, so this is a patch of the binary (25 bytes), not a new build:
+  - the Mac Pro 2019 (MacPro7,1) was paired with `Mac-27AD2020579F6309`, which is no Mac's board ID, so on a genuine Mac Pro 2019 the kext turned itself on instead of staying inactive. It's now `Mac-27AD2F918AE68F61`, the Mac Pro 2019's real board ID
+  - in the list of board IDs the kext leaves alone because macOS Tahoe supports them, `Mac-5A49A3736D181579` is replaced by `Mac-E1008331FDC96864` (MacBookPro16,1)
+  - not changed, flagged for the kext's author: that list still has the MacBookPro16,3 (`Mac-E7203C0F68AA0004`), which macOS Tahoe doesn't support, and lacks the MacBookPro16,4 (`Mac-A61BADE1FDAD7B05`)
+  - build and install OpenCore again to get it. Not yet confirmed on real hardware
+- repository: the typosquat watch now @mentions the owner and the latest commit authors of a lookalike copy in rename requests, and closes its rename issue with a thank-you once the copy is renamed
+- repository: the typosquat article watch no longer flags correction notes ("This article originally said…") or questions as false claims about this project
+
 ## 4.0.0.2000004.0.0.7 - 4.0.0 alpha 20.4 Preview
 This release:
 - adds "Power Button NMI" under Settings → Debugging. It sets `debug=0x8104` in the boot-args of every EFI, for T2 Macs and Macs without a T2 chip alike. On top of `debug=0x104` (no reboot on panic, NMI from the keyboard combo Control + Option + Command + Shift + Esc), the added 0x8000 lets a short press on the power button trigger the NMI. That helps when macOS hangs during boot before the keyboard works (e.g. while the USB ports come up on a Mac mini 2018), so the hang can still be turned into a panic with a backtrace. Hold the button and the Mac turns off as usual. Off by default
