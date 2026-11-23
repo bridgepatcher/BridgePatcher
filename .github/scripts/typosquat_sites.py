@@ -136,6 +136,18 @@ EXCLUDED = re.compile(
     r"\bsauf\b|\bsans\b|\bexclu|\bpas\b|\bne\b|"
     r"\bnon\b|\btranne\b|\beccetto\b|\bsenza\b|\besclu|"
     r"\bn[ãa]o\b|\bsem\b|\bexceto\b|\bexclui")
+# Correction and update notes: they repeat a false claim only to withdraw it ("Update: This article
+# originally said OpenCore Legacy Patcher would be an option for Intel Macs to run macOS 27. That has
+# been corrected." — Cult of Mac, 2026). A sentence matching this, or right after one, isn't a claim.
+RETRACTED = re.compile(
+    r"\b(?:originally|previously|initially|earlier|first)\s+(?:said|stated|reported|claimed|suggested|wrote|"
+    r"listed|mentioned|indicated|implied)\b|\b(?:earlier|previous|prior|original|older)\s+version\b|"
+    r"\bcorrect(?:ed|ion)\b|\bretract|\b(?:erroneously|incorrectly|wrongly|mistakenly|falsely)\b|"
+    r"\b(?:this|the)\s+(?:article|post|story)\s+(?:has\s+been|was)\s+(?:updated|amended|changed)|"
+    r"urspr[uü]nglich|korrigiert|\bkorrektur|f[aä]lschlich|"
+    r"\boriginalmente|\binicialmente|\bcorregid|\bcorrecci[oó]n|err[oó]neamente|"
+    r"\binitialement|\bcorrig[ée]|\brectifi|par erreur|"
+    r"\bcorrezione|\bper errore|\bcorrigid|\bcorre[cç][aã]o")
 SENTENCE_END = re.compile(r"(?<=[.!?;])\s+|(?<=[。！？；])|\s+[|•·–—]\s+")
 # Longer "sentences" are run-on text (lists, scripts, writing without punctuation); not judged
 MAX_SENTENCE = 400
@@ -810,6 +822,14 @@ def page_lang(page):
     return m.group(1).lower() if m else ""
 
 
+def not_a_claim(sentences, i):
+    """sentences[i] asks a question ("Can OpenCore Legacy Patcher run macOS 27?") or belongs to a
+    correction note (RETRACTED, in it or in the sentence before), so it states nothing."""
+    sent = sentences[i].strip()
+    return (sent.endswith(("?", "？")) or bool(RETRACTED.search(sent))
+            or (i > 0 and bool(RETRACTED.search(sentences[i - 1]))))
+
+
 def t2_claim(text, context=2):
     """The sentence in which `text` says OpenCore Legacy Patcher (gained) support for T2 Macs, or "":
     one that mentions T2 and a claim word and nothing that negates it or leaves T2 Macs out,
@@ -817,6 +837,8 @@ def t2_claim(text, context=2):
     sentences = [x for x in SENTENCE_END.split(text) if x.strip()]
     for i, sent in enumerate(sentences):
         if len(sent) > MAX_SENTENCE or not T2_CHIP.search(sent) or EXCLUDED.search(sent):
+            continue
+        if not_a_claim(sentences, i):
             continue
         if not any(not NEGATED.search(sent[max(0, c.start() - 40):c.start()])
                    for c in SUPPORT_CLAIM.finditer(sent)):
@@ -847,8 +869,9 @@ def false_claim(text, names=None):
     """(name, what's wrong, sentence) for the first FALSE_CLAIMS claim in `text`, or None. The
     sentence must name the project, then a claim word, then the topic, in that order and in one
     clause, with nothing that negates or excludes it."""
-    for sent in SENTENCE_END.split(text):
-        if not sent.strip() or len(sent) > MAX_SENTENCE or EXCLUDED.search(sent):
+    sentences = [x for x in SENTENCE_END.split(text) if x.strip()]
+    for i, sent in enumerate(sentences):
+        if len(sent) > MAX_SENTENCE or EXCLUDED.search(sent) or not_a_claim(sentences, i):
             continue
         for m in OCLP_NAMES.finditer(sent):
             tail = sent[m.end():m.end() + 200]
