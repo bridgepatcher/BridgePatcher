@@ -58,6 +58,31 @@ def fetch_upstream() -> str | None:
         return None
 
 
+# The checks on file contents, without the repository around them: the typosquat watch runs
+# them on copies of this project too, whose files it reads through the API.
+
+def missing_license_lines(text: str, upstream: str) -> list:
+    """Lines of Dortania's license (upstream) that text doesn't contain (years and whitespace ignored)."""
+    ours = norm(text)
+    return [line.strip() for line in upstream.splitlines() if norm(line) and norm(line) not in ours]
+
+
+def spec_bundles_license(text: str, filename: str = SPEC_PATH) -> bool:
+    """Does a PyInstaller spec bundle LICENSE.txt? Only real code counts: a commented-out line
+    isn't in the AST. Raises SyntaxError when the spec can't be parsed."""
+    tree = ast.parse(text, filename=filename)
+    return any(
+        isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.endswith(LICENSE_PATH)
+        for node in ast.walk(tree)
+    )
+
+
+def has_acknowledgement(text: str) -> bool:
+    """Does a Markdown file show condition 3's acknowledgement? Quotes and line wrapping don't
+    matter, the sentence does."""
+    return norm(ACKNOWLEDGEMENT) in norm(re.sub(r"(?m)^\s*>\s?", "", text))
+
+
 def check_license(root: Path, errors: list) -> None:
     path = root / LICENSE_PATH
     if not path.is_file():
@@ -66,11 +91,8 @@ def check_license(root: Path, errors: list) -> None:
     upstream = fetch_upstream()
     if upstream is None:
         return
-    ours = norm(path.read_text(encoding="utf-8"))
-    for line in upstream.splitlines():
-        wanted = norm(line)
-        if wanted and wanted not in ours:
-            errors.append((LICENSE_PATH, f"Missing or changed upstream license line: {line.strip()[:200]}"))
+    for line in missing_license_lines(path.read_text(encoding="utf-8"), upstream):
+        errors.append((LICENSE_PATH, f"Missing or changed upstream license line: {line[:200]}"))
 
 
 def check_spec(root: Path, errors: list) -> None:
@@ -79,15 +101,10 @@ def check_spec(root: Path, errors: list) -> None:
         errors.append((SPEC_PATH, "Build spec is missing, can't confirm LICENSE.txt is shipped in the app"))
         return
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=SPEC_PATH)
+        bundled = spec_bundles_license(path.read_text(encoding="utf-8"), SPEC_PATH)
     except SyntaxError as error:
         errors.append((SPEC_PATH, f"Build spec can't be parsed: {error}"))
         return
-    # Only real code counts: a commented-out line isn't in the AST.
-    bundled = any(
-        isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.endswith(LICENSE_PATH)
-        for node in ast.walk(tree)
-    )
     if not bundled:
         errors.append((SPEC_PATH, "LICENSE.txt is no longer bundled into the app (BSD condition 2)"))
 
@@ -98,10 +115,7 @@ def check_readme(root: Path, errors: list, rel: str = README_PATH, required: boo
         if required:
             errors.append((rel, f"{rel} is missing"))
         return
-    text = path.read_text(encoding="utf-8")
-    # Markdown quotes and line wrapping don't matter, the sentence does.
-    text = re.sub(r"(?m)^\s*>\s?", "", text)
-    if norm(ACKNOWLEDGEMENT) not in norm(text):
+    if not has_acknowledgement(path.read_text(encoding="utf-8")):
         errors.append((rel, f'Acknowledgement missing (BSD condition 3): "{ACKNOWLEDGEMENT}"'))
 
 

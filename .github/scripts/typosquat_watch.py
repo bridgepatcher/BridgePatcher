@@ -9,12 +9,16 @@ Legacy Patcher) renamed to "BridgePatcher" or "OpenCore-Legacy-Patcher-T2".
 Real forks of this repository are never flagged.
 
 Copies of this project's history also get a license violation issue, whether they
-look suspicious or not (once): unintentional ones are asked to rename (and to update
-when they are behind), suspicious ones to take the repository down. Renamed copies are
-still checked for the license on every run: their notice gets one reminder while the
-copyright notices are missing, and is closed once the license conditions are met."""
+look suspicious or not (once): unintentional ones are asked to rename, suspicious ones to
+take the repository down. Every copy that isn't suspicious (renamed ones too) is also asked to
+update when it is behind, since the latest version meets the license. Renamed copies are
+still checked for the license on every run, with the same checks the License compliance
+workflow runs on this project (license text, the build shipping it, the README acknowledgement):
+their notice gets one reminder while a condition is broken (or is reopened, if it was closed
+too early), and is closed once the license conditions are met."""
 
 import base64
+import functools
 import json
 import os
 import re
@@ -24,6 +28,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+
+# The same license checks this project runs on itself (License compliance workflow), here on copies
+import check_license_compliance as compliance  # noqa: E402
 
 API = "https://api.github.com"
 TOKEN = os.environ["GH_TOKEN"]
@@ -514,16 +521,17 @@ To the owner{" (" + ", ".join(f"@{a}" for a in authors) + ")" if authors else ""
 """
 
 
-def our_open_issue(me, link, full, marker):
+def our_open_issue(me, link, full, marker, closed_too=False):
     """The API path of the issue at link (an issue URL from the tracker) when it's our own, still
-    open and carries marker, else None. full is the copy's current name, since API writes to the
-    old name aren't redirected. Requests posted as commit comments never match."""
+    open (or closed too, with closed_too) and carries marker, else None. full is the copy's current
+    name, since API writes to the old name aren't redirected. Requests posted as commit comments
+    never match."""
     m = re.fullmatch(r"https://github\.com/[^/]+/[^/]+/issues/(\d+)", link or "")
     if not me or not m:
         return None
     path = f"/repos/{full}/issues/{m.group(1)}"
     issue = get(path)
-    if (not issue or issue.get("state") != "open" or (issue.get("user") or {}).get("login") != me
+    if (not issue or (issue.get("state") != "open" and not closed_too) or (issue.get("user") or {}).get("login") != me
             or marker not in (issue.get("body") or "")):
         return None
     return path
@@ -570,23 +578,112 @@ def holder(line):
 
 
 def missing_notices(full, sha):
-    """(license path, copyright lines missing in the copy) for the license file this project had
-    at the copied commit: the copy is compared with what it copied, not with today's file.
-    (None, []) when that can't be read."""
+    """(license path, copyright lines missing in the copy, the copy's license text) for the license
+    file this project had at the copied commit: the copy is compared with what it copied, not with
+    today's file. (None, [], "") when that can't be read."""
     path = ((get(f"/repos/{ORIGINAL}/license") or {}).get("path")) or "LICENSE.txt"
     ours = file_text(ORIGINAL, path, sha)
     if ours is None:
-        return None, []
+        return None, [], ""
     theirs = file_text(full, path) or file_text(full, (get(f"/repos/{full}/license") or {}).get("path") or path) or ""
     kept = " " + holder(theirs) + " "
     lines = [l.strip() for l in ours.splitlines() if re.match(r"\s*Copyright\b", l)]
-    return path, [l for l in lines if holder(l) and f" {holder(l)} " not in kept]
+    return path, [l for l in lines if holder(l) and f" {holder(l)} " not in kept], theirs
+
+
+@functools.lru_cache(maxsize=None)
+def dortania_license():
+    """Dortania's current LICENSE.txt, fetched once per run, or None."""
+    return compliance.fetch_upstream()
+
+
+def readme_text(full):
+    """The copy's README (whatever GitHub shows as its README), or None."""
+    data = get(f"/repos/{full}/readme")
+    if not isinstance(data, dict) or data.get("encoding") != "base64":
+        return None
+    return base64.b64decode(data.get("content") or "").decode("utf-8", "replace")
+
+
+def build_specs(full):
+    """{path: text} of the PyInstaller specs at the top of the copy's default branch."""
+    listing = get(f"/repos/{full}/contents/")
+    names = [i["path"] for i in listing if isinstance(i, dict) and i.get("type") == "file"
+             and i.get("path", "").endswith(".spec")] if isinstance(listing, list) else []
+    return {n: t for n in names if (t := file_text(full, n)) is not None}
+
+
+def compliance_findings(full, path, theirs, missing):
+    """What the License compliance workflow would report on the copy, as license findings:
+    Dortania's full license text (condition 1, together with the copied copyright notices in
+    missing), the build bundling the license file (condition 2) and the acknowledgement in the
+    README (condition 3)."""
+    findings = []
+    upstream = dortania_license()
+    lost = list(missing)
+    if upstream:
+        reported = {holder(l) for l in missing}
+        lost += [l for l in compliance.missing_license_lines(theirs, upstream)
+                 if not (re.match(r"Copyright\b", l) and holder(l) in reported)]
+    if lost:
+        findings.append("**Condition 1** (\"Redistributions of source code must retain the above copyright notice, "
+                        f"this list of conditions and the following disclaimer\"): the license file on the default branch "
+                        f"(`{path}`) is missing or doesn't carry these lines from the copied code: "
+                        + "; ".join(f"\"{l[:200]}\"" for l in lost)
+                        + ". Restore the complete license text.")
+    specs = build_specs(full)
+    unbundled = []
+    for name, text in specs.items():
+        try:
+            if not compliance.spec_bundles_license(text, name):
+                unbundled.append(name)
+        except SyntaxError:
+            pass  # can't tell from a spec that doesn't parse
+    if unbundled:
+        findings.append("**Condition 2** (\"Redistributions in binary form must reproduce the above copyright notice, "
+                        "this list of conditions and the following disclaimer in the documentation and/or other materials "
+                        "provided with the distribution\"): the app build (" + ", ".join(f"`{n}`" for n in unbundled)
+                        + f") doesn't bundle `{compliance.LICENSE_PATH}`, so the app it builds ships without the license. "
+                        f"Add `{compliance.LICENSE_PATH}` to the spec's `datas`.")
+    readme = readme_text(full)
+    docs = file_text(full, compliance.DOCS_README_PATH)
+    lacking = [n for n, t in (("README", readme), (compliance.DOCS_README_PATH, docs))
+               if (t is not None or n == "README") and not compliance.has_acknowledgement(t or "")]
+    if lacking:
+        findings.append("**Condition 3** (\"All advertising materials mentioning features or use of this software must "
+                        "display the following acknowledgement\"): " + " and ".join(f"the {n}" if n == "README" else f"`{n}`" for n in lacking)
+                        + (" describes the patcher's features but doesn't" if len(lacking) == 1 else " describe the patcher's features but don't")
+                        + " show it. Add this sentence: "
+                        + f"\"{compliance.ACKNOWLEDGEMENT}\"")
+    return findings
 
 
 def patcher_version(ref):
-    """The app version (constants.py) at a commit of this project, or None."""
-    m = re.search(r'patcher_version:\s*str\s*=\s*"([^"]+)"', file_text(ORIGINAL, "bridgepatcher/constants.py", ref) or "")
-    return m.group(1) if m else None
+    """The app version (constants.py) at a commit of this project, or None. Older commits keep it
+    under the package's former name, opencore_legacy_patcher/."""
+    for package in ("bridgepatcher", "opencore_legacy_patcher"):
+        m = re.search(r'patcher_version:\s*str\s*=\s*"([^"]+)"', file_text(ORIGINAL, f"{package}/constants.py", ref) or "")
+        if m:
+            return m.group(1)
+    return None
+
+
+def version_label(version):
+    """The version as the CHANGELOG and releases name it: "4.0.0.2000003.8.1" → "4.0.0 alpha 20.3.8.1",
+    "4.0.0a15.4.2" → "4.0.0 alpha 15.4.2". Build numbers have been alpha * 100000 + sub (7 digits),
+    alpha * 10000 + sub (6) and alpha * 1000 + sub (5). Anything else is returned as it is."""
+    if not version:
+        return version
+    m = re.fullmatch(r"(\d+\.\d+\.\d+)a(\d+(?:\.\d+)*)", version)
+    if m:
+        return f"{m.group(1)} alpha {m.group(2)}"
+    m = re.fullmatch(r"(\d+\.\d+\.\d+)\.(\d{5,7})((?:\.\d+)*)", version)
+    if not m:
+        return version
+    build = m.group(2)
+    alpha, sub = divmod(int(build), {7: 100000, 6: 10000, 5: 1000}[len(build)])
+    rest = m.group(3)
+    return f"{m.group(1)} alpha {alpha}" + (f".{sub}" if sub or rest else "") + rest
 
 
 def outdated(sha):
@@ -603,8 +700,8 @@ def outdated(sha):
 
 def license_findings(full, cand, sha, named, renamed=False):
     """The license conditions a copy breaks: condition 4 (its typosquatted name) unless it has been
-    renamed, and condition 1 when the copyright notices it copied are missing. Returns (findings,
-    license path)."""
+    renamed, and conditions 1-3 as the License compliance workflow checks them on this project
+    (see compliance_findings()). Returns (findings, license path)."""
     if named == "former":
         name_use = (f"its name uses a former name of this project ({', '.join(ALIASES)}), which is built on "
                     "\"OpenCore Legacy Patcher\"")
@@ -616,38 +713,46 @@ def license_findings(full, cand, sha, named, renamed=False):
                   f"{name_use}. No such permission was given.")
     # A renamed copy's name no longer imitates the project, so condition 4 is met
     findings = [] if renamed else [condition4]
-    path, missing = missing_notices(full, sha)
-    if path and missing:
-        findings.append("**Condition 1** (\"Redistributions of source code must retain the above copyright notice, "
-                        f"this list of conditions and the following disclaimer\"): the license file on the default branch "
-                        f"(`{path}`) is missing or doesn't carry these notices from the copied code: " + "; ".join(f"\"{l}\"" for l in missing))
+    path, missing, theirs = missing_notices(full, sha)
+    if path:
+        findings += compliance_findings(full, path, theirs, missing)
     return findings, path
+
+
+def update_advice(behind):
+    """The recommendation to update a copy that is behind this project (see outdated()), as the
+    easiest way to fix its license findings: the latest version meets the conditions the License
+    compliance workflow checks. "" when it's up to date or that can't be told."""
+    if not behind:
+        return ""
+    count, theirs, latest, branch = behind
+    versions = (f" (it has version {version_label(theirs)}, the latest is **{version_label(latest)}**)"
+                if theirs and latest and theirs != latest else "")
+    return f"""
+**The easiest fix: update to the latest version.** This copy is {count} commit{"s" if count != 1 else ""} behind {ORIGINAL}{versions}. The latest version meets these license conditions: it has the complete license text with all copyright and third-party notices, its app build (`{compliance.SPEC_PATH}`) bundles `{compliance.LICENSE_PATH}`, and its README shows the acknowledgement. To update:
+
+```bash
+git pull https://github.com/{ORIGINAL}.git {branch}
+```
+
+If that reports merge conflicts in `{compliance.LICENSE_PATH}`, `README.md` or the build spec, keep the license text, the acknowledgement and the bundled license file from the latest version, and build the app with `{compliance.SPEC_PATH}` (an older spec of your own still needs `{compliance.LICENSE_PATH}` added to its `datas`).
+"""
 
 
 def license_notice(full, sha, path, findings, authors=(), behind=None, suspicious=False, renamed=False):
     bullet = "\n".join(f"- {f}" for f in findings)
     link = f"https://github.com/{ORIGINAL}/blob/{sha}/{path}" if path else f"https://github.com/{ORIGINAL}"
-    update = ""
-    if behind:
-        count, theirs, latest, branch = behind
-        update = f"""
-**Please also update to the latest version.** This copy is {count} commit{"s" if count != 1 else ""} behind {ORIGINAL}""" + (
-            f" (it has version {theirs}, the latest is {latest})" if theirs and latest and theirs != latest else "") + f""". The latest version carries the up-to-date license, copyright and third-party notices, so updating is the easiest way to keep them complete:
-
-```bash
-git pull https://github.com/{ORIGINAL}.git {branch}
-```
-"""
+    update = update_advice(behind)
     # Copies that look deliberate (see assess()) are asked to take the repository down, not to fix it;
     # renamed ones only have the license file left to fix
-    fix = ("""To fix this, keep the license file with **all** copyright notices, the list of conditions and the disclaimer.
-""" if renamed else """**Please take this repository down** (Settings → General → Danger Zone → **Delete this repository**). """
+    fix = (f"""To fix this, do what each point above asks.
+{update}""" if renamed else """**Please take this repository down** (Settings → General → Danger Zone → **Delete this repository**). """
            f"""It looks like a deliberate imitation of {ORIGINAL}, and people downloading from it can't tell that it """
            """isn't the official project.
 """ if suspicious else f"""To fix this:
 
 - **Rename the repository** to something that doesn't use or imitate the project's names (Settings → General → Repository name), and
-- keep the license file with **all** copyright notices, the list of conditions and the disclaimer.
+- fix the other points above.
 {update}
 {how_to_rename(full)}
 """)
@@ -742,19 +847,27 @@ def license_owner(me, full, cand, sha, named, suspicious, ours, renamed=False):
     name breaks it either way. Copies that look unintentional are asked to fix it (and, when they
     are behind this project, to update to the latest version); suspicious ones to take it down. Copies without this project's history aren't under its
     license, so they get none. Never twice: an earlier one (found by its marker, open or closed) is
-    reused. renamed: the copy no longer has a typosquatted name, so only the license file is
-    asked for. Returns (their issue URL, note)."""
+    reused. renamed: the copy no longer has a typosquatted name, so only conditions 1-3 are
+    asked for. Every copy that isn't suspicious is also told how far it is behind this project and
+    asked to update, since the latest version meets the license conditions. Returns (their issue
+    URL, note)."""
     if not sha:
         return None, "not applicable, because it contains none of this project's code"
     if not me:
         return None, "not contacted, because no TYPOSQUAT_PAT secret is configured"
     findings, path = license_findings(full, cand, sha, named, renamed)
-    behind = None if suspicious or renamed else outdated(sha)
+    behind = None if suspicious else outdated(sha)
     return post_once(me, full, cand, ours, LICENSE_MARKER,
                      f"License violation: this copy of {ORIGINAL} doesn't meet the license conditions",
                      lambda authors: license_notice(full, sha, path, findings, authors, behind, suspicious, renamed),
                      "License violation",
                      CONTACT_VIA_COMMIT)
+
+
+def status_line(full, findings):
+    """Tracker status of a renamed copy that still breaks the license, naming the conditions."""
+    conditions = re.findall(r"\*\*Condition (\d)\*\*", " ".join(findings))
+    return f"⚠️ renamed to {full}, but still breaks the license (condition{'s' if len(conditions) != 1 else ''} {', '.join(conditions)})"
 
 
 def recheck_license(me, full, cand, e, shas, ours):
@@ -773,14 +886,34 @@ def recheck_license(me, full, cand, e, shas, ours):
     if not findings:
         close_issue(me, link, full, LICENSE_MARKER, f"""Thanks for renaming the repository to **{full}**! 🎉
 
-Its name no longer imitates [{ORIGINAL}](https://github.com/{ORIGINAL}) and its license file keeps the copyright notices, so the license conditions are met now. This notice is closed automatically.""",
+Its name no longer imitates [{ORIGINAL}](https://github.com/{ORIGINAL}), its license file is complete, its app build ships the license and its README shows the acknowledgement, so the license conditions are met now. This notice is closed automatically.""",
                     "license notice")
         return f"✅ renamed to {full}, license conditions met", link
-    status = f"⚠️ renamed to {full}, but still breaks the license"
+    status = status_line(full, findings)
     if not link.startswith("http"):
         their_url, note = license_owner(me, full, cand, sha, None, False, ours, renamed=True)
         return status, their_url or note
     issue = our_open_issue(me, link, full, LICENSE_MARKER)
+    closed = None if issue else our_open_issue(me, link, full, LICENSE_MARKER, closed_too=True)
+    if closed and (get(closed) or {}).get("state_reason") == "completed":
+        # Closed by an earlier run that only compared the copyright lines: reopen it with what's left
+        bullet = "\n".join(f"- {f}" for f in findings)
+        status, _, _ = request("PATCH", closed, {"state": "open"})
+        if status < 300:
+            post(f"{closed}/comments", {"body": f"""Reopening this notice: it was closed too early, because only the copyright notices were checked. The license is still broken:
+
+{bullet}
+
+To fix this, do what each point above asks.
+{update_advice(outdated(sha))}
+This notice is closed automatically once that's done.
+
+{LICENSE_REMINDER_MARKER}
+"""})
+        else:
+            print(f"::warning::Couldn't reopen the license notice {link} (HTTP {status})")
+        time.sleep(3)
+        return status_line(full, findings), link
     if issue and not any(LICENSE_REMINDER_MARKER in (c.get("body") or "") and (c.get("user") or {}).get("login") == me
                          for c in paginate(f"{issue}/comments?per_page=100")):
         bullet = "\n".join(f"- {f}" for f in findings)
@@ -790,7 +923,9 @@ The license is still broken, though:
 
 {bullet}
 
-To fix this, keep the license file with **all** copyright notices, the list of conditions and the disclaimer. This notice is closed automatically once that's done.
+To fix this, do what each point above asks.
+{update_advice(outdated(sha))}
+This notice is closed automatically once that's done.
 
 {LICENSE_REMINDER_MARKER}
 """})
