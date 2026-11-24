@@ -51,6 +51,14 @@ def online(status):
     return str(status or "").startswith(("🟢", "🟠"))
 
 
+def people(entry):
+    """" (by @owner, @author)" after a repository: the people behind it, as
+    typosquat_watch.their_authors() found them, mentioned so they're notified. Anything that
+    isn't a GitHub login is left out."""
+    logins = [p for p in entry.get("people") or [] if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}", p)]
+    return f" (by {', '.join(f'@{p}' for p in logins)})" if logins else ""
+
+
 def cell(text, limit=300):
     text = re.sub(r"\s+", " ", str(text or "")).replace("|", "\\|").replace("`", "'").strip()
     return text if len(text) <= limit else text[: limit - 1] + "…"
@@ -169,7 +177,7 @@ class Tracker:
 
     # ---------------------------------------------------------------- writing --
     def upsert(self, section, key, info, revive_when_online=False):
-        """Add or refresh an entry (info: name, status, what, and optionally request/report).
+        """Add or refresh an entry (info: name, status, what, and optionally request/report/people).
         Returns True if it's new. Dismissed entries are ignored, except with revive_when_online
         (watched addresses: former official ones, known fakes, copycat repos' sites): one that was
         dismissed while offline comes back when it goes online."""
@@ -285,7 +293,7 @@ def render(state):
     if repos:
         out += ["| Repository | Status | What we found | Rename request | License notice | First seen | Last seen |",
                 "|---|---|---|---|---|---|---|"]
-        out += [f"| `{e.get('name') or k}` | {cell(e.get('status'), 80)} | {cell(e.get('what'))} "
+        out += [f"| `{e.get('name') or k}`{people(e)} | {cell(e.get('status'), 80)} | {cell(e.get('what'))} "
                 f"| {cell(e.get('request') or '—', 120)} | {cell(e.get('license') or '—', 120)} "
                 f"| {e['first_seen']} | {e['last_seen']} |"
                 for k, e in sorted(repos.items())]

@@ -356,9 +356,10 @@ def our_authors():
 def their_authors(full, cand, ours, me=None, limit=10):
     """GitHub logins of the people behind a copy, to @mention in the rename request: its owner
     when that's a user account, or, when it's an organization (an organization's own name doesn't
-    notify anyone), every member of it, then the authors of the newest commits on its default
-    branch (at most limit, a user owner included), leaving out this project's own authors, bots
-    and ourselves. Only an organization's public members can be listed by people outside it."""
+    notify anyone), every member of it, then the authors of the commits its default branch added
+    on top of this project's history (at most limit, a user owner included), leaving out this
+    project's own authors, bots and ourselves. Only an organization's public members can be
+    listed by people outside it."""
     owner = cand.get("owner") or {}
     logins, members = [], []
     if owner.get("type") == "User":
@@ -368,6 +369,10 @@ def their_authors(full, cand, ours, me=None, limit=10):
                    if m.get("login") and m["login"].lower() not in ours]
     branch = urllib.parse.quote(cand.get("default_branch") or "main", safe="")
     for c in get(f"/repos/{full}/commits?sha={branch}&per_page=100") or []:
+        # Only the copy's own commits, on top of this project's history: the copied ones are by this
+        # project's authors, and ours can miss some of them (the contributors list lags behind)
+        if get(f"/repos/{ORIGINAL}/commits/{c['sha']}"):
+            break
         login = (c.get("author") or {}).get("login") or ""
         if login and not commit_identities(c) & ours:
             logins.append(login)
@@ -1131,6 +1136,8 @@ def main():
             "status": "⚠️ suspicious" if suspicious else "🟢 active",
             "what": f"{verdict}: " + "; ".join(reasons + [describe_copy(sha, own)]),
             "request": link, "license": license_link,
+            # Mentioned next to the repository in the tracker issue, so they're notified there too
+            "people": their_authors(full, cand, authors, me),
         })
 
     # Copies listed before that this run's searches didn't return: still there, renamed, or gone?
@@ -1148,9 +1155,11 @@ def main():
                 # A new name doesn't fix the license file: keep checking it until it does
                 status, license_link = recheck_license(me, cand["full_name"], cand, e, shas, authors,
                                                        sibling_with_issues(cand, known, shas, tracked))
-                tracker.upsert("repos", key, {"status": status, "license": license_link})
+                tracker.upsert("repos", key, {"status": status, "license": license_link,
+                                              "people": their_authors(cand["full_name"], cand, authors, me)})
             else:
-                tracker.upsert("repos", key, {})  # still there: keep it listed
+                # Still there: keep it listed
+                tracker.upsert("repos", key, {"people": their_authors(cand["full_name"], cand, authors, me)})
         tracker.save()
 
     summary(f"\n{found} new typosquatting copies found.")
