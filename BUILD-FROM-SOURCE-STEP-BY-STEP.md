@@ -84,8 +84,6 @@ All required dependencies, except OpenSSL, will be installed like this. OpenSSL 
 1. Write the following command in the Terminal: cd. Just plain cd to exit the Priveleged Helper Tool directory
 2. Write the following command: python3 /Users/[yourusername]/BridgePatcher/Build-Project.command , but replace [yourusername] with your user folder's name
 3. If needed, pass the following arguments:
---update-channel medelcartelinc if you want to set the update channel to Matteo's fork
-Else, you don't need to pass any update arguments, it will default to the official project
 --ignore-release if there is already an existing version in the mainstream repository that matches the version in your fork you want to release to ignore the checks
 4. Hit Enter
 5. Follow the onscreen instructions

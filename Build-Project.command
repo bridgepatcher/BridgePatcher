@@ -416,7 +416,7 @@ def main() -> None:
     parser.add_argument("--ignore-release", action="store_true", help="Build even when the version does not line up with the latest release")
     parser.add_argument("--no-install-openssl", action="store_true", help="Fail instead of installing OpenSSL 3 via MacPorts when it is missing")
     parser.add_argument("--use-python-openssl", action="store_true", help="Use the OpenSSL 3 bundled with this Python (python.org builds) instead of MacPorts' openssl3")
-    parser.add_argument("--update-channel", type=str, default=None, choices=["official", "medelcartelinc"], help="Set the default update channel for this build")
+    parser.add_argument("--update-channel", type=str, default=None, choices=["official"], help="Set the default update channel for this build")
 
     # Steps
     parser.add_argument("--run-as-individual-steps", action="store_true")

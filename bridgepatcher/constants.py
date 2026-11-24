@@ -97,10 +97,6 @@ class Constants:
                 "label": "BridgePatcher - Official (recommended)",
                 "repo":  "https://github.com/bridgepatcher/BridgePatcher/",
             },
-            "medelcartelinc": {
-                "label": "Medelcartelinc (Fork)",
-                "repo":  "https://github.com/Medelcartelinc/BridgePatcher/",
-            },
         }
         self.update_channel:           str = "official"  # Channel selected in the GUI
         self.installed_update_channel: str = "official"  # Channel the installed build was last updated from
