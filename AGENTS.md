@@ -112,6 +112,9 @@ as Acidanthera), git history has to show who wrote it. Otherwise anyone, with or
 without AI, can point at the history and claim BridgePatcher passed off Dortania's
 work as its own.
 
+These rules apply to commits made on or after 2026-11-25. Older commits stay as they are
+and aren't rewritten to match them.
+
 - **The upstream author is the commit author.** Use `git cherry-pick -x` where it
   applies cleanly. Otherwise set the author by hand to exactly the name and email of the
   upstream commit (`git commit --author="Name <email>"`, both copied from
@@ -139,6 +142,9 @@ work as its own.
 An AI can't be held responsible for a commit; the person who had it made can. Git history
 has to name that person on every commit, so no one can disown a change (for example a
 malicious one) by saying "the AI did it".
+
+These rules apply to commits made on or after 2026-11-25. Older commits stay as they are
+and aren't rewritten to match them.
 
 - **The human is the commit's author** for AI-written code, using an email linked to their
   GitHub account (real address or `<id>+<login>@users.noreply.github.com`). For ported code
