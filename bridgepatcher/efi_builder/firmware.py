@@ -18,8 +18,7 @@ from ..detections import device_probe
 from ..datasets import (
     smbios_data,
     cpu_data,
-    os_data,
-    model_array
+    os_data
 )
 
 
