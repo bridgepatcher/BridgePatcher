@@ -122,7 +122,7 @@ class MainFrame(wx.Frame):
         title_label.Centre(wx.HORIZONTAL)
 
 
-        display_version = self.constants.patcher_version
+        display_version = self.constants.patcher_version_label
         version_label = wx.StaticText(self, label=f"Version {display_version}", pos=(-1, title_label.GetPosition()[1] + 32))
         version_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
         version_label.Centre(wx.HORIZONTAL)
