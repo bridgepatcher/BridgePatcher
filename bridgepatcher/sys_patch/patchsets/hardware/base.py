@@ -200,18 +200,11 @@ class BaseHardware(BasePatchset):
         must come from the matching 12.5-GCN-SKL-<xnu_major> set instead.
 
         Returns None when the hybrid set does not apply.
-        Ported from dortania/OpenCore-Legacy-Patcher@8da3856
+        Ported from dortania/OpenCore-Legacy-Patcher@8da3856 and @b18b200
         """
         if self._xnu_major < os_data.ventura.value or self._computer.rosetta_active:
             return None
         if self._is_gpu_architecture_present([device_probe.Intel.Archs.Skylake]) is False:
-            return None
-        # 3802-based GPUs keep the stock Monterey drivers
-        if self._is_gpu_architecture_present([
-            device_probe.Intel.Archs.Ivy_Bridge,
-            device_probe.Intel.Archs.Haswell,
-            device_probe.NVIDIA.Archs.Kepler,
-        ]):
             return None
 
         gcn_present = self._is_gpu_architecture_present([
