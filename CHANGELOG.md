@@ -3,7 +3,10 @@
 This release:
 - fixes a vulnerability in the AGENTS policy where an attacker could claim that Dortania's code is theirs by using AI.
 
-Impact: due to lack of requirement for the AI agents to disclose that actually they commited Dortania's code for a certain fix, an attacker could claim that the code is theirs and violate the attribution to launch attribution fraud via plagiarism in the attacker's repository. And they could then use this for SEO poisoning or malware.
+Impact: due to lack of requirement for the AI agents to disclose that actually they commited Dortania's code for a certain fix, an attacker could claim that the code is theirs and violate the attribution to launch attribution fraud via plagiarism in the attacker's repository. And they could then use this for SEO poisoning or malware. And then they can bypass the Attribution guard to distribute attribution violations using AI.
+
+- fixes a vulnerability in the AGENTS policy where an attacker could launch a cyberattack using AI and pretend that they did nothing malicious and point to the malicious AI tool they used, then they could hide their own attribution behind AI so no one knows who contributed.
+Impact: an attacker could pretend to not have launched a cyberattack by intentionally using AI and hide their attribution so other people don't know who contributed and who launched the attack.
 
 ## 4.0.0.2000004.1 - 4.0.0 alpha 20.4.1
 This release:
