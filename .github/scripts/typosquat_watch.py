@@ -350,23 +350,34 @@ def our_authors():
 
 def their_authors(full, cand, ours, me=None, limit=10):
     """GitHub logins of the people behind a copy, to @mention in the rename request: its owner
-    (when that's a user account; organizations can't be mentioned) and the authors of the newest
-    commits on its default branch, leaving out this project's own authors, bots and ourselves."""
-    logins = []
-    if (cand.get("owner") or {}).get("type") == "User":
-        logins.append(cand["owner"]["login"])
+    when that's a user account, or, when it's an organization (an organization's own name doesn't
+    notify anyone), every member of it, then the authors of the newest commits on its default
+    branch (at most limit, a user owner included), leaving out this project's own authors, bots
+    and ourselves. Only an organization's public members can be listed by people outside it."""
+    owner = cand.get("owner") or {}
+    logins, members = [], []
+    if owner.get("type") == "User":
+        logins.append(owner["login"])
+    elif owner.get("type") == "Organization":
+        members = [m["login"] for m in paginate(f"/orgs/{owner['login']}/public_members?per_page=100")
+                   if m.get("login") and m["login"].lower() not in ours]
     branch = urllib.parse.quote(cand.get("default_branch") or "main", safe="")
     for c in get(f"/repos/{full}/commits?sha={branch}&per_page=100") or []:
         login = (c.get("author") or {}).get("login") or ""
         if login and not commit_identities(c) & ours:
             logins.append(login)
     out = []
-    for login in logins:
-        # Logins only contain letters, digits and hyphens; anything else isn't mentioned
-        if (re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})", login) and not is_bot(login.lower())
-                and login.lower() != (me or "").lower() and login.lower() not in {o.lower() for o in out}):
-            out.append(login)
-    return out[:limit]
+    for group, cap in ((members, None), (logins, limit)):
+        added = 0
+        for login in group:
+            if cap is not None and added >= cap:
+                break
+            # Logins only contain letters, digits and hyphens; anything else isn't mentioned
+            if (re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})", login) and not is_bot(login.lower())
+                    and login.lower() != (me or "").lower() and login.lower() not in {o.lower() for o in out}):
+                out.append(login)
+                added += 1
+    return out
 
 
 def assess(cand, owner_squat, our_owner, extra=()):
