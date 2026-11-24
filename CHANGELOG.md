@@ -1,4 +1,15 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.1 - 4.0.0 alpha 20.4.1
+This release:
+- updates PatcherSupportPkg to 2.0.8 (from 2.0.5), the version Dortania's OpenCore Legacy Patcher uses now, and moves the root patches that need it to Dortania's current state:
+  - Macs with a Metal 3802 GPU (Intel Ivy Bridge and Haswell, Nvidia Kepler, AMD Legacy GCN) get Dortania's new, smaller Metal 3802 patch set. It restores the 3802 versions of MTLCompilerService, GPUCompiler and MTLCompiler from PatcherSupportPkg instead of the old "Metal 3802 Common", "Common Extended" and .metallibs patches, so the metallibs from MetallibSupportPkg aren't needed for these GPUs anymore
+  - the workarounds for Metal 3802 on Ivy Bridge, Haswell, Kepler and Legacy GCN are dropped, as are Broadwell, Haswell and Tahoe graphics patches that macOS Tahoe no longer needs. On Nvidia Kepler, macOS Sequoia and Tahoe now get the 12.0 Beta 6 drivers with the right versions for each macOS, and the removed OpenCL compiler files are restored
+  - Macs with both a Legacy GCN and a Skylake GPU keep their GCN + Skylake patches when a Metal 3802 GPU is also present, instead of skipping them
+  - if your Mac was root patched with PatcherSupportPkg 2.0.5, BridgePatcher asks you to revert the root patches first, then patch again
+- on T2 Macs, T2TahoeFixup.kext now loads right after Lilu, before AppleALC, WhateverGreen and the other kexts. Build and install OpenCore again to get it
+- the main menu now shows a readable version name with the exact version in brackets, e.g. "Version 4.0.0 alpha 20.4.1 (4.0.0.2000004.1)". The updater, release tags, NVRAM and logs still use the numeric version
+- removes the Medelcartelinc update channel, as the Medelcartelinc GitHub account is banned and its fork can't be used as an update source anymore. If you picked it, BridgePatcher switches you back to the official channel on its next launch. `Build-Project.command --update-channel` no longer accepts it either
+
 ## 4.0.0.2000004.0.0.8 - 4.0.0 alpha 20.4 Preview
 This release:
 - fixes the app crashing with "segmentation fault" (sometimes "bus error") after installing OpenCore, right after the message that the guide on turning off Secure Boot and SIP will open. The crash wasn't in the install: the main menu checks for updates again every 60 seconds while the app stays open, and that timer kept running after the main menu was closed (e.g. by Build and Install OpenCore). Each tick was sent to the closed window, which crashed the app as soon as its memory was reused. The timer now stops once the main menu is gone. Opening the guide with macOS's `open` command in 4.0.0.2000004.0.0.5 wasn't the fix for this.
