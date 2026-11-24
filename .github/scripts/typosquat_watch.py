@@ -15,7 +15,11 @@ update when it is behind, since the latest version meets the license. Renamed co
 still checked for the license on every run, with the same checks the License compliance
 workflow runs on this project (license text, the build shipping it, the README acknowledgement):
 their notice gets one reminder while a condition is broken (or is reopened, if it was closed
-too early), and is closed once the license conditions are met."""
+too early), and is closed once the license conditions are met.
+
+When a copy has issues disabled but its owner has another copy of this project with issues
+enabled (renamed or not), its requests are opened as issues on that other copy instead of commit
+comments; ones already posted as commit comments are followed up there once."""
 
 import base64
 import functools
@@ -40,6 +44,7 @@ FP_COUNT = int(os.environ.get("FINGERPRINT_COMMITS", "20"))
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() == "true"
 CONTACT_SUSPICIOUS = os.environ.get("CONTACT_SUSPICIOUS", "true").lower() == "true"
 # When a copy has issues disabled, post the rename request as a comment on its newest commit instead
+# (unless its owner has another copy with issues enabled: then it's an issue there, see sibling_with_issues())
 CONTACT_VIA_COMMIT = os.environ.get("CONTACT_VIA_COMMIT", "true").lower() == "true"
 # Without a PAT the built-in GITHUB_TOKEN is used: it can scan and open issues
 # here, but it can't open issues in other people's repositories.
@@ -350,23 +355,34 @@ def our_authors():
 
 def their_authors(full, cand, ours, me=None, limit=10):
     """GitHub logins of the people behind a copy, to @mention in the rename request: its owner
-    (when that's a user account; organizations can't be mentioned) and the authors of the newest
-    commits on its default branch, leaving out this project's own authors, bots and ourselves."""
-    logins = []
-    if (cand.get("owner") or {}).get("type") == "User":
-        logins.append(cand["owner"]["login"])
+    when that's a user account, or, when it's an organization (an organization's own name doesn't
+    notify anyone), every member of it, then the authors of the newest commits on its default
+    branch (at most limit, a user owner included), leaving out this project's own authors, bots
+    and ourselves. Only an organization's public members can be listed by people outside it."""
+    owner = cand.get("owner") or {}
+    logins, members = [], []
+    if owner.get("type") == "User":
+        logins.append(owner["login"])
+    elif owner.get("type") == "Organization":
+        members = [m["login"] for m in paginate(f"/orgs/{owner['login']}/public_members?per_page=100")
+                   if m.get("login") and m["login"].lower() not in ours]
     branch = urllib.parse.quote(cand.get("default_branch") or "main", safe="")
     for c in get(f"/repos/{full}/commits?sha={branch}&per_page=100") or []:
         login = (c.get("author") or {}).get("login") or ""
         if login and not commit_identities(c) & ours:
             logins.append(login)
     out = []
-    for login in logins:
-        # Logins only contain letters, digits and hyphens; anything else isn't mentioned
-        if (re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})", login) and not is_bot(login.lower())
-                and login.lower() != (me or "").lower() and login.lower() not in {o.lower() for o in out}):
-            out.append(login)
-    return out[:limit]
+    for group, cap in ((members, None), (logins, limit)):
+        added = 0
+        for login in group:
+            if cap is not None and added >= cap:
+                break
+            # Logins only contain letters, digits and hyphens; anything else isn't mentioned
+            if (re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})", login) and not is_bot(login.lower())
+                    and login.lower() != (me or "").lower() and login.lower() not in {o.lower() for o in out}):
+                out.append(login)
+                added += 1
+    return out
 
 
 def assess(cand, owner_squat, our_owner, extra=()):
@@ -523,13 +539,14 @@ To the owner{" (" + ", ".join(f"@{a}" for a in authors) + ")" if authors else ""
 
 def our_open_issue(me, link, full, marker, closed_too=False):
     """The API path of the issue at link (an issue URL from the tracker) when it's our own, still
-    open (or closed too, with closed_too) and carries marker, else None. full is the copy's current
-    name, since API writes to the old name aren't redirected. Requests posted as commit comments
-    never match."""
-    m = re.fullmatch(r"https://github\.com/[^/]+/[^/]+/issues/(\d+)", link or "")
+    open (or closed too, with closed_too) and carries marker, else None. The issue may live on the
+    copy (full) or on its owner's other copy (see sibling_with_issues()), under a name either may
+    have changed since: API writes to an old name aren't redirected, so the repository's current
+    name is looked up first (reads are redirected). Requests posted as commit comments never match."""
+    m = re.fullmatch(r"https://github\.com/([^/]+/[^/]+)/issues/(\d+)", link or "")
     if not me or not m:
         return None
-    path = f"/repos/{full}/issues/{m.group(1)}"
+    path = f"/repos/{(get(f'/repos/{m.group(1)}') or {}).get('full_name') or full}/issues/{m.group(2)}"
     issue = get(path)
     if (not issue or (issue.get("state") != "open" and not closed_too) or (issue.get("user") or {}).get("login") != me
             or marker not in (issue.get("body") or "")):
@@ -789,13 +806,67 @@ def request_text(full, sha, named, fork_of, authors=()):
     return rename_request(full, sha, authors) if sha else name_request(full, fork_of, authors)
 
 
-def post_once(me, full, cand, ours, marker, title, body, commit_title, via_commit):
-    """Post a request on the copy once: an issue, or, when its issues are disabled and via_commit,
-    a comment on the newest commit of its default branch. body(authors) builds the text, with the
-    copy's owner and authors to @mention. Never twice: an earlier one of ours carrying marker
-    (an issue in any state, or a commit comment) is reused. Returns (its URL, note)."""
+def repo_marker(repo_id):
+    """Marks a request posted on the owner's other copy with the id of the copy it is about (ids
+    survive renames), so it isn't mistaken for that other copy's own request."""
+    return f"<!-- typosquat-about-repo:{repo_id} -->"
+
+
+def ours_for(issue, me, marker, repo_id):
+    """Our request carrying marker that is about the copy with repo_id."""
+    text = issue.get("body") or ""
+    about = re.search(r"<!-- typosquat-about-repo:(\d+) -->", text)
+    return ((issue.get("user") or {}).get("login") == me and marker in text
+            and (about.group(1) if about else None) == repo_id)
+
+
+def sibling_with_issues(cand, names, shas, tracked):
+    """For a copy whose issues are disabled: another copy of this project by the same owner that
+    has issues enabled, so requests about the copy can be posted there as issues. names: the
+    repositories this run knows (candidates and tracker entries, by the name they were found under);
+    GitHub redirects a renamed repository, so a copy renamed since then is still found, under its
+    new name. tracked: the names already listed as copies; any other one only counts if it shares
+    this project's history. None when there's no such copy."""
+    if cand.get("has_issues"):
+        return None
+    login = cand["owner"]["login"].lower()
+    for key in sorted({n.lower() for n in names}):
+        if key.split("/")[0] != login:
+            continue
+        other = get(f"/repos/{key}")
+        if (not other or other["id"] == cand["id"] or other["owner"]["id"] != cand["owner"]["id"]
+                or not other.get("has_issues") or other.get("archived")):
+            continue
+        if key in tracked or shared_history(other["full_name"])[0] or copied_commit(other["full_name"], shas):
+            return other
+    return None
+
+
+def post_once(me, full, cand, ours, marker, title, body, commit_title, via_commit, sibling=None):
+    """Post a request on the copy once: an issue, or, when its issues are disabled, an issue on
+    sibling (the owner's other copy that has issues enabled, see sibling_with_issues()) or, with
+    via_commit, a comment on the newest commit of its default branch. body(authors) builds the
+    text, with the copy's owner and authors to @mention. Never twice: an earlier one of ours
+    carrying marker (an issue in any state, or a commit comment) is reused; one posted as a commit
+    comment before the sibling was known is followed by the issue on the sibling. Returns (its
+    URL, note)."""
+    if not cand.get("has_issues") and sibling:
+        other = sibling["full_name"]
+        for i in paginate(f"/repos/{other}/issues?creator={me}&state=all&per_page=100"):
+            if ours_for(i, me, marker, str(cand["id"])):
+                return i["html_url"], ""
+        authors = their_authors(full, cand, ours, me)
+        status, data = post(f"/repos/{other}/issues", {
+            "title": f"{title} ({full})",
+            "body": f"> **About your other repository [{full}](https://github.com/{full}).** Its issues are "
+                    f"disabled, so this is posted here instead. Everything below is about **{full}**, "
+                    f"not this repository.\n\n{body(authors)}\n{repo_marker(cand['id'])}\n"})
+        time.sleep(3)
+        if status < 300:
+            return data["html_url"], ""
+        print(f"::warning::Couldn't post on {other} about {full} (HTTP {status})")
     existing = paginate(f"/repos/{full}/issues?creator={me}&state=all&per_page=100") if cand.get("has_issues") else []
-    prior = next((i for i in existing if marker in (i.get("body") or "")), None)
+    prior = next((i for i in existing if ours_for(i, me, marker, None)), None)
     if prior:
         return prior["html_url"], ""
     # An earlier request posted as a commit comment (see below) counts too
@@ -825,7 +896,7 @@ def post_once(me, full, cand, ours, marker, title, body, commit_title, via_commi
     return None, f"failed with HTTP {status} (issues may be restricted, or you may be blocked)"
 
 
-def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons, ours):
+def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons, ours, sibling=None):
     """Open one issue on the copy: a rename request with name ideas when it looks unintentional
     (a notice for its users when it looks suspicious, only with CONTACT_SUSPICIOUS). Never twice:
     an earlier one (found by its marker) is reused. Returns (their issue URL, note)."""
@@ -838,10 +909,10 @@ def contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons, ours
     body = lambda authors: (suspicious_notice(full, sha, reasons, authors) if suspicious and sha
                             else request_text(full, sha, named, fork_of, authors))
     return post_once(me, full, cand, ours, THEIR_MARKER, title, body, "Please consider renaming this repository",
-                     CONTACT_VIA_COMMIT and not suspicious)
+                     CONTACT_VIA_COMMIT and not suspicious, sibling)
 
 
-def license_owner(me, full, cand, sha, named, suspicious, ours, renamed=False):
+def license_owner(me, full, cand, sha, named, suspicious, ours, renamed=False, sibling=None):
     """Open one license violation issue on a copy of this project's history, whether it looks
     suspicious or unintentional: the license applies to every copy of the code, and a typosquatted
     name breaks it either way. Copies that look unintentional are asked to fix it (and, when they
@@ -861,7 +932,7 @@ def license_owner(me, full, cand, sha, named, suspicious, ours, renamed=False):
                      f"License violation: this copy of {ORIGINAL} doesn't meet the license conditions",
                      lambda authors: license_notice(full, sha, path, findings, authors, behind, suspicious, renamed),
                      "License violation",
-                     CONTACT_VIA_COMMIT)
+                     CONTACT_VIA_COMMIT, sibling)
 
 
 def status_line(full, findings):
@@ -870,10 +941,11 @@ def status_line(full, findings):
     return f"⚠️ renamed to {full}, but still breaks the license (condition{'s' if len(conditions) != 1 else ''} {', '.join(conditions)})"
 
 
-def recheck_license(me, full, cand, e, shas, ours):
+def recheck_license(me, full, cand, e, shas, ours, sibling=None):
     """After a copy has been renamed: does it still break the license? Its copyright notices are
     checked on every run. While they're missing, the license notice gets one reminder (or is
-    posted, if it never could be); once they're kept, the notice is closed. Returns (the tracker
+    posted, if it never could be, or moved to an issue on sibling, the owner's other copy, if it
+    could only be a commit comment); once they're kept, the notice is closed. Returns (the tracker
     status, the license link)."""
     link = e.get("license", "")
     sha, _ = shared_history(full)
@@ -890,9 +962,9 @@ Its name no longer imitates [{ORIGINAL}](https://github.com/{ORIGINAL}), its lic
                     "license notice")
         return f"✅ renamed to {full}, license conditions met", link
     status = status_line(full, findings)
-    if not link.startswith("http"):
-        their_url, note = license_owner(me, full, cand, sha, None, False, ours, renamed=True)
-        return status, their_url or note
+    if not link.startswith("http") or (sibling and "/commit/" in link):
+        their_url, note = license_owner(me, full, cand, sha, None, False, ours, renamed=True, sibling=sibling)
+        return status, their_url or (link if link.startswith("http") else note)
     issue = our_open_issue(me, link, full, LICENSE_MARKER)
     closed = None if issue else our_open_issue(me, link, full, LICENSE_MARKER, closed_too=True)
     if closed and (get(closed) or {}).get("state_reason") == "completed":
@@ -994,6 +1066,11 @@ def main():
     found = 0
     seen = set()
     authors = our_authors()
+    # Copies already listed, and every name this run knows: where sibling_with_issues() looks for the
+    # owner's other copy when a copy has issues disabled
+    tracked = {k for k in tracker.keys("repos") if tracker.entry("repos", k).get("source") == "typosquat"
+               and not tracker.dismissed(k)}
+    known = tracked | {c.lower() for c in candidates if not tracker.dismissed(c)}
     for full, owner_sq in sorted(candidates.items()):
         if tracker.dismissed(full):
             continue
@@ -1034,16 +1111,19 @@ def main():
             continue
 
         # 3. Rename request on their repo, once: retried on later runs while it couldn't be posted
-        # (e.g. issues disabled), never posted twice (an earlier one is found by its marker)
+        # (e.g. issues disabled), never posted twice (an earlier one is found by its marker). With
+        # issues disabled it goes to an issue on the owner's other copy, if one has them enabled
+        # (also when it could only be a commit comment so far)
+        sibling = sibling_with_issues(cand, known, shas, tracked)
         link = (prior or {}).get("request", "")
-        if not link.startswith("http"):
-            their_url, note = contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons, authors)
-            link = their_url or note
+        if not link.startswith("http") or (sibling and "/commit/" in link):
+            their_url, note = contact_owner(me, full, cand, sha, named, fork_of, suspicious, reasons, authors, sibling)
+            link = their_url or (link if link.startswith("http") else note)
         # License violation issue on their repo, suspicious or not: once, retried like the rename request
         license_link = (prior or {}).get("license", "")
-        if not license_link.startswith("http"):
-            their_url, note = license_owner(me, full, cand, sha, named, suspicious, authors)
-            license_link = their_url or note
+        if not license_link.startswith("http") or (sibling and "/commit/" in license_link):
+            their_url, note = license_owner(me, full, cand, sha, named, suspicious, authors, sibling=sibling)
+            license_link = their_url or (license_link if license_link.startswith("http") else note)
 
         # 4. Entry in the tracker issue
         tracker.upsert("repos", full, {
@@ -1066,7 +1146,8 @@ def main():
                                                           or any(looks_like(cand["name"], n) for n in [name] + ALIASES)):
                 close_request(me, e.get("request"), cand["full_name"])
                 # A new name doesn't fix the license file: keep checking it until it does
-                status, license_link = recheck_license(me, cand["full_name"], cand, e, shas, authors)
+                status, license_link = recheck_license(me, cand["full_name"], cand, e, shas, authors,
+                                                       sibling_with_issues(cand, known, shas, tracked))
                 tracker.upsert("repos", key, {"status": status, "license": license_link})
             else:
                 tracker.upsert("repos", key, {})  # still there: keep it listed
