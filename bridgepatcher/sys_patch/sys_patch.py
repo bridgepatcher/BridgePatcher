@@ -857,13 +857,6 @@ class PatchSysVolume:
                 logging.error(f"- Failed to disable window server caching: {e}")
                 logging.exception("Stack Trace:")
 
-        if "Metal 3802 Common Extended" in required_patches:
-            try:
-                sys_patch_helpers.SysPatchHelpers(self.constants).patch_gpu_compiler_libraries(mount_point=self.mount_location)
-            except Exception as e:
-                logging.error(f"- Failed to patch GPU compiler libraries: {e}")
-                logging.exception("Stack Trace:")
-
         # AppleHDA Tahoe: patch binary on system volume and re-sign after installation.
         # Fatal: AppleHDA.kext is already installed at this point, so continuing would
         # rebuild the kernel collections and seal a snapshot with a kext that cannot
