@@ -2,6 +2,7 @@
 constants.py: Defines versioning, file paths and other settings for the patcher
 """
 
+import re
 import logging
 from pathlib   import Path
 from typing    import Optional
@@ -35,11 +36,36 @@ LEGACY_ROOT_PATCH_MANIFEST:             str = f"/System/Library/CoreServices/{LE
 LEGACY_ROOT_PATCH_MANIFEST_VERSION_KEY: str = "OpenCore Legacy Patcher"  # branding: keep - manifest key of legacy installs
 
 
+def patcher_version_display_name(patcher_version: str) -> str:
+    """
+    Readable name of a patcher version, for display only
+
+    Release tags stay purely numeric so the updater can compare them, ie.:
+    - 4.0.0.2000003.8.1   -> 4.0.0 alpha 20.3.8.1 (4.0.0.2000003.8.1)
+    - 4.0.0.2000004.0.0.8 -> 4.0.0 alpha 20.4 Preview 8 (4.0.0.2000004.0.0.8)
+
+    The exact version is always kept in the name, so it can't hide which build
+    this really is. Versions in any other format are returned unchanged.
+    """
+    match = re.fullmatch(r"(\d+\.\d+\.\d+)\.(\d+)(\d{5})((?:\.\d+)*)", patcher_version)
+    if match is None:
+        return patcher_version
+
+    base, alpha, alpha_minor, extra = match.groups()
+    name = f"{base} alpha {int(alpha)}.{int(alpha_minor)}"
+    if extra.startswith(".0.0.") and extra.count(".") == 3:
+        name += f" Preview {extra[len('.0.0.'):]}"
+    else:
+        name += extra
+
+    return f"{name} ({patcher_version})"
+
+
 class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
         self.patcher_version:                 str = "4.0.0.2000003.8.1"
-        self.patcher_version_label=self.patcher_version
+        self.patcher_version_label:           str = patcher_version_display_name(self.patcher_version)
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
         self.bundle_identifier:               str = "com.bridgepatcher.bridgepatcher"
 
