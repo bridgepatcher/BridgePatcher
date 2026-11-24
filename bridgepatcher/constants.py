@@ -70,7 +70,7 @@ class Constants:
         self.bundle_identifier:               str = "com.bridgepatcher.bridgepatcher"
 
         # URLs
-        self.patcher_support_pkg_version:     str = "2.0.5"  # PatcherSupportPkg, use the version upstream OCLP pins in its constants.py
+        self.patcher_support_pkg_version:     str = "2.0.8"  # PatcherSupportPkg, use the version upstream OCLP pins in its constants.py
         self.url_patcher_support_pkg:         str = "https://github.com/dortania/PatcherSupportPkg/releases/download/"
         self.guide_link:                      str = "https://bridgepatcher.github.io/"
         self.repo_link:                       str = "https://github.com/bridgepatcher/BridgePatcher/"

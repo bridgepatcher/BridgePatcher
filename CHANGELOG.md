@@ -1,4 +1,52 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.1 - 4.0.0 alpha 20.4.1
+This release:
+- updates PatcherSupportPkg to 2.0.8 (from 2.0.5), the version Dortania's OpenCore Legacy Patcher uses now, and moves the root patches that need it to Dortania's current state:
+  - Macs with a Metal 3802 GPU (Intel Ivy Bridge and Haswell, Nvidia Kepler, AMD Legacy GCN) get Dortania's new, smaller Metal 3802 patch set. It restores the 3802 versions of MTLCompilerService, GPUCompiler and MTLCompiler from PatcherSupportPkg instead of the old "Metal 3802 Common", "Common Extended" and .metallibs patches, so the metallibs from MetallibSupportPkg aren't needed for these GPUs anymore
+  - the workarounds for Metal 3802 on Ivy Bridge, Haswell, Kepler and Legacy GCN are dropped, as are Broadwell, Haswell and Tahoe graphics patches that macOS Tahoe no longer needs. On Nvidia Kepler, macOS Sequoia and Tahoe now get the 12.0 Beta 6 drivers with the right versions for each macOS, and the removed OpenCL compiler files are restored
+  - Macs with both a Legacy GCN and a Skylake GPU keep their GCN + Skylake patches when a Metal 3802 GPU is also present, instead of skipping them
+  - if your Mac was root patched with PatcherSupportPkg 2.0.5, BridgePatcher asks you to revert the root patches first, then patch again
+- on T2 Macs, T2TahoeFixup.kext now loads right after Lilu, before AppleALC, WhateverGreen and the other kexts. Build and install OpenCore again to get it
+- The main menu now shows "4.0.0 alpha 20.4.1" instead of a version number that looked like an IP address with a few extra octets.
+- removes the Medelcartelinc update channel, as the Medelcartelinc GitHub account is banned and its fork can't be used as an update source anymore. If you picked it, BridgePatcher switches you back to the official channel on its next launch. `Build-Project.command --update-channel` no longer accepts it either
+
+### Coming from 4.0.0 alpha 20.3.8.1
+Most users never got the 4.0.0 alpha 20.4 Previews (4.0.0.2000004 to 4.0.0.2000004.0.0.8), so here is everything they changed, on top of the list above. Changes that a later Preview undid, and fixes that 4.0.0 alpha 20.3.8 and 20.3.8.1 already had, are left out. The entries of each Preview below have the details.
+
+After updating, build and install OpenCore again, and if BridgePatcher asks you to, revert the root patches, reboot and patch again.
+
+Root patching:
+- root patching now always uses Dortania's PatcherSupportPkg on every Mac, T2 Macs included (2.0.8 in this release). It is bundled with the app again, so it no longer has to be downloaded while root patching. BridgePatcher's own PatcherSupportPkg (2.6) and the PatcherSupportPkg choice in Settings > App are gone; a stored choice is removed on the next start. Macs root patched with BridgePatcher's PatcherSupportPkg are asked to revert the root patches and patch again
+- the root patches now match Dortania's current OpenCore Legacy Patcher, apart from the USB 1.1 and Modern Audio patches (Modern Audio is still skipped on the iMac19,1 and iMac19,2 under macOS Tahoe when SimpleHDA is loaded). BridgePatcher's own checks around root patching (revert checks, choosing patches, the AMFI check from #788) stay as they are
+  - T1 Security Chip: on macOS Sequoia, `MechanismPlugins`, `ModulePlugins` and `ModuleBase.framework` are installed again, which adding a Touch ID fingerprint needs
+  - AMD Navi: the patch is offered again to every Mac with a Navi GPU and a CPU without AVX2 (e.g. a Mac Pro 2010/2012 with a Navi graphics card). It was limited to Dortania's internal testers
+
+OpenCore on Macs without a T2 chip:
+- OpenCore for Macs without a T2 chip is built the way Dortania's current EFI builder builds it (#788). On all 85 supported Macs without a T2 chip, the EFI matches Dortania's, apart from BridgePatcher's names, OpenCore 1.0.8, the boot picker theme and the two exceptions below
+  - new from Dortania: per-model USB maps, CSLVFixup on macOS Big Sur, and AppleIntelPIIXATA on macOS Monterey and newer on the MacBookPro4,1, MacPro3,1, Xserve2,1, iMac7,1 and iMac8,1
+  - BridgePatcher-only settings are no longer added: the MacBookPro13,x/14,x and Haswell/Broadwell boot-args, `dart=0`, `ipc_control_port_options=0 -amfipassbeta` for legacy Wi-Fi on Sonoma and newer, `-oas_skip_attestation`, AMFIPass for the MacBookPro14,3, CatalinaBCM5701Ethernet on Ivy Bridge and newer, blocking ACPI_SMC_PlatformPlugin on macOS Tahoe, and skipping the FireWire boot kexts when the host runs macOS Tahoe
+  - kept from BridgePatcher: SimpleHDA audio on macOS Tahoe on the iMac19,1 and iMac19,2 (still downloaded and checked against its SHA-256 while building OpenCore), and the macOS Tahoe handling of the T1 MacBook Pros (MacBookPro13,2, 13,3, 14,2, 14,3) with the "T1 Touch ID on macOS Tahoe" setting
+  - Apple Secure Boot is still turned off whenever SIP is lowered for root patching (#465)
+  - the app's legacy NVRAM variables from builds before the rename are deleted at boot, as on T2 Macs
+- the TEST-A to TEST-D (LEVEL-B to LEVEL-D) OpenCore build profiles are removed. Every build uses the standard configuration, and a stored profile choice is removed on the next start
+
+OpenCore on T2 Macs:
+- T2TahoeFixup.kext is updated to 1.0.26, a patched 1.0.24 (#834). The kext's source isn't available, so these are patches of the binary:
+  - it now recognizes the Mac mini 2018 (Macmini8,1) and the MacBook Air 2020 (MacBookAir9,1) as Macs macOS Tahoe dropped. Before, it stayed inactive on both, and the Tahoe installer stalled at the Apple logo unless the "T2 Installer Workaround" was turned on
+  - the Mac Pro 2019 (MacPro7,1) gets its real board ID, so the kext no longer turns itself on on a genuine Mac Pro 2019, and the MacBookPro16,1 is now on the list of Macs macOS Tahoe supports
+- `igfxfw=2` is no longer added: it forced Apple's GuC graphics firmware, which genuine Macs leave turned off. The Mac mini 2018 and the MacBookPro16,1 and 16,4 keep their own Intel graphics settings from the firmware instead of the ones BridgePatcher injected, which turned off the Intel GPU's display outputs on the MacBookPro16,1 and 16,4. Not yet confirmed on real hardware
+- EFIs for macOS Tahoe set `debug=0x104` instead of `debug=0x100`, so a non-maskable interrupt (NMI) can turn a silent boot hang into a panic with a backtrace
+- new setting "Power Button NMI" under Settings → Debugging, for every Mac: it sets `debug=0x8104`, so a short press on the power button triggers the NMI even before the keyboard works. Off by default
+- with the "Minimal" serial setting, the custom board serial number now really reaches NVRAM (`PlatformNVRAM > MLB`). Before, it went to a key OpenCore doesn't have and was skipped. On T2 Macs, macOS now sees the board serial number you entered instead of the Mac's real one, which can affect iCloud and Apple Account sign-in
+
+Crashes and other fixes:
+- fixes the app crashing with "segmentation fault" or "bus error" after installing OpenCore, right after the message about the guide on turning off Secure Boot and SIP. The main menu's 60-second update check kept running after the main menu was closed and crashed the app once its memory was reused
+- fixes a crash ("segmentation fault") while installing OpenCore when the Privileged Helper Tool rejects the build and BridgePatcher asks for the administrator password instead. The Developer Mode marker file fix in Settings had the same bug and is fixed too
+- when the app crashes in native code (wxWidgets, macOS frameworks), the log now ends with the Python stack of every thread, so crash reports show where it happened
+- when the EFI partition is still busy right after OpenCore is copied (e.g. while Spotlight indexes it), BridgePatcher tries to unmount it up to four more times before reporting it. It never forces the unmount
+- after installing OpenCore on a T2 Mac, the guide on turning off Secure Boot and SIP is opened with macOS's `open` command
+- fixes a vulnerability where the app didn't update automatically if it was already open when the update came out, so users could stay on a version with already fixed vulnerabilities
+
 ## 4.0.0.2000004.0.0.8 - 4.0.0 alpha 20.4 Preview
 This release:
 - fixes the app crashing with "segmentation fault" (sometimes "bus error") after installing OpenCore, right after the message that the guide on turning off Secure Boot and SIP will open. The crash wasn't in the install: the main menu checks for updates again every 60 seconds while the app stays open, and that timer kept running after the main menu was closed (e.g. by Build and Install OpenCore). Each tick was sent to the closed window, which crashed the app as soon as its memory was reused. The timer now stops once the main menu is gone. Opening the guide with macOS's `open` command in 4.0.0.2000004.0.0.5 wasn't the fix for this.
