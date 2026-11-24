@@ -118,8 +118,8 @@ work as its own.
   `git log -1 --format='%an <%ae>' <upstream-sha>`). Keep the upstream author date.
 - **Name the source in the commit message:** a line like
   `Ported from dortania/OpenCore-Legacy-Patcher@<full-sha>`, with one line per upstream
-  commit. The person or AI doing the port goes in as committer or as a
-  `Co-Authored-By:` trailer, never as author.
+  commit. The person doing the port is the committer (see section 9); an AI that
+  helped goes in as a `Co-Authored-By:` trailer. Neither is the author.
 - **One upstream commit per commit.** If you port several upstream commits by different
   authors, keep them as separate commits, each with its own author. If they can't be
   split, use the main author and add the others as `Co-Authored-By:` trailers.
@@ -133,3 +133,25 @@ work as its own.
   otherwise the committing person's real or GitHub no-reply address
   (`<id>+<login>@users.noreply.github.com`).
 - Upstream copyright and licence notices stay untouched (see the Attribution guard).
+
+## 9. A human is accountable for every commit
+
+An AI can't be held responsible for a commit; the person who had it made can. Git history
+has to name that person on every commit, so no one can disown a change (for example a
+malicious one) by saying "the AI did it".
+
+- **The human is the commit's author** for AI-written code, using an email linked to their
+  GitHub account (real address or `<id>+<login>@users.noreply.github.com`). For ported code
+  the upstream author stays author (section 8), and the human is the committer.
+- **The human is always the committer.** Set `user.name` / `user.email` to that person
+  before committing. An AI, a bot account or a placeholder is never author or committer of
+  a commit an AI made for someone.
+- **The AI is named, not blamed:** add a `Co-Authored-By:` trailer for the AI tool (for
+  example `Co-Authored-By: Claude <noreply@anthropic.com>`). It records that AI was used.
+  It does not move responsibility away from the human.
+- **Push and open pull requests from the human's own GitHub account,** not a shared
+  account or a token that belongs to someone else.
+- An AI assistant that can't tell who the human is (no git identity configured, or one
+  that looks like a placeholder) asks before committing instead of making one up.
+- Automated workflow commits (checksums, credit updates) are the only exception and stay
+  with `github-actions[bot]`.

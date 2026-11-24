@@ -25,6 +25,10 @@ AI tools are allowed, for ideas, debugging and code. The rules are about review,
 about who typed the code:
 
 - **You own what you submit.** Read and understand every line, even if an AI wrote it.
+- **Your name is on it.** Commits made with AI have you as author (or as committer, for
+  ported code) with an email linked to your GitHub account, and the AI only as a
+  `Co-Authored-By:` trailer. "The AI wrote it" never takes responsibility off you.
+  Details: section 9 of [AGENTS.md](AGENTS.md).
 - **Tested on real hardware** before merging, wherever the change affects patching,
   booting or the EFI. Say which Mac and macOS version you tested on.
 - **AI tools must follow [AGENTS.md](AGENTS.md)**: most assistants read it
