@@ -353,20 +353,38 @@ def our_authors():
     return ids
 
 
-def their_authors(full, cand, ours, me=None, limit=10):
+def copy_creator(full, cand):
+    """Login of whoever created the copy, from GitHub's public events: the repository's creation
+    (a CreateEvent on it) or, for a fork, the ForkEvent on the repository it was forked from (matched
+    by id, so a fork renamed since is still found). GitHub doesn't record who created an
+    organization, and keeps events for 90 days (300 at most), so this is None for older copies."""
+    for e in paginate(f"/repos/{full}/events?per_page=100"):
+        if e.get("type") == "CreateEvent" and (e.get("payload") or {}).get("ref_type") == "repository":
+            return (e.get("actor") or {}).get("login")
+    parent = (cand.get("parent") or {}).get("full_name")
+    for e in paginate(f"/repos/{parent}/events?per_page=100") if parent else []:
+        forkee = (e.get("payload") or {}).get("forkee") or {}
+        if e.get("type") == "ForkEvent" and forkee.get("id") == cand.get("id"):
+            return (e.get("actor") or {}).get("login")
+    return None
+
+
+def their_authors(full, cand, ours, me=None, limit=10, org_limit=5):
     """GitHub logins of the people behind a copy, to @mention in the rename request: its owner
     when that's a user account, or, when it's an organization (an organization's own name doesn't
-    notify anyone), every member of it, then the authors of the commits its default branch added
-    on top of this project's history (at most limit, a user owner included), leaving out this
-    project's own authors, bots and ourselves. Only an organization's public members can be
+    notify anyone), a few of its people (at most org_limit): whoever created the copy (see
+    copy_creator()), then its public members. Then the authors of the commits its default branch
+    added on top of this project's history (at most limit, a user owner included), leaving out
+    this project's own authors, bots and ourselves. Only an organization's public members can be
     listed by people outside it."""
     owner = cand.get("owner") or {}
     logins, members = [], []
     if owner.get("type") == "User":
         logins.append(owner["login"])
     elif owner.get("type") == "Organization":
-        members = [m["login"] for m in paginate(f"/orgs/{owner['login']}/public_members?per_page=100")
-                   if m.get("login") and m["login"].lower() not in ours]
+        members = [login for login in [copy_creator(full, cand)]
+                   + [m.get("login") for m in get(f"/orgs/{owner['login']}/public_members?per_page=100") or []]
+                   if login and login.lower() not in ours]
     branch = urllib.parse.quote(cand.get("default_branch") or "main", safe="")
     for c in get(f"/repos/{full}/commits?sha={branch}&per_page=100") or []:
         # Only the copy's own commits, on top of this project's history: the copied ones are by this
@@ -377,7 +395,7 @@ def their_authors(full, cand, ours, me=None, limit=10):
         if login and not commit_identities(c) & ours:
             logins.append(login)
     out = []
-    for group, cap in ((members, None), (logins, limit)):
+    for group, cap in ((members, org_limit), (logins, limit)):
         added = 0
         for login in group:
             if cap is not None and added >= cap:
