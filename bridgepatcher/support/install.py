@@ -8,11 +8,17 @@ import plistlib
 import subprocess
 import re
 import sys
+import time
 from pathlib import Path
 
 from . import utilities, subprocess_wrapper
 from .. import constants
 from ..datasets import model_array
+
+
+# diskutil umount right after copying OpenCore, see install_opencore()
+UMOUNT_ATTEMPTS    = 4
+UMOUNT_RETRY_DELAY = 2  # seconds
 
 
 # GPT partition type GUID of the EFI System Partition (diskutil may report either the name or the GUID)
@@ -459,7 +465,16 @@ class tui_disk_installation:
         if not self.constants.recovery_status:
             logging.info("Unmounting the EFI partition")
             # FIX 4: Auch unmount als Root ausführen, da wir es als Root gemountet haben
-            umount_result = subprocess_wrapper.run_as_root(["/usr/sbin/diskutil", "umount", mount_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # Right after the copy the volume is often still busy for a moment (e.g. Spotlight
+            # indexing the new files), and "diskutil umount" fails with "failed to unmount".
+            # Try a few times before giving up; never force it, a forced unmount of a FAT
+            # volume that is still being written to can corrupt it.
+            for attempt in range(UMOUNT_ATTEMPTS):
+                umount_result = subprocess_wrapper.run_as_root(["/usr/sbin/diskutil", "umount", mount_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                if umount_result.returncode == 0 or attempt == UMOUNT_ATTEMPTS - 1:
+                    break
+                logging.info(f"- EFI partition still busy, retrying unmount ({attempt + 2}/{UMOUNT_ATTEMPTS})")
+                time.sleep(UMOUNT_RETRY_DELAY)
             if umount_result.returncode != 0:
                 logging.warning("Unmounting the EFI partition failed (not critical, OpenCore was installed):")
                 subprocess_wrapper.log(umount_result)

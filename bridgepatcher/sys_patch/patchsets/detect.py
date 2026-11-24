@@ -7,7 +7,6 @@ import plistlib
 import subprocess
 import py_sip_xnu
 import sys
-import packaging.version
 
 try:
     from enum import StrEnum
@@ -508,12 +507,17 @@ class HardwarePatchsetDetection:
     def _override_amfi_level(self, level: amfi_detect.AmfiConfigDetectLevel) -> amfi_detect.AmfiConfigDetectLevel:
         """
         Override level required based on whether AMFIPass is loaded
+
+        BridgePatcher never lowers it: AMFIPass only trusts binaries signed by
+        Dortania's code signing CA (the CA is embedded in AMFIPass itself), and
+        BridgePatcher's root patches aren't signed by it. Returning NO_CHECK
+        whenever AMFIPass was loaded let root patching run on Macs whose EFI
+        had no amfi=0x80; AMFI then rejected the patched frameworks after the
+        reboot and the Mac never reached the desktop (Issue #788). The boot-args
+        alone now decide - same reason as defaults.py _check_amfipass_supported().
         """
-        amfipass_version = utilities.check_kext_loaded("com.dhinakg.AMFIPass")
-        if amfipass_version:
-            if packaging.version.parse(amfipass_version) >= packaging.version.parse(self._constants.amfipass_compatibility_version):
-                # If AMFIPass is loaded, our binaries will work
-                return amfi_detect.AmfiConfigDetectLevel.NO_CHECK
+        # Restore the Dortania behaviour below only if BridgePatcher's root patches
+        # are ever signed with a certificate AMFIPass trusts.
         return level
 
 

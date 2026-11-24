@@ -51,13 +51,11 @@ class ModeSelectorFrame(wx.Frame):
     def on_matteo_click(self, event):
         logging.info("Selected Mode: Matteo")
         self.constants.app_mode = "matteo"
-        self.constants.build_profile = "test_c"
         self._launch_main_menu()
 
     def on_albert_click(self, event):
         logging.info("Selected Mode: Albert T2")
         self.constants.app_mode = "albert"
-        self.constants.build_profile = "standard"
         self._launch_main_menu()
 
     def _launch_main_menu(self):

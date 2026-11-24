@@ -1,4 +1,95 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.0.0.8 - 4.0.0 alpha 20.4 Preview
+This release:
+- fixes the app crashing with "segmentation fault" (sometimes "bus error") after installing OpenCore, right after the message that the guide on turning off Secure Boot and SIP will open. The crash wasn't in the install: the main menu checks for updates again every 60 seconds while the app stays open, and that timer kept running after the main menu was closed (e.g. by Build and Install OpenCore). Each tick was sent to the closed window, which crashed the app as soon as its memory was reused. The timer now stops once the main menu is gone. Opening the guide with macOS's `open` command in 4.0.0.2000004.0.0.5 wasn't the fix for this.
+- when the app crashes in native code (wxWidgets, macOS frameworks), the log file now ends with the Python stack of every thread instead of stopping without a word, so crash reports show where it happened
+- on T2 Macs, updates T2TahoeFixup.kext to 1.0.26, a patched 1.0.25 that fixes the two unknown board IDs left in 1.0.25 (#834). The kext's source isn't available, so this is a patch of the binary (25 bytes), not a new build:
+  - the Mac Pro 2019 (MacPro7,1) was paired with `Mac-27AD2020579F6309`, which is no Mac's board ID, so on a genuine Mac Pro 2019 the kext turned itself on instead of staying inactive. It's now `Mac-27AD2F918AE68F61`, the Mac Pro 2019's real board ID
+  - in the list of board IDs the kext leaves alone because macOS Tahoe supports them, `Mac-5A49A3736D181579` is replaced by `Mac-E1008331FDC96864` (MacBookPro16,1)
+  - not changed, flagged for the kext's author: that list still has the MacBookPro16,3 (`Mac-E7203C0F68AA0004`), which macOS Tahoe doesn't support, and lacks the MacBookPro16,4 (`Mac-A61BADE1FDAD7B05`)
+
+## 4.0.0.2000004.0.0.7 - 4.0.0 alpha 20.4 Preview
+This release:
+- adds "Power Button NMI" under Settings → Debugging. It sets `debug=0x8104` in the boot-args of every EFI, for T2 Macs and Macs without a T2 chip alike. On top of `debug=0x104` (no reboot on panic, NMI from the keyboard combo Control + Option + Command + Shift + Esc), the added 0x8000 lets a short press on the power button trigger the NMI. That helps when macOS hangs during boot before the keyboard works (e.g. while the USB ports come up on a Mac mini 2018), so the hang can still be turned into a panic with a backtrace. Hold the button and the Mac turns off as usual. Off by default
+- Updates WhateverGreen-Navi to the latest available version
+- merges the separate EFI builder for Macs without a T2 chip (`efi_builder/non_t2`, added for #788) back into the main EFI builder, so there's one set of builder files again. Macs without a T2 chip keep Dortania's behaviour, BridgePatcher's T2 handling only runs behind T2 checks. EFIs built for every supported Mac (macOS Tahoe, Sequoia and Sonoma, with and without the debug options) were compared before and after: T2 EFIs are unchanged, and EFIs for Macs without a T2 chip only change where the main builder was better:
+  - the app's legacy NVRAM variables (from builds before the rename) are also deleted at boot, as on T2 Macs
+  - kexts are copied from their payload one by one, so the unused AppleALCU.kext no longer ends up next to AppleALC.kext in the EFI
+  - when the EFI is built on the Mac itself, the iMac15,1, iMac17,1 and MacPro6,1 get the AMD GCN `agdpmod`/power-gating properties (the yellow screen fix), and on Macs with more than one GPU the properties go to the real GFX0 device
+- these older BridgePatcher additions for Macs without a T2 chip are removed, as they haven't been used since #788 and aren't in Dortania's builder: the MacBookPro14,x and MacBookPro13,x boot-args and build profile folder, the Haswell/Broadwell GPU boot-args, `dart=0` on every Mac without a T2 chip, `ipc_control_port_options=0 -amfipassbeta` for legacy Wi-Fi on Sonoma+, AMFIPass for the MacBookPro14,3, CatalinaBCM5701Ethernet.kext on Ivy Bridge and newer, blocking ACPI_SMC_PlatformPlugin on macOS Tahoe, and skipping the FireWire boot kexts when the host runs macOS Tahoe
+
+## 4.0.0.2000004.0.0.6 - 4.0.0 alpha 20.4 Preview
+This release:
+- on T2 Macs, updates T2TahoeFixup.kext to 1.0.25, a patched 1.0.24 that also recognizes the Mac mini 2018 (Macmini8,1, `Mac-7BA5B2DFE22DDD8C`) and the MacBook Air 2020 (MacBookAir9,1, `Mac-0CFF9C7C2B63DF8D`) as Macs macOS Tahoe dropped (#834). Its list of dropped board IDs had a garbled entry (`Mac-0C5CE0FB34C44A19`) instead of the MacBook Air 2020 and no entry for the Mac mini 2018, so the kext stayed inactive on both and the Tahoe installer stalled at the Apple logo unless the "T2 Installer Workaround" was turned on. The kext's source isn't available, so this is a patch of the binary, not a new build:
+  - the garbled entry is replaced by the MacBook Air 2020's board ID
+  - the Mac mini 2018's board ID is added as a 10th entry, and the loop in `shouldAliasManifest()` that walks the list now checks 10 entries instead of 9
+  - nothing else in the kext changes apart from its version in Info.plist (1.0.24 -> 1.0.25), so users see the update. Two other unknown board IDs in the kext (`Mac-27AD2020579F6309`, `Mac-5A49A3736D181579`) are left as they are, as it's not clear which Macs they were meant for
+- on T2 Macs, EFIs built for macOS Tahoe now set `debug=0x104` instead of `debug=0x100`. 0x100 still keeps the Mac on the panic screen instead of rebooting; the added 0x4 lets a non-maskable interrupt (NMI) trigger a panic, so when macOS hangs during boot without any message (e.g. right after `apfs_sysctl_register: done registering sysctls` on a Mac mini 2018), an NMI shows a backtrace of where the kernel is stuck. Build and install OpenCore again to get it
+
+## 4.0.0.2000004.0.0.5 - 4.0.0 alpha 20.4 Preview
+This release:
+- on T2 Macs, removes two Intel graphics settings that made macOS hang at the Apple logo unless the "T2 Installer Workaround" was turned on:
+  - `igfxfw=2` is no longer added. It forced Apple's GuC graphics firmware, which genuine Macs leave turned off
+  - the Mac mini 2018 and the MacBookPro16,1 and 16,4 keep their own Intel graphics settings from the firmware instead of the ones BridgePatcher injected when building OpenCore on the Mac itself. On the MacBookPro16,1 and 16,4, which macOS Tahoe supports natively, the injected settings turned off the Intel GPU's display outputs
+  - the other T2 Macs keep their graphics settings; only `igfxfw=2` is gone
+  - on a Mac mini 2018, the mouse pointer now shows up at the Apple logo, but the macOS Tahoe installer still stalls there: T2TahoeFixup.kext 1.0.24 doesn't recognize the Mac mini 2018 and the MacBook Air 2020 (MacBookAir9,1) as Macs macOS Tahoe dropped, so it stays inactive. Until a fixed T2TahoeFixup is bundled, keep the "T2 Installer Workaround" turned on on these Macs while macOS Tahoe installs
+  - build and install OpenCore again with this version. Not yet confirmed on real hardware
+- fixes a crash ("segmentation fault") while installing OpenCore to a disk when the Privileged Helper Tool rejects the build (`BRIDGEPATCHER_PHT_ERROR_INVALID_CERTIFICATES`) and BridgePatcher asks for the administrator password instead. The password prompt went through Apple's Authorization Services in a way that could read memory that had already been freed. The Developer Mode marker file fix in Settings used the same code and is fixed too
+- installing OpenCore: when the EFI partition can't be unmounted right after copying OpenCore because it's still busy (e.g. while Spotlight indexes the new files), BridgePatcher now tries again up to four times before reporting it. It never forces the unmount. As before, OpenCore is installed either way
+- after installing OpenCore on a T2 Mac, the guide on turning off Secure Boot and SIP is opened in the browser through macOS's `open` command instead of Python's web browser module, which runs an AppleScript through a shell. The app crashed with a "bus error" right at this point on a Mac mini 2018. Not yet confirmed to fix the crash
+- fixes the custom board serial number never reaching NVRAM with the "Minimal" serial setting. BridgePatcher wrote it to `PlatformInfo > PlatformNVRAM > BoardSerialNumber`, a key neither OpenCore 1.0.8 nor BridgePatcher's own OpenCorePkg have, so OpenCore skipped it. It now goes to `PlatformNVRAM > MLB` on every Mac. On T2 Macs, this means macOS now sees the custom board serial number you entered in NVRAM, not the Mac's real one, which can affect iCloud and Apple Account sign-in
+
+## 4.0.0.2000004.0.0.4 - 4.0.0 alpha 20.4 Preview
+This release:
+- fixes a small bug where in arguments.py the No updates available in the code was on 2 rows instead of 1:
+
+            logging.info(
+                            f"- No update available ({checker.last_error if checker.last_error else 'already on the latest version'})")
+
+## 4.0.0.2000004.0.0.3 - 4.0.0 alpha 20.4 Preview
+This version updates the AirPort Atheros kext to the latest version available.
+
+## 4.0.0.2000004.0.0.2 - 4.0.0 alpha 20.4 Preview
+This release:
+- stops injecting AppleKeyStore-Tahoe on T1 Macs automatically, just like in the latest non-preview version
+
+- fixes a vulnerability where an attacker may be able to gain access to this repository to push malicious PRs that violate the license or include malware and push PRs that are set to Draft to bypass GitHub Actions and confuse contributors into accepting malware
+
+Impact: GitHub Actions may comment that the PR is malicious, but not close the PR. An attacker could exploit this to trick unsuspecting owners of the organization into accepting malicious PRs to commit license violations, contribution violations or malware to the repository.
+- fixes a vulnerability where a malicious fork could trick GitHub Actions into not closing the PR by making the PR set to draft.
+
+Impact: an attacker could intentionally set a malicious PR to confuse GitHub Actions into not closing the PR for malicious activity. Then they could trick unsuspecting owners of the organization to push malware into main.
+
+- fixes a vulnerability where an attacker who is actively typosquatting this project could make a fork and then push a malicious PR and bypass all action defenses to deploy malware
+Impact: an attacker who is actively running malware campaigns that impersonate BridgePatcher's organisation to push a malicious PR and bypass all defenses to trick an unsuspecting owner of the project to inject malware into main.
+
+- fixes a vulnerability where if the app was opened before the update was released, it may not update automatically, even while doing nothing at the moment.
+
+Impact: the user may remain on a vulnerable version because they never closed the application at all. An attacker could exploit this vulnerability to exploit other already patched vulnerabilities, e.g arbitary code execution, button hijacking or DoS.
+
+## 4.0.0.2000004.0.0.1 - 4.0.0 alpha 20.4 Preview
+This release:
+- root patching now always uses Dortania's PatcherSupportPkg (dortania/PatcherSupportPkg 2.0.5) on every Mac, T2 Macs included. It is bundled with the app again, so it no longer needs to be downloaded online when root patching. BridgePatcher's own PatcherSupportPkg (2.6) and the PatcherSupportPkg choice in Settings > App are gone, and a stored choice from an earlier version is removed on the next start
+  - Macs root patched with BridgePatcher's PatcherSupportPkg are asked to revert the root patches and patch again
+- the root patches themselves now match Dortania's current OpenCore Legacy Patcher, apart from the USB 1.1 patch and the Modern Audio patch, which stay as they are (Modern Audio is still skipped on the iMac19,1 and iMac19,2 under macOS Tahoe when SimpleHDA is loaded). The patcher's own checks around root patching (revert checks, choosing which patches to install, the AMFI check from #788) are not changed
+  - T1 Security Chip: on macOS Sequoia, `MechanismPlugins`, `ModulePlugins` and `ModuleBase.framework` are installed again (needed to add a Touch ID fingerprint). On macOS Tahoe, nothing changes: the Touch ID and Apple Pay files are still only installed when the EFI loads the T1 kexts ("T1 Touch ID on macOS Tahoe")
+  - AMD Navi: the patch is offered to every Mac with a Navi GPU and a CPU without AVX2 again (e.g. a Mac Pro 2010/2012 with a Navi graphics card), as in Dortania's patcher. It was limited to Dortania's internal testers
+- brings SimpleHDA audio on macOS Tahoe back to the iMac19,1 and iMac19,2, which lost it with the new EFI builder for Macs without a T2 chip in 4.0.0.2000004. SimpleHDA is the only way to get sound working on these Macs under Tahoe. OpenCore again adds Lilu, AppleALC and SimpleHDA with the Mac's audio layout (`alcid=7`), as before. SimpleHDA is still downloaded while building OpenCore and checked against its SHA-256; without an internet connection, OpenCore is built without it
+  - build and install OpenCore again with this version to get SimpleHDA back
+- brings back the macOS Tahoe handling for the T1 MacBook Pros (MacBookPro13,2, 13,3, 14,2 and 14,3), which the new EFI builder for Macs without a T2 chip dropped in 4.0.0.2000004. By default, the T1 kexts are only loaded up to macOS Sequoia again, and macOS Tahoe uses its own keystore: no Touch ID there, but iCloud sync and the keychain work. The "T1 Touch ID on macOS Tahoe" setting works again and loads the T1 kexts on Tahoe for Touch ID (with the iCloud sync and keychain issue it warns about)
+  - build and install OpenCore again with this version. If root patches were installed on macOS Tahoe while the T1 kexts were loaded, revert them and patch again after rebooting
+
+## 4.0.0.2000004  - 4.0.0 alpha 20.4 Preview
+This release:
+- builds OpenCore for Macs without a T2 chip with a port of Dortania's current OpenCore Legacy Patcher EFI builder, to rule out BridgePatcher's own EFI builder as the cause of #788. On all 85 supported Macs without a T2 chip, the EFI now matches the one Dortania's builder makes, apart from BridgePatcher's names, OpenCore 1.0.8 and the boot picker theme
+  - BridgePatcher-only settings are no longer added on these Macs, among them `dart=0`, `-amfipassbeta`, `-oas_skip_attestation`, the extra Haswell/Broadwell and MacBookPro13,x/14,x boot-args, CatalinaBCM5701Ethernet and SimpleHDA audio on the iMac19,1 and iMac19,2 under macOS Tahoe
+  - the T1 kexts on the MacBookPro13,2/13,3/14,2/14,3 now load on macOS Tahoe too, as in Dortania's builder. This brings Touch ID back, but also the keystore issue the "T1 Touch ID on macOS Tahoe" setting warns about (iCloud sync stops, the keychain keeps asking for the password). That setting has no effect on these Macs anymore
+  - new from Dortania: per-model USB maps, CSLVFixup on macOS Big Sur and AppleIntelPIIXATA for macOS Monterey and newer on the MacBookPro4,1, MacPro3,1, Xserve2,1, iMac7,1 and iMac8,1
+  - Apple Secure Boot is still turned off whenever SIP is lowered for root patching (#465)
+  - build and install OpenCore again with this version to get the new EFI
+  - T2 Macs are not affected, their EFI stays exactly the same
+- removes the TEST-A to TEST-D (LEVEL-B to LEVEL-D) OpenCore build profiles. Every build now uses the standard configuration, and the profile choices are gone from Build OpenCore, the OpenCore settings and Developer Mode. A stored profile choice from an earlier version is removed on the next start
+
 ## 4.0.0.2000003.8.1 - 4.0.0 alpha 20.3.8.1
 This release updates WhateverGreen-Navi to the latest available version.
 
@@ -9,6 +100,16 @@ This release:
             logging.info(
                             f"- No update available ({checker.last_error if checker.last_error else 'already on the latest version'})")
 - updates the AirPort Atheros kext to the latest version available.
+
+## 4.0.0.2000003.7.1 - 4.0.0 alpha 20.3.7.1 Preview
+This release:
+- fixes a bug where root patching ran on Macs without a T2 chip even though AMFI was still enabled, so the Mac couldn't start up afterwards (#788). As soon as AMFIPass was loaded, BridgePatcher assumed AMFI would accept the patched frameworks. That is only true for Dortania's root patches: AMFIPass only trusts binaries signed by Dortania, and BridgePatcher signs its root patches with its own certificate. On a Mac whose OpenCore had no `amfi=0x80`, root patching therefore went ahead, and after the reboot AMFI rejected the patched frameworks and the Mac never reached the desktop. Whether AMFI is disabled is now decided only by the boot-args. A Mac without `amfi=0x80` is now stopped before root patching with "Validation: AMFI is enabled" instead of ending up unable to start up
+  - if you see this message, build and install OpenCore again with this version (it adds `amfi=0x80`, see 4.0.0.2000003.7.0), reboot, then root patch
+  - T2 Macs always have `amfi=0x80` and are not affected
+
+## 4.0.0.2000003.7.0 - 4.0.0 alpha 20.3.7 Preview
+This release:
+- Fixes the AMFI part of #788 (MacBookPro7,1, Sequoia 15.8.3: patched frameworks rejected by AMFI after root patching).
 
 ## 4.0.0.2000003.7 - 4.0.0 alpha 20.3.7
 This version is a security update only that fixes critical vulnerabilities. Please we recommend to update to this version.
