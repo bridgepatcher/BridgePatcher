@@ -1131,6 +1131,8 @@ def main():
             "status": "⚠️ suspicious" if suspicious else "🟢 active",
             "what": f"{verdict}: " + "; ".join(reasons + [describe_copy(sha, own)]),
             "request": link, "license": license_link,
+            # Mentioned next to the repository in the tracker issue, so they're notified there too
+            "people": their_authors(full, cand, authors, me),
         })
 
     # Copies listed before that this run's searches didn't return: still there, renamed, or gone?
