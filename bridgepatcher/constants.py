@@ -110,7 +110,6 @@ class Constants:
         self.project_status_checked:   bool = False
         self.project_eol_notice_shown: bool = False
 
-        self.custom_installer_url:            str = "https://github.com/Medelcartelinc/BridgePatcher"
         self.custom_installer_version=self.patcher_version
         self.installer_pkg_url:               str = f"{self.repo_link.rstrip('/')}/releases/download/{self.patcher_version}/AutoPkg-Assets-T2.pkg"
 
