@@ -7,7 +7,7 @@ This release:
   - Macs with both a Legacy GCN and a Skylake GPU keep their GCN + Skylake patches when a Metal 3802 GPU is also present, instead of skipping them
   - if your Mac was root patched with PatcherSupportPkg 2.0.5, BridgePatcher asks you to revert the root patches first, then patch again
 - on T2 Macs, T2TahoeFixup.kext now loads right after Lilu, before AppleALC, WhateverGreen and the other kexts. Build and install OpenCore again to get it
-- the main menu now shows a readable version name with the exact version in brackets, e.g. "Version 4.0.0 alpha 20.4.1 (4.0.0.2000004.1)". The updater, release tags, NVRAM and logs still use the numeric version
+- The main menu now shows "4.0.0 alpha 20.4.1" instead of a version number that looked like an IP address with a few extra octets.
 - removes the Medelcartelinc update channel, as the Medelcartelinc GitHub account is banned and its fork can't be used as an update source anymore. If you picked it, BridgePatcher switches you back to the official channel on its next launch. `Build-Project.command --update-channel` no longer accepts it either
 
 ## 4.0.0.2000004.0.0.8 - 4.0.0 alpha 20.4 Preview
