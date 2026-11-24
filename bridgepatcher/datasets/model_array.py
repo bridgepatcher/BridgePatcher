@@ -278,6 +278,20 @@ MacPro = ["MacPro3,1", "MacPro4,1", "MacPro5,1", "Xserve2,1", "Xserve3,1", "Dort
 # MXM iMac
 MXMiMac = ["iMac11,1", "iMac11,2", "iMac11,3", "iMac10,1", "iMac12,1", "iMac12,2", "Dortania1,1"]
 
+NoCPUFriendData = [
+    "Macmini1,1",
+    "Macmini2,1",
+    "iMac4,1",
+    "iMac4,2",
+    "iMac5,1",
+    "iMac5,2",
+    "iMac6,1",
+    "iMac7,1",
+    "Xserve1,1",
+    "Xserve2,1",
+    "Dortania1,1",
+]
+
 NoAGPMSupport = ["MacBookPro4,1", "iMac7,1", "iMac8,1", "MacPro3,1", "Xserve2,1", "Dortania1,1"]
 
 AGDPSupport = [

@@ -27,19 +27,6 @@ def _usb_map_entry_belongs_to(entry: str, model: str) -> bool:
     return entry == model or entry.startswith(f"{model}-")
 
 
-def usb_map_personality_count(map_path: Path, model: str) -> int:
-    """
-    Number of IOKit personalities a combined USB map plist holds for model.
-    """
-
-    map_path = Path(map_path)
-    if not map_path.exists():
-        return 0
-    with map_path.open("rb") as map_file:
-        personalities = plistlib.load(map_file).get("IOKitPersonalities_x86_64", {})
-    return len([entry for entry in personalities if _usb_map_entry_belongs_to(entry, model)])
-
-
 def prepare_usb_map(map_path: Path, model: str, target_model: str, serial_settings: str) -> int:
     """
     Reduce a combined USB map plist to the personalities of model and activate them.

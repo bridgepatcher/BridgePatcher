@@ -158,12 +158,9 @@ class GenerateDefaults:
         # Purge it unconditionally so that can never happen.
         global_settings.GlobalEnviromentSettings().delete_property("GUI:Experimental_Features")
 
-        if self.constants.Experimental_Features:
-            self.constants.build_profile = global_settings.GlobalEnviromentSettings().read_property("GUI:oc_build")
-            if self.constants.build_profile is None or self.constants.build_profile == "":
-                logging.info("No OC Default config provided, you will be prompted for one at build")
-            else:
-                logging.info(f"Setting the OC Default build to \"{self.constants.build_profile}\"")
+        # The TEST-A to TEST-D build profiles are gone, every build uses the standard
+        # configuration. Drop the stored profile choice from older versions.
+        global_settings.GlobalEnviromentSettings().delete_property("GUI:oc_build")
 
         # "Turn Off Auto Updates" is visible to every user (Settings > Advanced),
         # so its stored value must be restored independently of Developer Mode.
@@ -172,18 +169,9 @@ class GenerateDefaults:
         stored_auto_update = global_settings.GlobalEnviromentSettings().read_property("AllowAutoUpdates")
         self.constants.auto_update = bool(stored_auto_update) if stored_auto_update is not None else True
 
-        # PatcherSupportPkg source (Settings > App) - only known keys are accepted
-        # (see constants.patcher_support_pkg_sources), anything else keeps the bundled default.
-        stored_psp_source = global_settings.GlobalEnviromentSettings().read_property("PatcherSupportPkgSource")
-        if stored_psp_source not in [None, "", "None"]:
-            if isinstance(stored_psp_source, str) and stored_psp_source in self.constants.patcher_support_pkg_sources:
-                self.constants.patcher_support_pkg_source = stored_psp_source
-            else:
-                logging.error(f"Ignoring invalid PatcherSupportPkgSource value in settings: {stored_psp_source!r}")
-        logging.info(
-            f"PatcherSupportPkg: {self.constants.patcher_support_pkg_source} {self.constants.patcher_support_pkg_version} "
-            f"({'bundled' if self.constants.patcher_support_pkg_bundled else 'downloaded online'})"
-        )
+        # Root patching always uses Dortania's PatcherSupportPkg, the source choice
+        # in Settings > App is gone. Drop the stored choice from older versions.
+        global_settings.GlobalEnviromentSettings().delete_property("PatcherSupportPkgSource")
 
         # Update channel - only known keys are accepted (see constants.update_channels)
         # The build default comes from "Build-Project.command --update-channel=<key>",
@@ -606,24 +594,28 @@ class GenerateDefaults:
         - Root volume doesn't have adhoc signed binaries
 
         If all of these conditions are met, it is safe to disable AMFI and CS_LV. Otherwise, for safety, leave it be.
+
+        BridgePatcher never meets them: AMFIPass only trusts binaries signed by
+        Dortania's code signing CA (the CA is embedded in AMFIPass itself), while
+        BridgePatcher's PatcherSupportPkg signs its root patches with the
+        BridgePatcher certificate. 'Custom Signature' in the root patch manifest
+        (sys_patch_signed) only says the payload was signed by our CI, not that
+        AMFIPass accepts it - and an unpatched root volume reports it as True too.
+
+        Resetting disable_amfi / disable_cs_lv here dropped amfi=0x80 from every
+        non-T2 Mac that needs root patches (e.g. MacBookPro7,1, issue #788): AMFI
+        then rejected the patched QuartzCore, CoreDisplay, CoreWLAN and IO80211
+        ("code signature validation failed") and the Mac never reached the desktop.
+        So the values set by the hardware probes are kept as they are. Users who
+        need AMFI enabled can still untick "Disable AMFI" in the settings.
+
+        T2 Macs are not affected: they get amfi=0x80 from misc.py _t2_handling()
+        and do not read disable_amfi.
         """
 
-        if not self.host_is_target:
-            # Unknown whether the host is using old binaries
-            # Rebuild it once you are on the host
-            return
-
-        # Check for adhoc signed binaries
-        if self.constants.computer.sys_patch_signed is False:
-            # Root patch with new binaries, then reboot
-            return
-
-        # Note: simply checking the authority is not enough, as the authority can be spoofed
-        # (but do we really care? this is just a simple check)
-        # Note: the cert will change
-
-        self.constants.disable_amfi = False
-        self.constants.disable_cs_lv = False
+        # Restore the Dortania behaviour below only if BridgePatcher's root patches
+        # are ever signed with a certificate AMFIPass trusts.
+        return
 
 
     def _enforce_secure_boot_consistency(self) -> None:

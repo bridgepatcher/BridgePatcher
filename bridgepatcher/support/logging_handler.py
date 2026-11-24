@@ -5,6 +5,7 @@ logging_handler.py: Initialize logging framework for program
 import os
 import sys
 import pprint
+import faulthandler
 import logging
 import threading
 import traceback
@@ -48,6 +49,7 @@ class InitializeLoggingSupport:
 
         self.log_filename: str  = f"{self.LOG_PREFIX}{self.constants.patcher_version}_{log_time}.log"
         self.log_filepath: Path = None
+        self.fault_log = None  # see _enable_fault_handler()
 
         self.original_excepthook:        sys       = sys.excepthook
         self.original_thread_excepthook: threading = threading.excepthook
@@ -323,6 +325,33 @@ class InitializeLoggingSupport:
 
         sys.excepthook = custom_excepthook
         threading.excepthook = custom_thread_excepthook
+
+        self._enable_fault_handler()
+
+
+    def _enable_fault_handler(self) -> None:
+        """
+        Write the Python stack of every thread to the log file if the process crashes
+
+        A crash in native code (wxWidgets/AppKit, frameworks called through ctypes or
+        PyObjC) bypasses the hooks above: the process just dies with "segmentation
+        fault" or "bus error" and the log ends without a word about where.
+        """
+        file_handlers = [h for h in logging.getLogger().handlers if isinstance(h, RotatingFileHandler)]
+        if file_handlers:
+            # Its own descriptor, kept open for the life of the process: faulthandler
+            # writes to it from the signal handler, without going through logging.
+            try:
+                self.fault_log = open(file_handlers[0].baseFilename, "a")  # noqa: SIM115 - must stay open, see above
+                faulthandler.enable(file=self.fault_log, all_threads=True)
+                return
+            except (OSError, ValueError) as e:
+                logging.warning(f"Could not log crashes to the log file ({e}), using the terminal")
+
+        try:
+            faulthandler.enable(file=sys.stderr, all_threads=True)
+        except (AttributeError, OSError, ValueError) as e:
+            logging.warning(f"Could not enable crash logging: {e}")
 
 
     def _display_debug_properties(self) -> None:

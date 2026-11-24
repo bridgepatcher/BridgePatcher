@@ -5,7 +5,7 @@ even when macOS has put them under quarantine.
 When the patcher (or its source tree / payloads.dmg) is downloaded through a
 browser, macOS tags it with the 'com.apple.quarantine' extended attribute and
 every file extracted from it, or read from a disk image mounted from it,
-inherits that tag. The OpenCore utilities we ship (e.g. macserial-non-t2) are
+inherits that tag. The OpenCore utilities we ship (e.g. macserial) are
 not notarized, so as soon as we try to exec one of them Gatekeeper either
 shows its "cannot be opened" dialog and kills the process, or simply refuses
 to launch it. subprocess.run() then returns with a signal/non-zero exit code

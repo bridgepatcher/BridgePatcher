@@ -52,10 +52,11 @@ class T1SecurityChip(BaseHardware):
         """
         Whether the booted EFI injected the legacy T1 kexts on macOS Tahoe
 
-        KernelRelayHost is gone from macOS since 15.0 Beta 3, so on Tahoe it's only loaded when
-        OpenCore injected it, i.e. when the EFI was built with "T1 Touch ID on macOS Tahoe"
-        (constants.t1_tahoe_touch_id). By default the EFI leaves Tahoe on its native keystore:
-        the Touch ID userspace below can't do anything there, so it isn't installed.
+        BridgePatcher: KernelRelayHost is gone from macOS since 15.0 Beta 3, so on Tahoe it's
+        only loaded when OpenCore injected it, i.e. when the EFI was built with "T1 Touch ID on
+        macOS Tahoe" (constants.t1_tahoe_touch_id). By default the EFI leaves Tahoe on its native
+        keystore (efi_builder/misc.py _t1_handling()): the Touch ID userspace below can't
+        do anything there, so it isn't installed.
         """
         if self._t1_kexts_loaded is None:
             try:
@@ -72,17 +73,15 @@ class T1SecurityChip(BaseHardware):
         if self.native_os() is True:
             return {}
 
-        # Tahoe: turn off the KyberInTheSEPRegisteredKeys feature flag (MessageProtection) on T1 Macs.
-        # Ported from upstream dortania/OpenCore-Legacy-Patcher b8ae03e ("Fix the Skylake patches on Tahoe").
         tahoe_feature_flags = {
             PatchType.EXECUTE: {
                 "/usr/bin/defaults write /Library/Preferences/FeatureFlags/Domain/MessageProtection.plist KyberInTheSEPRegisteredKeys -dict Enabled -bool false": True,
             },
         }
 
-        if self._xnu_major >= os_data.tahoe.value and self._tahoe_t1_kexts_loaded() is False:
-            # Native keystore on Tahoe (default EFI build): no Touch ID / Apple Pay userspace, as the
-            # Ventura biometrickitd and the 25G229 seld / LocalAuthenticationCore have no T1 kexts to talk to.
+        if self._xnu_major >= os_data.tahoe and self._tahoe_t1_kexts_loaded() is False:
+            # BridgePatcher: native keystore on Tahoe (default EFI build), no Touch ID / Apple Pay
+            # userspace, as there are no T1 kexts for it to talk to
             return {
                 "T1 Security Chip": {
                     **tahoe_feature_flags,
@@ -108,7 +107,7 @@ class T1SecurityChip(BaseHardware):
                         "biometrickitd":      "13.6",    # Required for Touch ID
                         "nfcd":               "13.6",    # Required for Apple Pay
                         "nfrestore_service":  "13.6",    # Required for Apple Pay
-                        **({ "seld": "26.0-25G229" } if self._xnu_major >= os_data.tahoe.value else {}),  # Required for Touch ID / Apple Pay on Tahoe
+                        **({ "seld": "26.0-25G229" } if self._xnu_major >= os_data.tahoe else {}),
                     },
                     "/usr/standalone/firmware/nfrestore/firmware/fw": {
                         "PN549_FW_02_01_5A_rev88207.bin":         "13.6",
@@ -118,19 +117,20 @@ class T1SecurityChip(BaseHardware):
                     }
                 },
                 PatchType.MERGE_SYSTEM_VOLUME: {
-                    # On Tahoe, LocalAuthenticationCore.framework replaces the legacy SharedUtils overlay
-                    # (old SharedUtils crashes SecurityAgent/WindowServer -> black screen at login)
                     **({
                         "/System/Library/Frameworks/LocalAuthentication.framework/Support": {
                             "SharedUtils.framework": f"13.6-{self._xnu_major}" if self._xnu_major < os_data.sequoia else f"13.7.1-{self._xnu_major}",  # Required for Password Authentication (SharedUtils.framework)
+                            **({ "MechanismPlugins": "15.0 Beta 4" } if self._xnu_major >= os_data.sequoia else {}), # Required to add a TouchID fingerprint
+                            **({ "ModulePlugins": "15.1" } if self._xnu_float >= self.macOS_15_2 else {}),
+                            **({ "ModuleBase.framework": "15.2" } if self._xnu_float >= self.macOS_15_3 else {}),
                         },
-                    } if self._xnu_major < os_data.tahoe.value else {}),
+                    } if self._xnu_major < os_data.tahoe else {}),
                     "/System/Library/PrivateFrameworks": {
                         "EmbeddedOSInstall.framework": "13.6",  # Required for biometrickitd
-                        **({ "LocalAuthenticationCore.framework": "26.0-25G229" } if self._xnu_major >= os_data.tahoe.value else {}),
-                        **({ "NearField.framework": "14.7.2-25" if self._xnu_major >= os_data.tahoe.value else "14.7.2" } if self._xnu_major >= os_data.sequoia else {}),
+                        **({ "LocalAuthenticationCore.framework": "26.0-25G229" } if self._xnu_major >= os_data.tahoe else {}),
+                        **({ "NearField.framework": "14.7.2-25" if self._xnu_major >= os_data.tahoe else "14.7.2" } if self._xnu_major >= os_data.sequoia else {}),
                     },
                 },
-                **(tahoe_feature_flags if self._xnu_major >= os_data.tahoe.value else {}),
+                **(tahoe_feature_flags if self._xnu_major >= os_data.tahoe else {}),
             },
         }

@@ -64,28 +64,14 @@ def patcher_version_display_name(patcher_version: str) -> str:
 class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
-        self.patcher_version:                 str = "4.0.0.2000003.8.1"
+        self.patcher_version:                 str = "4.0.0.2000004.0.0.8"
         self.patcher_version_label:           str = patcher_version_display_name(self.patcher_version)
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
         self.bundle_identifier:               str = "com.bridgepatcher.bridgepatcher"
 
         # URLs
-        self.patcher_support_pkg_sources: dict = {
-            "bridgepatcher": {
-                "label":   "BridgePatcher (bundled)",
-                "url":     "https://github.com/bridgepatcher/PatcherSupportPkg/releases/download/",
-                "version": "2.6",
-                "bundled": True,
-            },
-            "dortania": {
-                "label":   "Dortania (online only)",
-                "url":     "https://github.com/dortania/PatcherSupportPkg/releases/download/",
-                # When bumping, use the version upstream OCLP pins in its constants.py
-                "version": "2.0.5",
-                "bundled": False,
-            },
-        }
-        self.patcher_support_pkg_source: str = "bridgepatcher"  # Key of patcher_support_pkg_sources, selected in the GUI
+        self.patcher_support_pkg_version:     str = "2.0.5"  # PatcherSupportPkg, use the version upstream OCLP pins in its constants.py
+        self.url_patcher_support_pkg:         str = "https://github.com/dortania/PatcherSupportPkg/releases/download/"
         self.guide_link:                      str = "https://bridgepatcher.github.io/"
         self.repo_link:                       str = "https://github.com/bridgepatcher/BridgePatcher/"
         self.github_issues_link:              str = "https://github.com/bridgepatcher/BridgePatcher/issues"
@@ -137,6 +123,7 @@ class Constants:
         self.featureunlock_version:      str = "1.1.8"  #      FeatureUnlock
         self.debugenhancer_version:      str = "1.1.1"  #      DebugEnhancer
         self.cpufriend_version:          str = "1.3.0"  #      CPUFriend
+        self.cslvfixup_version:          str = "2.6.1"  #      CSLVFixup
         self.bluetool_version:           str = "2.7.2"  #      BlueToolFixup (BrcmPatchRAM)
         self.autopkg_version:            str = "1.0.4"  #      AutoPkgInstaller
         self.cryptexfixup_version:       str = "1.0.5"  #      CryptexFixup
@@ -146,7 +133,7 @@ class Constants:
         ## Matteo (Medelcartelinc / matteoiacca)
         ## https://github.com/Medelcartelinc
         self.appleans2disabler_version:  str = "1.0.0"  #      AppleANS2Disabler (T2 internal SSD)
-        self.t2tahoefixup_version:       str = "1.0.24" #      T2TahoeFixup
+        self.t2tahoefixup_version:       str = "1.0.26" #      T2TahoeFixup
 
         ## laobamac
         ## https://github.com/laobamac/SimpleHDA
@@ -159,6 +146,7 @@ class Constants:
         self.marvel_version:        str = "1.0.1"  #  MarvelYukonEthernet
         self.nforce_version:        str = "1.0.1"  #  nForceEthernet
         self.piixata_version:       str = "1.0.1"  #  AppleIntelPIIXATA
+        self.piixata_monterey_version: str = "1.0.0"  # AppleIntelPIIXATA (Monterey)
         self.fw_kext:               str = "1.0.1"  #  IOFireWireFamily
         self.apple_trackpad:        str = "1.0.1"  #  AppleUSBTrackpad
         self.apple_isight_version:  str = "1.0.0"  #  AppleiSight
@@ -253,7 +241,6 @@ class Constants:
         self.snooze_updates:            int = 0  #  Snooze updates for a number of days
         self.auto_update:               bool = True # install found updates without asking; False = still check, but ask first
         self.next_update_check:         str = "" # Value of when the ext update will be
-        self.build_profile:             str = "standard"  # "standard" or "test_b" — gates TEST-B GPU modifications
         self.app_mode:                  str = "albert"    # "albert" or "matteo"
         self.wxpython_variant:          bool = False  # Determine if using wxPython variant
         self.has_checked_updates:       bool = False  # Determine if check for updates has been run
@@ -304,6 +291,7 @@ class Constants:
 
         ## NVRAM Settings
         self.verbose_debug: bool = False  # -v
+        self.power_button_nmi: bool = False  # debug=0x8104, a short power button press triggers an NMI panic
 
         ## SMBIOS Settings
         self.serial_settings:     str  = "None"  #    Set SMBIOS level used
@@ -406,42 +394,6 @@ class Constants:
             logging.error(f"We could not confirm whether you're using a special version: {e}")
             logging.info("You won't receive any updates to prevent an attacker from abusing the update API for malware delivery or denial of service attacks.")
             return True
-
-    # PatcherSupportPkg
-    @property
-    def _active_patcher_support_pkg(self) -> dict:
-        """
-        Selected PatcherSupportPkg source, or the bundled default if the selection is unknown
-        """
-        return self.patcher_support_pkg_sources.get(self.patcher_support_pkg_source) \
-            or self.patcher_support_pkg_sources["bridgepatcher"]
-
-    @property
-    def patcher_support_pkg_version(self) -> str:
-        """
-        PatcherSupportPkg release used for root patching (of the selected source)
-        """
-        return self._active_patcher_support_pkg["version"]
-
-    @property
-    def url_patcher_support_pkg(self) -> str:
-        """
-        Release download URL of the selected PatcherSupportPkg source
-        (https://github.com/<owner>/PatcherSupportPkg/releases/download/)
-        """
-        return self._active_patcher_support_pkg["url"]
-
-    @property
-    def patcher_support_pkg_label(self) -> str:
-        return self._active_patcher_support_pkg["label"]
-
-    @property
-    def patcher_support_pkg_bundled(self) -> bool:
-        """
-        Whether the selected PatcherSupportPkg ships with the app (Universal-Binaries.dmg
-        next to the sources/inside the bundle). False means it is downloaded online.
-        """
-        return self._active_patcher_support_pkg["bundled"] is True
 
     # Payload Location
 
@@ -765,6 +717,10 @@ class Constants:
         return self.payload_kexts_path / Path(f"Misc/AppleIntelPIIXATA-v{self.piixata_version}.zip")
 
     @property
+    def piixata_monterey_path(self):
+        return self.payload_kexts_path / Path(f"Misc/AppleIntelPIIXATA-Monterey-v{self.piixata_monterey_version}.zip")
+
+    @property
     def backlight_injector_path(self):
         return self.payload_kexts_path / Path(f"Misc/BacklightInjector-v{self.backlight_injector_version}.zip")
 
@@ -821,6 +777,10 @@ class Constants:
         return self.payload_kexts_path / Path(f"Acidanthera/RSRHelper-v{self.rsrhelper_version}-{self.kext_variant}.zip")
 
     @property
+    def cslvfixup_path(self):
+        return self.payload_kexts_path / Path(f"Acidanthera/CSLVFixup-v{self.cslvfixup_version}.zip")
+
+    @property
     def amfipass_path(self):
         # AMFIPass is release only
         return self.payload_kexts_path / Path(f"Acidanthera/AMFIPass-v{self.amfipass_version}-RELEASE.zip")
@@ -868,6 +828,14 @@ class Constants:
     @property
     def plist_folder_path(self):
         return self.payload_kexts_path / Path("Plists")
+
+    @property
+    def usb_maps_path(self):
+        return self.plist_folder_path / Path("USBMaps")
+
+    @property
+    def usb_map_template_path(self):
+        return self.plist_folder_path / Path("USB-Map.kext")
 
     @property
     def platform_plugin_plist_path(self):
@@ -992,9 +960,12 @@ class Constants:
     # Tools
     def _opencore_utility_path(self, utility: str, for_t2: bool = None) -> Path:
         """
-        Path to an OpenCore utility (macserial, ocvalidate) matching the OpenCore payload:
+        Path to an OpenCore utility matching the OpenCore payload:
         payloads/OpenCore/<utility> for T2 Macs (our OpenCorePkg fork),
         payloads/OpenCore/<utility>-non-t2 for every other Mac (OpenCore 1.0.8)
+
+        Only ocvalidate differs between the two; macserial is the same binary for both,
+        see macserial_path
 
         for_t2 defaults to opencore_build_for_t2, which efi_builder/build.py sets for the target model
         """
@@ -1011,15 +982,13 @@ class Constants:
         # binaries, which used to abort the whole OpenCore build/installation
         return gatekeeper.prepare_executable(utility_path)
 
-    def macserial_path_for(self, for_t2: bool) -> Path:
-        return self._opencore_utility_path("macserial", for_t2)
-
     def ocvalidate_path_for(self, for_t2: bool) -> Path:
         return self._opencore_utility_path("ocvalidate", for_t2)
 
     @property
     def macserial_path(self):
-        return self._opencore_utility_path("macserial")
+        # Shared by T2 and non-T2 builds: our OpenCorePkg fork and OpenCore 1.0.8 ship the same macserial
+        return self._opencore_utility_path("macserial", for_t2=True)
 
     @property
     def vault_path(self):
