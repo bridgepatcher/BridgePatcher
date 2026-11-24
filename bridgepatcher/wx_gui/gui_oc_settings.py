@@ -98,13 +98,7 @@ class OCSettingsFrame(wx.Frame):
 
         # Add Build OpenCore Button
         build_oc_button = wx.Button(frame, label="Install OpenCore", pos=(-1, -1), size=(120, 30))
-        if self.constants.Experimental_Features or self.constants.True_Developer_Mode:
-            if self.constants.build_profile == None or self.constants.build_profile == "":
-                build_oc_button.Bind(wx.EVT_BUTTON, self.on_build_opencore_menu)
-            else:
-                 build_oc_button.Bind(wx.EVT_BUTTON, self.on_build_and_install)
-        else:
-            build_oc_button.Bind(wx.EVT_BUTTON, self.on_build_and_install_standard)
+        build_oc_button.Bind(wx.EVT_BUTTON, self.on_build_and_install)
         # Deliberately NOT SetDefault(): wx fires the default button on Return from anywhere
         # in the dialog, including from any wx.TextCtrl without TE_PROCESS_ENTER (the custom
         # serial number fields on this very frame). "Install OpenCore" writes OpenCore to disk
@@ -533,6 +527,16 @@ class OCSettingsFrame(wx.Frame):
                     "description": [
                         "Use DEBUG variant of OpenCore",
                         "and enables additional logging.",
+                    ],
+                },
+                "Power Button NMI": {
+                    "type": "checkbox",
+                    "value": self.constants.power_button_nmi,
+                    "variable": "power_button_nmi",
+                    "description": [
+                        "Sets debug=0x8104: a short press on",
+                        "the power button during a boot hang",
+                        "triggers a panic with a backtrace.",
                     ],
                 },
             },
@@ -1142,8 +1146,7 @@ class OCSettingsFrame(wx.Frame):
             return
 
         target_model = self.constants.custom_model or self.constants.computer.real_model
-        # No EFI build has run yet, so opencore_build_for_t2 may not match this model - pick macserial explicitly
-        macserial_path = self.constants.macserial_path_for(target_model in model_array.T2Macs)
+        macserial_path = self.constants.macserial_path
         try:
             macserial_output = subprocess.run([macserial_path, "--generate", "--model", target_model, "--num", "1"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
         except subprocess.TimeoutExpired:
@@ -1172,47 +1175,6 @@ class OCSettingsFrame(wx.Frame):
 
 
     def on_save(self, event):
-        # Must be initialised before the branch below. If a build profile is already set
-        # (e.g. an earlier build in the same session), the prompt is skipped entirely and
-        # the reset check at the end of this method would hit an unbound local, crashing
-        # with UnboundLocalError right after the build was already written to disk.
-        user_had_prompt_set = False
-        if self.constants.build_profile is None or self.constants.build_profile == "":
-            user_had_prompt_set = True
-            choices = [
-                "Standard / Safe Build",
-                "[LEVEL-B] Experimental GPU",
-                "[LEVEL-C] Experimental Tahoe (Native SMBIOS)",
-                "[LEVEL-C] Experimental Spoof T2 (MacBookPro16,1)",
-                "[LEVEL-D] All-In-One Tahoe (Wi-Fi + Audio + GPU + T1)"
-            ]
-            dialog = wx.SingleChoiceDialog(
-                self,
-                "Select the OpenCore build profile you wish to generate:",
-                "Build OpenCore",
-                choices
-            )
-
-            if dialog.ShowModal() == wx.ID_OK:
-                selection = dialog.GetSelection()
-                if selection == 0:
-                    self.constants.build_profile = "standard"
-                elif selection == 1:
-                    self.constants.build_profile = "test_b"
-                elif selection == 2:
-                    self.constants.build_profile = "test_c"
-                elif selection == 3:
-                    self.constants.build_profile = "test_c_spoofed"
-                elif selection == 4:
-                    self.constants.build_profile = "test_d"
-                else: # behebt eine Sicherheitslücke, die erlaubt Angreifern, das Wert Selection auf beliebiges Wert zu stellen, um später beliebiges Code statt Profil-Auswählung durchzuführen                    
-                    logging.error("Your build profile is invalid. Please. select a valid profile.")
-                    dialog.Destroy()
-                    return
-                dialog.Destroy()
-            else: #We asume that the user doesn't want to save OpenCore so we stop.
-                dialog.Destroy()
-                return
         # Throw pop up to get save location
         #
         # wx.FileDialog(wx.FD_SAVE) is unusable here: wxWidgets' macOS backend
@@ -1228,9 +1190,6 @@ class OCSettingsFrame(wx.Frame):
         # directly - a directory picker carries no wildcard and no filter array.
         with wx.DirDialog(self.parent, "Select where to save the OpenCore build", style=wx.DD_DEFAULT_STYLE | wx.DD_NEW_DIR_BUTTON) as dirDialog:
             if dirDialog.ShowModal() == wx.ID_CANCEL:
-                # Profile was only picked for this save, don't leak it into the next build
-                if user_had_prompt_set:
-                    self.constants.build_profile = ""
                 return
 
             # Must match constants.opencore_release_folder (build_path/oc_build_folder_name),
@@ -1247,8 +1206,6 @@ class OCSettingsFrame(wx.Frame):
                 save=True
             )
             wx.CallAfter(self.parent.Destroy)
-            if user_had_prompt_set:
-                self.constants.build_profile = ""
 
     def _update_setting(self, variable, value):
         logging.info(f"Updating Local Setting: {variable} = {value}")
@@ -1377,46 +1334,6 @@ class OCSettingsFrame(wx.Frame):
         reset_sip_button.SetToolTip("Restore SIP to the recommended value for this Mac")
         reset_sip_button.Bind(wx.EVT_BUTTON, self.on_reset_sip)
 
-
-    def on_build_and_install_standard(self, event: wx.Event = None):
-        self.constants.build_profile = "standard"
-        self.on_build_and_install(event)
-
-    def on_build_opencore_menu(self, event: wx.Event = None):
-        if self.constants.build_profile is None or self.constants.build_profile == "":
-            user_had_prompt_set = True
-        else:
-            user_had_prompt_set = False
-        choices = [
-            "Standard / Safe Build",
-            "[LEVEL-B] Experimental GPU",
-            "[LEVEL-C] Experimental Tahoe (Native SMBIOS)",
-            "[LEVEL-C] Experimental Spoof T2 (MacBookPro16,1)",
-            "[LEVEL-D] All-In-One Tahoe (Wi-Fi + Audio + GPU + T1)"
-        ]
-        dialog = wx.SingleChoiceDialog(
-            self,
-            "Select the OpenCore build profile you wish to generate:",
-            "Build OpenCore",
-            choices
-        )
-
-        if dialog.ShowModal() == wx.ID_OK:
-            selection = dialog.GetSelection()
-            if selection == 0:
-                self.constants.build_profile = "standard"
-            elif selection == 1:
-                self.constants.build_profile = "test_b"
-            elif selection == 2:
-                self.constants.build_profile = "test_c"
-            elif selection == 3:
-                self.constants.build_profile = "test_c_spoofed"
-            elif selection == 4:
-                self.constants.build_profile = "test_d"
-            self.on_build_and_install(event)
-            if user_had_prompt_set:
-                self.constants.build_profile = ""
-        dialog.Destroy()
 
     def on_build_and_install(self, event: wx.Event = None):
         try:

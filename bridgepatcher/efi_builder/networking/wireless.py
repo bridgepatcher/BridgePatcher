@@ -8,7 +8,7 @@ from .. import support
 
 from ... import constants
 
-from ...datasets import smbios_data, os_data
+from ...datasets import smbios_data
 from ...support import utilities
 from ...detections import device_probe
 
@@ -59,15 +59,6 @@ class BuildWirelessNetworking:
                 # Tahoe build instead (port of dortania/OpenCore-Legacy-Patcher@d9604c3, MinKernel 25.0.0)
                 support.BuildSupport(self.model, self.constants, self.config).enable_kext("AirPortBrcmNIC-Tahoe.kext", self.constants.airport_brcmnic_tahoe_version, self.constants.airport_brcmnic_tahoe_path)
                 support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(self.config["Kernel"]["Block"], "Identifier", "com.apple.iokit.IOSkywalkFamily")["Enabled"] = True
-                # IOSkywalkFamily/IO80211FamilyLegacy only load on Sonoma+ (MinKernel 23.0.0),
-                # so the boot-args below are only needed there. detected_os is a Darwin major:
-                # 15 is El Capitan, which matched every supported macOS.
-                if self.constants.detected_os >= os_data.os_data.sonoma:
-                    current_boot_args = self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"].get("boot-args", "")
-                    for arg in ["ipc_control_port_options=0", "-amfipassbeta"]:
-                        if arg.split("=")[0] not in current_boot_args:
-                            current_boot_args = f"{current_boot_args} {arg}".strip()
-                    self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = current_boot_args
             # This works around BridgePatcher spoofing the Wifi card and therefore unable to actually detect the correct device
             if self.computer.wifi.chipset == device_probe.Broadcom.Chipsets.AirportBrcmNIC and self.constants.validate is False and self.computer.wifi.country_code:
                 support.BuildSupport(self.model, self.constants, self.config).enable_kext("AirportBrcmFixup.kext", self.constants.airportbcrmfixup_version, self.constants.airportbcrmfixup_path)
@@ -139,13 +130,6 @@ class BuildWirelessNetworking:
             # Tahoe build instead (port of dortania/OpenCore-Legacy-Patcher@d9604c3, MinKernel 25.0.0)
             support.BuildSupport(self.model, self.constants, self.config).enable_kext("AirPortBrcmNIC-Tahoe.kext", self.constants.airport_brcmnic_tahoe_version, self.constants.airport_brcmnic_tahoe_path)
             support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(self.config["Kernel"]["Block"], "Identifier", "com.apple.iokit.IOSkywalkFamily")["Enabled"] = True
-            # Sonoma+ only, see _on_model() (detected_os is a Darwin major, 15 = El Capitan)
-            if self.constants.detected_os >= os_data.os_data.sonoma:
-                current_boot_args = self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"].get("boot-args", "")
-                for arg in ["ipc_control_port_options=0", "-amfipassbeta"]:
-                    if arg.split("=")[0] not in current_boot_args:
-                        current_boot_args = f"{current_boot_args} {arg}".strip()
-                self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = current_boot_args
 
 
     def _wowl_handling(self) -> None:

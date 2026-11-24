@@ -234,6 +234,7 @@ build/
 /.vscode
 __pycache__/
 *.kext
+!/payloads/Kexts/Plists/USB-Map.kext/
 *.py[cod]
 *$py.class
 /payloads/List.txt

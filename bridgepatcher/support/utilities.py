@@ -13,8 +13,8 @@ import argparse
 import binascii
 import plistlib
 import subprocess
+import ctypes
 import py_sip_xnu
-import Security
 
 from pathlib import Path
 
@@ -711,6 +711,75 @@ def check_cli_args():
     else:
         return args
 
+# Authorization Services (Security.framework), see get_admin_permission()
+_SECURITY_FRAMEWORK = "/System/Library/Frameworks/Security.framework/Security"
+
+_errAuthorizationSuccess              = 0
+_errAuthorizationCanceled             = -60006
+_kAuthorizationFlagDefaults           = 0
+_kAuthorizationFlagInteractionAllowed = 1 << 0
+_kAuthorizationFlagExtendRights       = 1 << 1
+_kAuthorizationRightExecute           = b"system.privilege.admin"
+_kAuthorizationEnvironmentPrompt      = b"prompt"
+
+_AuthorizationRef = ctypes.c_void_p
+
+
+class _AuthorizationItem(ctypes.Structure):
+    _fields_ = [
+        ("name",        ctypes.c_char_p),
+        ("valueLength", ctypes.c_size_t),
+        ("value",       ctypes.c_void_p),
+        ("flags",       ctypes.c_uint32),
+    ]
+
+
+class _AuthorizationItemSet(ctypes.Structure):
+    _fields_ = [
+        ("count", ctypes.c_uint32),
+        ("items", ctypes.POINTER(_AuthorizationItem)),
+    ]
+
+
+_security_framework = None
+
+
+def _authorization_services() -> ctypes.CDLL:
+    """
+    Security.framework with the argument/return types of the Authorization Services
+    functions get_admin_permission() calls, loaded once.
+    """
+    global _security_framework
+    if _security_framework is not None:
+        return _security_framework
+
+    security = ctypes.CDLL(_SECURITY_FRAMEWORK)
+
+    security.AuthorizationCreate.argtypes = [
+        ctypes.POINTER(_AuthorizationItemSet), ctypes.POINTER(_AuthorizationItemSet),
+        ctypes.c_uint32, ctypes.POINTER(_AuthorizationRef),
+    ]
+    security.AuthorizationCreate.restype = ctypes.c_int32
+
+    security.AuthorizationCopyRights.argtypes = [
+        _AuthorizationRef, ctypes.POINTER(_AuthorizationItemSet), ctypes.POINTER(_AuthorizationItemSet),
+        ctypes.c_uint32, ctypes.POINTER(ctypes.POINTER(_AuthorizationItemSet)),
+    ]
+    security.AuthorizationCopyRights.restype = ctypes.c_int32
+
+    security.AuthorizationExecuteWithPrivileges.argtypes = [
+        _AuthorizationRef, ctypes.c_char_p, ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_char_p), ctypes.c_void_p,
+    ]
+    security.AuthorizationExecuteWithPrivileges.restype = ctypes.c_int32
+
+    security.AuthorizationFree.argtypes = [_AuthorizationRef, ctypes.c_uint32]
+    security.AuthorizationFree.restype = ctypes.c_int32
+
+    _security_framework = security
+    return security
+
+
 def get_admin_permission(action: str = "/usr/bin/whoami", args: list =None, reason: str = "BridgePatcher needs your administrative permission"):
     """
     run the give action as root without using the Privileged Helper Tool
@@ -744,73 +813,58 @@ def get_admin_permission(action: str = "/usr/bin/whoami", args: list =None, reas
     else:
         byte_args = [_as_arg_bytes(arg) for arg in args]
         return_args = [os.fsdecode(action_bytes)] + [os.fsdecode(arg) for arg in byte_args]
-    status, auth_ref = Security.AuthorizationCreate(
-        None,
-        None,
-        Security.kAuthorizationFlagDefaults,
-        None
-    )
-
-    if status != Security.errAuthorizationSuccess:
+    # Authorization Services through ctypes, not PyObjC: AuthorizationRights/-Environment
+    # are structs holding raw char*/void* pointers, which PyObjC doesn't support. Its
+    # converted copies of the right name, the prompt text and the argument strings weren't
+    # guaranteed to outlive the call, so the Security framework could read freed memory
+    # and the app crashed with "segmentation fault" while installing OpenCore whenever the
+    # Privileged Helper Tool was unusable. Every buffer below stays referenced by a local
+    # until the call has returned.
+    security = _authorization_services()
+    auth_ref = _AuthorizationRef()
+    status = security.AuthorizationCreate(None, None, _kAuthorizationFlagDefaults, ctypes.byref(auth_ref))
+    if status != _errAuthorizationSuccess:
         return subprocess.CompletedProcess(args=return_args, returncode=2, stderr=f"AuthorizationCreate failed with status {status}")
 
     try:
-        rights = (
-            Security.AuthorizationItem(
-                Security.kAuthorizationRightExecute,
-                0,
-                None,
-                0
-            ),
-        )
-        prompt = bytes(reason, encoding="utf-8")
-        environment = (
-            Security.AuthorizationItem(
-                Security.kAuthorizationEnvironmentPrompt,
-                len(prompt),
-                prompt,
-                0
-            ),
-        )
+        right_items = (_AuthorizationItem * 1)(_AuthorizationItem(_kAuthorizationRightExecute, 0, None, 0))
+        rights = _AuthorizationItemSet(1, right_items)
 
-        status, authorized_rights = Security.AuthorizationCopyRights(
+        prompt = bytes(reason, encoding="utf-8")
+        prompt_buffer = ctypes.create_string_buffer(prompt, len(prompt) + 1)
+        environment_items = (_AuthorizationItem * 1)(
+            _AuthorizationItem(_kAuthorizationEnvironmentPrompt, len(prompt), ctypes.cast(prompt_buffer, ctypes.c_void_p), 0)
+        )
+        environment = _AuthorizationItemSet(1, environment_items)
+
+        status = security.AuthorizationCopyRights(
             auth_ref,
-            rights,
-            environment,
-            (
-                Security.kAuthorizationFlagInteractionAllowed
-                | Security.kAuthorizationFlagExtendRights
-            ),
+            ctypes.byref(rights),
+            ctypes.byref(environment),
+            _kAuthorizationFlagInteractionAllowed | _kAuthorizationFlagExtendRights,
             None,
         )
 
-        if status == Security.errAuthorizationCanceled:
+        if status == _errAuthorizationCanceled:
             return subprocess.CompletedProcess(args=return_args, returncode=1, stdout="User canceled the request")
 
-        if status != Security.errAuthorizationSuccess:
+        if status != _errAuthorizationSuccess:
             return subprocess.CompletedProcess(args=return_args, returncode=2, stderr=f"AuthorizationCopyRights failed with status {status}")
 
-        if not byte_args:
-            status, _ = Security.AuthorizationExecuteWithPrivileges(
-                auth_ref,
-                action_bytes,
-                Security.kAuthorizationFlagDefaults,
-                b'',
-                None,
-            )
-        else:
-            status, _ = Security.AuthorizationExecuteWithPrivileges(
-                auth_ref,
-                action_bytes,
-                Security.kAuthorizationFlagDefaults,
-                byte_args,
-                None,
-            )
+        # NULL-terminated char* array, as AuthorizationExecuteWithPrivileges() expects
+        argv = (ctypes.c_char_p * (len(byte_args) + 1))(*byte_args, None)
+        status = security.AuthorizationExecuteWithPrivileges(
+            auth_ref,
+            action_bytes,
+            _kAuthorizationFlagDefaults,
+            argv,
+            None,
+        )
 
-        if status == Security.errAuthorizationCanceled:
+        if status == _errAuthorizationCanceled:
             return subprocess.CompletedProcess(args=return_args, returncode=1, stdout="User canceled the request")
 
-        if status != Security.errAuthorizationSuccess:
+        if status != _errAuthorizationSuccess:
             return subprocess.CompletedProcess(args=return_args, returncode=2, stderr=f"AuthorizationExecuteWithPrivileges failed with status {status}")
 # fix the success logic of mount root volume
         return subprocess.CompletedProcess(args=return_args, returncode=0, stdout="Running as root succeeded")
@@ -821,7 +875,4 @@ def get_admin_permission(action: str = "/usr/bin/whoami", args: list =None, reas
         return subprocess.CompletedProcess(args=return_args, returncode=2, stderr="Running as root failed")
 
     finally:
-        Security.AuthorizationFree(
-           auth_ref,
-           Security.kAuthorizationFlagDefaults
-        )
+        security.AuthorizationFree(auth_ref, _kAuthorizationFlagDefaults)

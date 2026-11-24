@@ -6,7 +6,6 @@
 # Current builds bundle bridgepatcher/PatcherSupportPkg (2.5) and can download
 # dortania/PatcherSupportPkg (2.0.5) online instead. Their versions are listed in
 # patcher_support_pkg_sources in constants.py; the bundled "bridgepatcher" entry is checked.
-# Pull requests opened by Medelcartelinc are skipped.
 
 name: PatcherSupportPkg legacy version warning
 
@@ -23,8 +22,6 @@ permissions:
 
 jobs:
   check:
-    # Skip all pull requests from Medelcartelinc
-    if: github.event.pull_request.user.login != 'Medelcartelinc'
     runs-on: ubuntu-latest
     steps:
       - name: Check pinned PatcherSupportPkg version
