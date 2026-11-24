@@ -8,6 +8,8 @@ Impact: due to lack of requirement for the AI agents to disclose that actually t
 - fixes a vulnerability in the AGENTS policy where an attacker could launch a cyberattack using AI and pretend that they did nothing malicious and point to the malicious AI tool they used, then they could hide their own attribution behind AI so no one knows who contributed.
 Impact: an attacker could pretend to not have launched a cyberattack by intentionally using AI and hide their attribution so other people don't know who contributed and who launched the attack.
 
+- updates the `IOHIDFamily USB topcase panic` kernel patch (macOS 26 Tahoe, Macs with a USB top case) to Dortania's current version (ported from Dortania b7a0e07, #861). The old patch skipped all of `IOHIDDevice::didTerminate()`, including the cleanup at its end, so the internal keyboard and trackpad driver could be left half shut down when it unloads. The new patch only skips the part that panics, and is limited to macOS 26. Build and install OpenCore again to get it, thx @Jazzzny and Dortania
+
 ## 4.0.0.2000004.1 - 4.0.0 alpha 20.4.1
 This release:
 - updates PatcherSupportPkg to 2.0.8 (from 2.0.5), the version Dortania's OpenCore Legacy Patcher uses now, and moves the root patches that need it to Dortania's current state:
