@@ -1,4 +1,9 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.2 - 4.0.0 alpha 20.4.2
+This release:
+- fixes a vulnerability in the AGENTS policy where an attacker could claim that Dortania's code is theirs by using AI.
+Impact: due to lack of requirement for the AI agents to disclose that actually they commited Dortania's code for a certain fix, an attacker could claim that the code is theirs and violate the attribution to launch attribution fraud via plagiarism in the attacker's repository. And they could then use this for SEO poisoning or malware.
+
 ## 4.0.0.2000004.1 - 4.0.0 alpha 20.4.1
 This release:
 - updates PatcherSupportPkg to 2.0.8 (from 2.0.5), the version Dortania's OpenCore Legacy Patcher uses now, and moves the root patches that need it to Dortania's current state:
