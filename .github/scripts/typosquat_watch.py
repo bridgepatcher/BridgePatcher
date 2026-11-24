@@ -9,8 +9,9 @@ Legacy Patcher) renamed to "BridgePatcher" or "OpenCore-Legacy-Patcher-T2".
 Real forks of this repository are never flagged.
 
 Copies of this project's history also get a license violation issue, whether they
-look suspicious or not (once): unintentional ones are asked to rename (and to update
-when they are behind), suspicious ones to take the repository down. Renamed copies are
+look suspicious or not (once): unintentional ones are asked to rename, suspicious ones to
+take the repository down. Every copy that isn't suspicious (renamed ones too) is also asked to
+update when it is behind, since the latest version meets the license. Renamed copies are
 still checked for the license on every run, with the same checks the License compliance
 workflow runs on this project (license text, the build shipping it, the README acknowledgement):
 their notice gets one reminder while a condition is broken (or is reopened, if it was closed
@@ -658,9 +659,31 @@ def compliance_findings(full, path, theirs, missing):
 
 
 def patcher_version(ref):
-    """The app version (constants.py) at a commit of this project, or None."""
-    m = re.search(r'patcher_version:\s*str\s*=\s*"([^"]+)"', file_text(ORIGINAL, "bridgepatcher/constants.py", ref) or "")
-    return m.group(1) if m else None
+    """The app version (constants.py) at a commit of this project, or None. Older commits keep it
+    under the package's former name, opencore_legacy_patcher/."""
+    for package in ("bridgepatcher", "opencore_legacy_patcher"):
+        m = re.search(r'patcher_version:\s*str\s*=\s*"([^"]+)"', file_text(ORIGINAL, f"{package}/constants.py", ref) or "")
+        if m:
+            return m.group(1)
+    return None
+
+
+def version_label(version):
+    """The version as the CHANGELOG and releases name it: "4.0.0.2000003.8.1" → "4.0.0 alpha 20.3.8.1",
+    "4.0.0a15.4.2" → "4.0.0 alpha 15.4.2". Build numbers have been alpha * 100000 + sub (7 digits),
+    alpha * 10000 + sub (6) and alpha * 1000 + sub (5). Anything else is returned as it is."""
+    if not version:
+        return version
+    m = re.fullmatch(r"(\d+\.\d+\.\d+)a(\d+(?:\.\d+)*)", version)
+    if m:
+        return f"{m.group(1)} alpha {m.group(2)}"
+    m = re.fullmatch(r"(\d+\.\d+\.\d+)\.(\d{5,7})((?:\.\d+)*)", version)
+    if not m:
+        return version
+    build = m.group(2)
+    alpha, sub = divmod(int(build), {7: 100000, 6: 10000, 5: 1000}[len(build)])
+    rest = m.group(3)
+    return f"{m.group(1)} alpha {alpha}" + (f".{sub}" if sub or rest else "") + rest
 
 
 def outdated(sha):
@@ -696,24 +719,34 @@ def license_findings(full, cand, sha, named, renamed=False):
     return findings, path
 
 
-def license_notice(full, sha, path, findings, authors=(), behind=None, suspicious=False, renamed=False):
-    bullet = "\n".join(f"- {f}" for f in findings)
-    link = f"https://github.com/{ORIGINAL}/blob/{sha}/{path}" if path else f"https://github.com/{ORIGINAL}"
-    update = ""
-    if behind:
-        count, theirs, latest, branch = behind
-        update = f"""
-**Please also update to the latest version.** This copy is {count} commit{"s" if count != 1 else ""} behind {ORIGINAL}""" + (
-            f" (it has version {theirs}, the latest is {latest})" if theirs and latest and theirs != latest else "") + f""". The latest version carries the up-to-date license, copyright and third-party notices, so updating is the easiest way to keep them complete:
+def update_advice(behind):
+    """The recommendation to update a copy that is behind this project (see outdated()), as the
+    easiest way to fix its license findings: the latest version meets the conditions the License
+    compliance workflow checks. "" when it's up to date or that can't be told."""
+    if not behind:
+        return ""
+    count, theirs, latest, branch = behind
+    versions = (f" (it has version {version_label(theirs)}, the latest is **{version_label(latest)}**)"
+                if theirs and latest and theirs != latest else "")
+    return f"""
+**The easiest fix: update to the latest version.** This copy is {count} commit{"s" if count != 1 else ""} behind {ORIGINAL}{versions}. The latest version meets these license conditions: it has the complete license text with all copyright and third-party notices, its app build (`{compliance.SPEC_PATH}`) bundles `{compliance.LICENSE_PATH}`, and its README shows the acknowledgement. To update:
 
 ```bash
 git pull https://github.com/{ORIGINAL}.git {branch}
 ```
+
+If that reports merge conflicts in `{compliance.LICENSE_PATH}`, `README.md` or the build spec, keep the license text, the acknowledgement and the bundled license file from the latest version, and build the app with `{compliance.SPEC_PATH}` (an older spec of your own still needs `{compliance.LICENSE_PATH}` added to its `datas`).
 """
+
+
+def license_notice(full, sha, path, findings, authors=(), behind=None, suspicious=False, renamed=False):
+    bullet = "\n".join(f"- {f}" for f in findings)
+    link = f"https://github.com/{ORIGINAL}/blob/{sha}/{path}" if path else f"https://github.com/{ORIGINAL}"
+    update = update_advice(behind)
     # Copies that look deliberate (see assess()) are asked to take the repository down, not to fix it;
     # renamed ones only have the license file left to fix
-    fix = ("""To fix this, do what each point above asks.
-""" if renamed else """**Please take this repository down** (Settings → General → Danger Zone → **Delete this repository**). """
+    fix = (f"""To fix this, do what each point above asks.
+{update}""" if renamed else """**Please take this repository down** (Settings → General → Danger Zone → **Delete this repository**). """
            f"""It looks like a deliberate imitation of {ORIGINAL}, and people downloading from it can't tell that it """
            """isn't the official project.
 """ if suspicious else f"""To fix this:
@@ -814,14 +847,16 @@ def license_owner(me, full, cand, sha, named, suspicious, ours, renamed=False):
     name breaks it either way. Copies that look unintentional are asked to fix it (and, when they
     are behind this project, to update to the latest version); suspicious ones to take it down. Copies without this project's history aren't under its
     license, so they get none. Never twice: an earlier one (found by its marker, open or closed) is
-    reused. renamed: the copy no longer has a typosquatted name, so only the license file is
-    asked for. Returns (their issue URL, note)."""
+    reused. renamed: the copy no longer has a typosquatted name, so only conditions 1-3 are
+    asked for. Every copy that isn't suspicious is also told how far it is behind this project and
+    asked to update, since the latest version meets the license conditions. Returns (their issue
+    URL, note)."""
     if not sha:
         return None, "not applicable, because it contains none of this project's code"
     if not me:
         return None, "not contacted, because no TYPOSQUAT_PAT secret is configured"
     findings, path = license_findings(full, cand, sha, named, renamed)
-    behind = None if suspicious or renamed else outdated(sha)
+    behind = None if suspicious else outdated(sha)
     return post_once(me, full, cand, ours, LICENSE_MARKER,
                      f"License violation: this copy of {ORIGINAL} doesn't meet the license conditions",
                      lambda authors: license_notice(full, sha, path, findings, authors, behind, suspicious, renamed),
@@ -869,7 +904,9 @@ Its name no longer imitates [{ORIGINAL}](https://github.com/{ORIGINAL}), its lic
 
 {bullet}
 
-To fix this, do what each point above asks. This notice is closed automatically once that's done.
+To fix this, do what each point above asks.
+{update_advice(outdated(sha))}
+This notice is closed automatically once that's done.
 
 {LICENSE_REMINDER_MARKER}
 """})
@@ -886,7 +923,9 @@ The license is still broken, though:
 
 {bullet}
 
-To fix this, do what each point above asks. This notice is closed automatically once that's done.
+To fix this, do what each point above asks.
+{update_advice(outdated(sha))}
+This notice is closed automatically once that's done.
 
 {LICENSE_REMINDER_MARKER}
 """})
