@@ -409,8 +409,8 @@ class Constants:
     @property
     def opencore_version(self) -> str:
         """
-        OpenCore version of the payload used for the current build:
-        our T2 fork for T2 Macs, OpenCore 1.0.8 for every other Mac
+        Veraltete Logik, die für Kompabilität reserviert ist, T2 Macs jetzt erhalten auch OpenCore 1.0.8 wie all anderen Macs
+        Vorher, wegen Fehlern auf T2 Macs ins OpenCorePkg wurde ausschließlich nur von unseren Fork gebildet statt von Accidantheras offizielles Build
         """
         return self.opencore_version_t2 if self.opencore_build_for_t2 is True else self.opencore_version_non_t2
 
@@ -420,10 +420,8 @@ class Constants:
         OpenCore-{DEBUG,RELEASE}.zip for T2 Macs, OpenCore-NON-T2-{DEBUG,RELEASE}.zip otherwise
         """
         variant = "DEBUG" if self.opencore_debug is True else "RELEASE"
-        if self.opencore_build_for_t2 is True:
+        if self.opencore_build_for_t2 is True or self.opencore_build_for_t2 is False:
             return f"OpenCore-{variant}.zip"
-        if self.opencore_build_for_t2 is False:
-            return f"OpenCore-NON-T2-{variant}.zip"
         # Only an explicit True/False selects a package; anything else is a bug upstream
         raise ValueError(f"opencore_build_for_t2 must be True or False, got {self.opencore_build_for_t2!r}")
 
