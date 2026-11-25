@@ -1,4 +1,19 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.3 - 4.0.0 alpha 20.4.3
+This release:
+- on T2 Macs, OpenCorePkg is being migrated from our fork to Accidanthera's mainstream project. Our own fork was written completely using Claude Code, and while it had bugs that Accidanthera fixed, now it's the opposite - our own fork had bugs whereas Accidanthera's mainstream OpenCorePkg never had it. So now even T2 Macs will use OpenCore 1.0.8.
+
+## 4.0.0.2000004.2 - 4.0.0 alpha 20.4.2
+This release:
+- fixes a vulnerability in the AGENTS policy where an attacker could claim that Dortania's code is theirs by using AI.
+
+Impact: due to lack of requirement for the AI agents to disclose that actually they commited Dortania's code for a certain fix, an attacker could claim that the code is theirs and violate the attribution to launch attribution fraud via plagiarism in the attacker's repository. And they could then use this for SEO poisoning or malware. And then they can bypass the Attribution guard to distribute attribution violations using AI.
+
+- fixes a vulnerability in the AGENTS policy where an attacker could launch a cyberattack using AI and pretend that they did nothing malicious and point to the malicious AI tool they used, then they could hide their own attribution behind AI so no one knows who contributed.
+Impact: an attacker could pretend to not have launched a cyberattack by intentionally using AI and hide their attribution so other people don't know who contributed and who launched the attack.
+
+- updates the `IOHIDFamily USB topcase panic` kernel patch (macOS 26 Tahoe, Macs with a USB top case) to Dortania's current version (ported from Dortania b7a0e07, #861). The old patch skipped all of `IOHIDDevice::didTerminate()`, including the cleanup at its end, so the internal keyboard and trackpad driver could be left half shut down when it unloads. The new patch only skips the part that panics, and is limited to macOS 26. Build and install OpenCore again to get it, thx @Jazzzny and Dortania
+
 ## 4.0.0.2000004.1 - 4.0.0 alpha 20.4.1
 This release:
 - updates PatcherSupportPkg to 2.0.8 (from 2.0.5), the version Dortania's OpenCore Legacy Patcher uses now, and moves the root patches that need it to Dortania's current state:

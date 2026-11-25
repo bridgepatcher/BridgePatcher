@@ -11,12 +11,24 @@ to the code of Dortania's OpenCore Legacy Patcher, which BridgePatcher is based 
 - Avoid duplicated (WET) code; reuse or extend existing helpers.
 - Keep PRs small and focused on one topic.
 
+## Porting code from Dortania or other upstreams
+
+Ported or copied code keeps its original author in git history: the upstream commit's
+author is the commit author (`git cherry-pick -x`, or `--author` with their exact name
+and email), and the message says `Ported from <owner>/<repo>@<sha>`. You go in as
+`Co-Authored-By:`. Never use placeholder emails such as `example.com`: GitHub would
+credit whoever owns that address. Details: section 8 of [AGENTS.md](AGENTS.md).
+
 ## Using AI
 
 AI tools are allowed, for ideas, debugging and code. The rules are about review, not
 about who typed the code:
 
 - **You own what you submit.** Read and understand every line, even if an AI wrote it.
+- **Your name is on it.** Commits made with AI have you as author (or as committer, for
+  ported code) with an email linked to your GitHub account, and the AI only as a
+  `Co-Authored-By:` trailer. "The AI wrote it" never takes responsibility off you.
+  Details: section 9 of [AGENTS.md](AGENTS.md). Applies to commits from 2026-11-25 on.
 - **Tested on real hardware** before merging, wherever the change affects patching,
   booting or the EFI. Say which Mac and macOS version you tested on.
 - **AI tools must follow [AGENTS.md](AGENTS.md)**: most assistants read it

@@ -64,7 +64,7 @@ def patcher_version_display_name(patcher_version: str) -> str:
 class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
-        self.patcher_version:                 str = "4.0.0.2000004.1"
+        self.patcher_version:                 str = "4.0.0.2000004.3"
         self.patcher_version_label:           str = patcher_version_display_name(self.patcher_version)
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
         self.bundle_identifier:               str = "com.bridgepatcher.bridgepatcher"
@@ -100,8 +100,8 @@ class Constants:
         self.installer_pkg_url:               str = f"{self.repo_link.rstrip('/')}/releases/download/{self.patcher_version}/AutoPkg-Assets-T2.pkg"
 
         # OpenCore Versioning
-        self.opencore_version_t2:     str  = "2.0.7" # T2 Macs
         self.opencore_version_non_t2: str  = "1.0.8" # Non-T2 Macs
+        self.opencore_version_t2:     str  = self.opencore_version_non_t2 # T2 Macs now use the same OpenCore
         self.opencore_build_for_t2:   bool = True    # Set by efi_builder/build.py for the target model
 
 
@@ -409,8 +409,8 @@ class Constants:
     @property
     def opencore_version(self) -> str:
         """
-        OpenCore version of the payload used for the current build:
-        our T2 fork for T2 Macs, OpenCore 1.0.8 for every other Mac
+        Veraltete Logik, die für Kompabilität reserviert ist, T2 Macs jetzt erhalten auch OpenCore 1.0.8 wie all anderen Macs
+        Vorher, wegen Fehlern auf T2 Macs ins OpenCorePkg wurde ausschließlich nur von unseren Fork gebildet statt von Accidantheras offizielles Build
         """
         return self.opencore_version_t2 if self.opencore_build_for_t2 is True else self.opencore_version_non_t2
 
@@ -420,10 +420,8 @@ class Constants:
         OpenCore-{DEBUG,RELEASE}.zip for T2 Macs, OpenCore-NON-T2-{DEBUG,RELEASE}.zip otherwise
         """
         variant = "DEBUG" if self.opencore_debug is True else "RELEASE"
-        if self.opencore_build_for_t2 is True:
+        if self.opencore_build_for_t2 is True or self.opencore_build_for_t2 is False:
             return f"OpenCore-{variant}.zip"
-        if self.opencore_build_for_t2 is False:
-            return f"OpenCore-NON-T2-{variant}.zip"
         # Only an explicit True/False selects a package; anything else is a bug upstream
         raise ValueError(f"opencore_build_for_t2 must be True or False, got {self.opencore_build_for_t2!r}")
 
@@ -953,37 +951,21 @@ class Constants:
         return self.amc_kext_folder / Path("Contents")
 
     # Tools
-    def _opencore_utility_path(self, utility: str, for_t2: bool = None) -> Path:
+    def _opencore_utility_path(self, utility: str) -> Path:
         """
-        Path to an OpenCore utility matching the OpenCore payload:
-        payloads/OpenCore/<utility> for T2 Macs (our OpenCorePkg fork),
-        payloads/OpenCore/<utility>-non-t2 for every other Mac (OpenCore 1.0.8)
+        Path to an OpenCore utility in payloads/OpenCore/<utility>
 
-        Only ocvalidate differs between the two; macserial is the same binary for both,
-        see macserial_path
-
-        for_t2 defaults to opencore_build_for_t2, which efi_builder/build.py sets for the target model
+        ocvalidate and macserial are the same binaries for T2 and non-T2 Macs
         """
-        if for_t2 is None:
-            for_t2 = self.opencore_build_for_t2
-        if for_t2 is True:
-            utility_path = self.payload_path / Path(f"OpenCore/{utility}")
-        elif for_t2 is False:
-            utility_path = self.payload_path / Path(f"OpenCore/{utility}-non-t2")
-        else:
-            raise ValueError(f"for_t2 must be True or False, got {for_t2!r}")
+        utility_path = self.payload_path / Path(f"OpenCore/{utility}")
 
         # A quarantined download makes Gatekeeper refuse to launch these unsigned
         # binaries, which used to abort the whole OpenCore build/installation
         return gatekeeper.prepare_executable(utility_path)
 
-    def ocvalidate_path_for(self, for_t2: bool) -> Path:
-        return self._opencore_utility_path("ocvalidate", for_t2)
-
     @property
     def macserial_path(self):
-        # Shared by T2 and non-T2 builds: our OpenCorePkg fork and OpenCore 1.0.8 ship the same macserial
-        return self._opencore_utility_path("macserial", for_t2=True)
+        return self._opencore_utility_path("macserial")
 
     @property
     def vault_path(self):
