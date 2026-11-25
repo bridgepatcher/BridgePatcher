@@ -1,4 +1,8 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.3 - 4.0.0 alpha 20.4.3
+This release:
+- on T2 Macs, OpenCorePkg is being migrated from our fork to Accidanthera's mainstream project. Our own fork was written completely using Claude Code, and while it had bugs that Accidanthera fixed, now it's the opposite - our own fork had bugs whereas Accidanthera's mainstream OpenCorePkg never had it. So, this release is dedicated for this transition.
+
 ## 4.0.0.2000004.2 - 4.0.0 alpha 20.4.2
 This release:
 - fixes a vulnerability in the AGENTS policy where an attacker could claim that Dortania's code is theirs by using AI.
