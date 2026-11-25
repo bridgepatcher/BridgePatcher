@@ -100,8 +100,8 @@ class Constants:
         self.installer_pkg_url:               str = f"{self.repo_link.rstrip('/')}/releases/download/{self.patcher_version}/AutoPkg-Assets-T2.pkg"
 
         # OpenCore Versioning
-        self.opencore_version_t2=self.opencore_version_non_t2
         self.opencore_version_non_t2: str  = "1.0.8" # Non-T2 Macs
+        self.opencore_version_t2:     str  = self.opencore_version_non_t2 # T2 Macs now use the same OpenCore
         self.opencore_build_for_t2:   bool = True    # Set by efi_builder/build.py for the target model
 
 
