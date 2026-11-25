@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 import requests
 
-REPO_URL = "https://api.github.com/repos/bridgepatcher/OpenCorePkg-add-T2-support/releases/latest"
+REPO_URL = "https://api.github.com/repos/acidanthera/OpenCorePkg/releases/latest"
 
 BUILD_VARIANTS = [
     "DEBUG",
