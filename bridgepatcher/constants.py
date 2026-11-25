@@ -951,37 +951,21 @@ class Constants:
         return self.amc_kext_folder / Path("Contents")
 
     # Tools
-    def _opencore_utility_path(self, utility: str, for_t2: bool = None) -> Path:
+    def _opencore_utility_path(self, utility: str) -> Path:
         """
-        Path to an OpenCore utility matching the OpenCore payload:
-        payloads/OpenCore/<utility> for T2 Macs (our OpenCorePkg fork),
-        payloads/OpenCore/<utility>-non-t2 for every other Mac (OpenCore 1.0.8)
+        Path to an OpenCore utility in payloads/OpenCore/<utility>
 
-        Only ocvalidate differs between the two; macserial is the same binary for both,
-        see macserial_path
-
-        for_t2 defaults to opencore_build_for_t2, which efi_builder/build.py sets for the target model
+        ocvalidate and macserial are the same binaries for T2 and non-T2 Macs
         """
-        if for_t2 is None:
-            for_t2 = self.opencore_build_for_t2
-        if for_t2 is True:
-            utility_path = self.payload_path / Path(f"OpenCore/{utility}")
-        elif for_t2 is False:
-            utility_path = self.payload_path / Path(f"OpenCore/{utility}-non-t2")
-        else:
-            raise ValueError(f"for_t2 must be True or False, got {for_t2!r}")
+        utility_path = self.payload_path / Path(f"OpenCore/{utility}")
 
         # A quarantined download makes Gatekeeper refuse to launch these unsigned
         # binaries, which used to abort the whole OpenCore build/installation
         return gatekeeper.prepare_executable(utility_path)
 
-    def ocvalidate_path_for(self, for_t2: bool) -> Path:
-        return self._opencore_utility_path("ocvalidate", for_t2)
-
     @property
     def macserial_path(self):
-        # Shared by T2 and non-T2 builds: our OpenCorePkg fork and OpenCore 1.0.8 ship the same macserial
-        return self._opencore_utility_path("macserial", for_t2=True)
+        return self._opencore_utility_path("macserial")
 
     @property
     def vault_path(self):
