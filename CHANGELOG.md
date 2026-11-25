@@ -1,7 +1,7 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
 ## 4.0.0.2000004.3 - 4.0.0 alpha 20.4.3
 This release:
-- on T2 Macs, OpenCorePkg is being migrated from our fork to Accidanthera's mainstream project. Our own fork was written completely using Claude Code, and while it had bugs that Accidanthera fixed, now it's the opposite - our own fork had bugs whereas Accidanthera's mainstream OpenCorePkg never had it. So, this release is dedicated for this transition.
+- on T2 Macs, OpenCorePkg is being migrated from our fork to Accidanthera's mainstream project. Our own fork was written completely using Claude Code, and while it had bugs that Accidanthera fixed, now it's the opposite - our own fork had bugs whereas Accidanthera's mainstream OpenCorePkg never had it. So now even T2 Macs will use OpenCore 1.0.8.
 
 ## 4.0.0.2000004.2 - 4.0.0 alpha 20.4.2
 This release:
