@@ -33,8 +33,11 @@ SECTIONS = ("repos", "sites", "articles")
 TODAY = datetime.date.today().isoformat()
 # Entries no watch has seen for this long are dropped
 FORGET_DAYS = int(os.environ.get("TRACKER_FORGET_DAYS", "90"))
-# Entries taken down (🔴) or resolved (✅) this many days in a row are dropped
+# Entries resolved (✅) this many days in a row are dropped
 RESOLVED_DAYS = int(os.environ.get("TRACKER_RESOLVED_DAYS", "3"))
+# Entries deleted or made private (🔴) this many days in a row move to *Dismissed or handled*
+# (they come back if they go online again)
+HANDLED_DAYS = int(os.environ.get("TRACKER_HANDLED_DAYS", "1"))
 MAINTAINERS = {"OWNER", "MEMBER", "COLLABORATOR"}
 # The per-finding issues the watches used to open: label -> marker pattern
 OLD_ISSUES = {
@@ -162,7 +165,10 @@ class Tracker:
                     state["dismissed"].pop(key, None)
 
     def dismissed(self, key):
-        return norm_key(key) in self.state["dismissed"]
+        """Dismissed by a maintainer. Entries the tracker moved to *handled* itself (deleted or made
+        private) don't count, so the watches keep checking them and list them again if they come back."""
+        d = self.state["dismissed"].get(norm_key(key))
+        return bool(d) and not d.get("auto")
 
     def entry(self, section, key):
         return self.state[section].get(norm_key(key))
@@ -180,14 +186,17 @@ class Tracker:
         """Add or refresh an entry (info: name, status, what, and optionally request/report/people).
         Returns True if it's new. Dismissed entries are ignored, except with revive_when_online
         (watched addresses: former official ones, known fakes, copycat repos' sites): one that was
-        dismissed while offline comes back when it goes online."""
+        dismissed while offline comes back when it goes online. So does any entry the tracker moved to
+        *handled* itself because it was deleted or made private."""
         key = norm_key(key)
         d = self.state["dismissed"].get(key)
-        if d and revive_when_online and online(info.get("status")) and not online(d.get("status")):
+        if d and (revive_when_online or d.get("auto")) and online(info.get("status")) and not online(d.get("status")):
             self.state["dismissed"].pop(key)
             self.ops.append(("undismiss", key, {}))
-            info = dict(info, what=f"came online after being dismissed ({d.get('reason', '')[:80]}); "
-                                   + info.get("what", ""))
+            # What was known before it went away (first seen, requests, notices), updated with this run's findings
+            before = {k: v for k, v in (d.get("entry") or {}).items() if k not in ("status", "resolved_since")}
+            info = {**before, **info, "what": f"came online after being dismissed ({d.get('reason', '')[:80]}); "
+                                              + info.get("what", before.get("what", ""))}
         elif d:
             return False
         new = key not in self.state[section]
@@ -261,9 +270,18 @@ class Tracker:
     def _prune(state):
         forget = (datetime.date.today() - datetime.timedelta(days=FORGET_DAYS)).isoformat()
         resolved = (datetime.date.today() - datetime.timedelta(days=RESOLVED_DAYS)).isoformat()
+        handled = (datetime.date.today() - datetime.timedelta(days=HANDLED_DAYS)).isoformat()
         for s in SECTIONS:
             for key, e in list(state[s].items()):
-                if e.get("last_seen", "") < forget or e.get("resolved_since", "9999") <= resolved:
+                if e.get("last_seen", "") < forget:
+                    del state[s][key]
+                elif str(e.get("status", "")).startswith("🔴") and e.get("resolved_since", "9999") <= handled:
+                    # deleted or made private: moved to *Dismissed or handled*, listed again if it comes back
+                    state["dismissed"][key] = {"name": e.get("name") or key, "reason": "deleted or made private",
+                                               "on": TODAY, "by": "tracker", "auto": True,
+                                               "status": e.get("status", ""), "entry": dict(e)}
+                    del state[s][key]
+                elif e.get("resolved_since", "9999") <= resolved:
                     del state[s][key]
 
     @staticmethod
@@ -332,7 +350,9 @@ def render(state):
         "suspicious ones are only listed, so they can be reported (**Report repository** in their sidebar). "
         "Every copy of this project's code also gets a license violation notice, suspicious or not; renamed "
         "copies stay listed (⚠️) until their license file keeps the copyright notices. "
-        f"Entries no watch has seen for {FORGET_DAYS} days, or taken down / resolved for {RESOLVED_DAYS} days, "
+        f"Entries deleted or made private for {HANDLED_DAYS} day{'s' if HANDLED_DAYS != 1 else ''} move to "
+        "*Dismissed or handled* (and are listed again if they come back online). "
+        f"Entries no watch has seen for {FORGET_DAYS} days, or resolved for {RESOLVED_DAYS} days, "
         "are removed. Closing this issue pauses the watches. Names are shown as code on purpose, so they "
         "aren't clickable.</sub>",
         "",
