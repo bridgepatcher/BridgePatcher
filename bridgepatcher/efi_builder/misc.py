@@ -521,7 +521,6 @@ class BuildMiscellaneous:
             # (Ivy Bridge and older) and is already handled by firmware.py. Every T2 Mac has AVX2.
             for kext, ver, path in [
                 ("WhateverGreen.kext", self.constants.whatevergreen_version, self.constants.whatevergreen_path),
-                # ("AMFIPass.kext", "1.4.1", self.constants.kexts_path) # Temporarily disabled for testing AMFI stall
             ]:
                 obj = builder.get_kext_by_bundle_path(kext)
                 if not obj or obj.get("Enabled") is not True:
