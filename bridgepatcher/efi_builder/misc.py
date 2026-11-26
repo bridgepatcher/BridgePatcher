@@ -517,9 +517,10 @@ class BuildMiscellaneous:
             self.config.setdefault("Kernel", {}).setdefault("Patch", [])
 
             # Prerequisite kext checks
+            # CryptexFixup is intentionally not forced here: it is only needed for CPUs without AVX2
+            # (Ivy Bridge and older) and is already handled by firmware.py. Every T2 Mac has AVX2.
             for kext, ver, path in [
                 ("WhateverGreen.kext", self.constants.whatevergreen_version, self.constants.whatevergreen_path),
-                ("CryptexFixup.kext", "1.0.5", self.constants.kexts_path),
                 # ("AMFIPass.kext", "1.4.1", self.constants.kexts_path) # Temporarily disabled for testing AMFI stall
             ]:
                 obj = builder.get_kext_by_bundle_path(kext)
