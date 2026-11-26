@@ -159,5 +159,15 @@ and aren't rewritten to match them.
   account or a token that belongs to someone else.
 - An AI assistant that can't tell who the human is (no git identity configured, or one
   that looks like a placeholder) asks before committing instead of making one up.
-- Automated workflow commits (checksums, credit updates) are the only exception and stay
-  with `github-actions[bot]`.
+- **Automated update workflows are the only exception.** Commits and pull requests that
+  a GitHub Actions workflow makes entirely on its own to pull in known-good updates
+  (kext updates, browser user agent updates, checksums, credit updates), with no human
+  starting or steering that particular change, are authored and committed by
+  `github-actions[bot]` and need no human author, committer or `Co-Authored-By:`
+  trailer. AI-generated fixes from CI (auto-fix PRs) are not covered: they write new
+  code, so the human who takes one over is accountable for it like any other AI-written
+  change. The human is accountable one step earlier: the workflow code itself
+  (`.github/workflows/`, `.github/scripts/`) is an ordinary change and follows every rule
+  above. The exception doesn't cover a human or an AI assistant using a workflow or a bot
+  token to commit a change they wrote, and a human still reviews anything a workflow
+  proposes before it lands on `main`.
