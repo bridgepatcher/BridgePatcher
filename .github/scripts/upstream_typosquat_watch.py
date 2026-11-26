@@ -47,9 +47,10 @@ IMPERSONATION_WORDS = {w.lower() for w in os.environ.get(
 WATCH_DAYS = int(os.environ.get("WATCH_DAYS", "60"))
 # Entries not seen for this long are dropped from the list entirely
 FORGET_DAYS = int(os.environ.get("FORGET_DAYS", "365"))
-# Entries that stay taken down (🔴: deleted, blocked, domain gone, unreachable) for this many
-# days in a row are removed from the list. The delay keeps a short outage from deleting an entry.
-TAKEDOWN_DAYS = int(os.environ.get("TAKEDOWN_DAYS", "2"))
+# Entries that stay taken down (🔴: deleted, made private, blocked, domain gone, unreachable) for
+# this many days in a row move to the "no longer imitating or reachable" section, and are listed
+# again if they come back. The delay keeps a short outage from moving an entry.
+TAKEDOWN_DAYS = int(os.environ.get("TAKEDOWN_DAYS", "1"))
 OFFICIAL_SOURCES = os.environ.get("OFFICIAL_SOURCES", "").strip()
 PROJECT = os.environ.get("PROJECT_NAME", "OpenCore Legacy Patcher")
 # GitHub users mentioned once, in a comment when the warning issue is first created
@@ -179,6 +180,9 @@ def evaluate_repo(full, owner_sq, root, up_owner, extended=False):
         return None  # hidden from the public: listed under "no longer reachable" until it's pruned
     return {"reasons": cell("; ".join(reasons + signals), 160),
             "owner": gh_account(repo["owner"]["login"]),
+            # Mentioned once in the new-entries comment (see to_mention()); organizations aren't,
+            # since an organization's name doesn't notify anyone
+            "login": repo["owner"]["login"] if repo["owner"].get("type") == "User" else "",
             "status": repo_status(repo)}
 
 
@@ -792,10 +796,26 @@ def taken_down(entry):
     return str(entry.get("status") or "").startswith("🔴")
 
 
+def restore_handled(state, seen):
+    """Entries moved to the handled section that this run found again go back to their list.
+    Returns their keys."""
+    back = []
+    for key, entry in list(state["handled"].items()):
+        kind = entry.get("kind", "repos")
+        if key in seen.get(kind, ()):
+            entry = dict(state["handled"].pop(key))
+            for k in ("kind", "handled_since", "down_since"):
+                entry.pop(k, None)
+            state[kind][key] = entry
+            back.append(key)
+    return back
+
+
 def prune_taken_down(state, seen):
-    """Remove entries that have been taken down for TAKEDOWN_DAYS in a row. Former official
-    addresses are removed as soon as nothing is published there any more; they come back
-    (with a new-entry comment) once something is."""
+    """Move entries that have been taken down for TAKEDOWN_DAYS in a row to the handled section
+    (restore_handled() lists them again if they come back). Former official addresses are removed
+    as soon as nothing is published there any more; they come back (with a new-entry comment)
+    once something is."""
     today = TODAY.isoformat()
     cutoff = (TODAY - datetime.timedelta(days=TAKEDOWN_DAYS)).isoformat()
     removed = []
@@ -810,8 +830,11 @@ def prune_taken_down(state, seen):
                 entry.pop("down_since", None)  # back online, or not fully gone: start over
                 continue
             if entry.setdefault("down_since", today) <= cutoff:
-                del store[key]
+                state["handled"][key] = dict(store.pop(key), kind=kind, handled_since=today)
                 removed.append(key)
+    forget = (TODAY - datetime.timedelta(days=FORGET_DAYS)).isoformat()
+    for key in [k for k, e in state["handled"].items() if e.get("last_seen", "") < forget]:
+        del state["handled"][key]
     # Watched new domains whose registration has lapsed won't come back as the same site
     for host, entry in list(state["parked"].items()):
         if str(entry.get("status") or "").startswith("🔴 gone"):
@@ -826,9 +849,9 @@ def prune_taken_down(state, seen):
 def load_state(body):
     m = STATE_RE.search(body or "")
     if not m:
-        return {"sites": {}, "repos": {}, "spam": {}, "watch": {}, "parked": {}, "copies": {}}
+        return {"sites": {}, "repos": {}, "spam": {}, "watch": {}, "parked": {}, "copies": {}, "handled": {}}
     state = json.loads(base64.b64decode(m.group(1)))
-    for k in ("sites", "repos", "spam", "watch", "parked"):
+    for k in ("sites", "repos", "spam", "watch", "parked", "handled"):
         state.setdefault(k, {})
     return state
 
@@ -847,12 +870,15 @@ def merge(store, found):
 
 
 def render(state, seen):
-    sites = {h: e for h, e in state["sites"].items() if h in seen["sites"]}
-    repos = {r: e for r, e in state["repos"].items() if r in seen["repos"]}
+    # Taken down (🔴) less than TAKEDOWN_DAYS ago: still listed, with its status
+    listed = lambda kind, k, e: k in seen[kind] or taken_down(e)
+    sites = {h: e for h, e in state["sites"].items() if listed("sites", h, e)}
+    repos = {r: e for r, e in state["repos"].items() if listed("repos", r, e)}
     gone_sites = {h: e for h, e in state["sites"].items() if h not in sites}
     gone_repos = {r: e for r, e in state["repos"].items() if r not in repos}
-    spam = {r: e for r, e in state["spam"].items() if r in seen["spam"]}
+    spam = {r: e for r, e in state["spam"].items() if listed("spam", r, e)}
     gone_repos.update({r: e for r, e in state["spam"].items() if r not in spam})
+    gone_repos.update(state.get("handled") or {})
     other = state.get("other") or {}
     out = [
         f"The websites and GitHub repositories below use names that imitate **{PROJECT}**. "
@@ -945,8 +971,9 @@ def render(state, seen):
         "like \"download\"), addresses on hosting platforms, certificate-transparency logs, newly registered "
         f"domains{', web search' if ts.BRAVE_KEY else ''} and GitHub search. **Belongs to** shows the GitHub account, or for domains the "
         "registrant (often hidden by privacy protection), registrar and hosting network from public RDAP data. "
-        "**Status** is checked on every run; entries that stay taken down (🔴) for "
-        f"{TAKEDOWN_DAYS} day{'s' if TAKEDOWN_DAYS != 1 else ''} are removed automatically. "
+        "**Status** is checked on every run; entries that stay taken down (🔴, e.g. deleted or made private) "
+        f"for {TAKEDOWN_DAYS} day{'s' if TAKEDOWN_DAYS != 1 else ''} move to *No longer imitating or "
+        "reachable* automatically, and are listed again if they come back. "
         "Repositories still using BridgePatcher's former name are always listed, forks included. "
         "Other repositories are only listed if they aren't forks "
         "and offer their own downloads or show other impersonation signals. A listing means the name "
@@ -957,6 +984,73 @@ def render(state, seen):
         f"<!-- state:{base64.b64encode(json.dumps(state, separators=(',', ':')).encode()).decode()} -->",
     ]
     return "\n".join(out)
+
+
+# The BridgePatcher tracker issue (bridgepatcher_tracker.py), in the same repository
+BP_LABEL = "lookalike-tracker"
+BP_MARKER = "<!-- bridgepatcher-tracker -->"
+BP_STATE_RE = re.compile(r"<!-- tracker-state:([A-Za-z0-9+/=]*) -->")
+# Owners of repositories listed before mentions existed (or while the BridgePatcher tracker issue
+# couldn't be read) are mentioned too, at most this many per run, oldest listing first
+MENTION_BACKLOG = int(os.environ.get("MENTION_BACKLOG", "5"))
+LOGIN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}")
+
+
+def bridgepatcher_mentions():
+    """Lowercase logins already mentioned in the BridgePatcher tracker issue (the people behind
+    the copies listed or handled there, and the owners of those repositories), so nobody is
+    mentioned in both issues. None if the issue couldn't be read: then nobody is mentioned."""
+    path = f"/repos/{ISSUE_REPO}/issues?labels={BP_LABEL}&state=all&per_page=100"
+    status, _, _ = request("GET", path)
+    if status >= 300:
+        return None
+    logins = set()
+    for issue in paginate(path):
+        body = issue.get("body") or ""
+        if BP_MARKER not in body or "pull_request" in issue:
+            continue
+        logins |= {m.lower() for m in re.findall(r"@([A-Za-z0-9][A-Za-z0-9-]{0,38})", body)}
+        m = BP_STATE_RE.search(body)
+        try:
+            bp = json.loads(base64.b64decode(m.group(1))) if m else {}
+        except ValueError:
+            return None
+        entries = [e for k in ("repos", "sites", "articles") for e in (bp.get(k) or {}).values()]
+        entries += [d.get("entry") or {} for d in (bp.get("dismissed") or {}).values()]
+        keys = [key for section in ("repos", "dismissed") for key in (bp.get(section) or {})]
+        logins |= {p.lower() for e in entries for p in e.get("people") or []}
+        logins |= {k.split("/")[0].lower() for k in keys if "/" in k}
+    return logins
+
+
+def to_mention(state, new_repos, listed=()):
+    """{repo: login} for the owners of new repositories, and of up to MENTION_BACKLOG repositories
+    in listed (already on the list) whose owner was never mentioned, to mention once: user accounts only,
+    never one mentioned before by this watch, in the BridgePatcher tracker issue, or a maintainer.
+    Spam repositories and websites are never mentioned. Records the logins in state["mentioned"]."""
+    done = state.setdefault("mentioned", {})
+    backlog = sorted((r for r in listed if r not in new_repos and state["repos"].get(r, {}).get("login")
+                      and state["repos"][r]["login"].lower() not in done),
+                     key=lambda r: state["repos"][r].get("first_seen", ""))
+    if not new_repos and not backlog:
+        return {}
+    skip = bridgepatcher_mentions()
+    if skip is None:
+        print("::notice::Couldn't read the BridgePatcher tracker issue, so nobody is mentioned this run.")
+        return {}
+    skip |= set(done) | {m.lstrip("@").lower() for m in MENTIONS} | ALLOW_OWNERS
+    out, old = {}, 0
+    for r in list(new_repos) + backlog:
+        login = state["repos"][r].get("login") or ""
+        if r not in new_repos:
+            if old >= MENTION_BACKLOG:
+                break
+        if LOGIN_RE.fullmatch(login) and login.lower() not in skip:
+            old += r not in new_repos
+            out[r] = login
+            skip.add(login.lower())
+            done[login.lower()] = TODAY.isoformat()
+    return out
 
 
 def find_tracker():
@@ -989,11 +1083,12 @@ def main():
     found_sites, found_repos = scan_sites(state["watch"]), scan_repos()
     found_spam = scan_spam(set(found_repos))
     seen = {"sites": set(found_sites), "repos": set(found_repos), "spam": set(found_spam)}
-    new_spam = merge(state["spam"], found_spam)
     found_sites.update(scan_copycat_sites(found_repos))
     fork_sites, copies = scan_fork_sites(found_repos, {k.lower() for k in found_sites})
     found_sites.update(fork_sites)
     seen["sites"] = set(found_sites)
+    back = restore_handled(state, seen)  # before merge(), so they don't count as new
+    new_spam = merge(state["spam"], found_spam)
     old_copies = state.get("copies") or {}
     for k in copies:  # an entry that turned out to be a mere copy leaves the website list
         state["sites"].pop(k, None)
@@ -1007,6 +1102,7 @@ def main():
     state["parked"] = describe_parked(state["watch"])
     refresh_gone(state, seen)
     removed = prune_taken_down(state, seen)
+    mention = {} if DRY_RUN or not tracker else to_mention(state, new_repos, sorted(seen["repos"]))
     body = render(state, seen)
     if len(body) > 65000:
         print("::warning::Warning issue is close to GitHub's size limit; consider lowering FORGET_DAYS.")
@@ -1020,8 +1116,11 @@ def main():
     for h in new_other:
         summary(f"- new misleading article site: `{h}` — {state['other'][h]['headline']}")
     for k in removed:
-        summary(f"- removed (taken down): `{k}`")
-    summary(f"\n{len(new_sites)} new sites, {len(new_repos)} new repositories, {len(removed)} removed.")
+        summary(f"- moved to the handled section (taken down): `{k}`")
+    for k in back:
+        summary(f"- back online, listed again: `{k}`")
+    summary(f"\n{len(new_sites)} new sites, {len(new_repos)} new repositories, {len(removed)} moved to handled, "
+            f"{len(back)} back.")
     if DRY_RUN:
         return
 
@@ -1043,12 +1142,24 @@ def main():
         status, _, _ = request("PATCH", f"/repos/{ISSUE_REPO}/issues/{tracker['number']}", {"body": body})
         if status >= 300:
             raise SystemExit(f"Could not update the warning issue (HTTP {status})")
-    if new_sites or new_repos or new_other:
-        lines = ["**New entries found today:**", ""]
-        lines += [f"- website `{h}`" for h in new_sites]
-        lines += [f"- misleading article on `{h}`" for h in new_other]
-        lines += [f"- repository `{r}`" for r in new_repos]
-        lines += ["", "The list above has been updated."]
+    older = [r for r in mention if r not in new_repos]
+    if new_sites or new_repos or new_other or back or older:
+        lines = []
+        if new_sites or new_repos or new_other or back:
+            lines = ["**New entries found today:**", ""]
+            lines += [f"- website `{h}`" for h in new_sites]
+            lines += [f"- `{k}` is back online after being taken down" for k in back]
+            lines += [f"- misleading article on `{h}`" for h in new_other]
+            lines += [f"- repository `{r}`" + (f" (cc @{mention[r]})" if r in mention else "") for r in new_repos]
+            lines += ["", "The list above has been updated."]
+        if older:
+            lines += ([""] if lines else []) + ["**Already on the list:**", ""]
+            lines += [f"- repository `{r}`, listed since {state['repos'][r].get('first_seen', '?')} "
+                      f"(cc @{mention[r]})" for r in older]
+        if mention:
+            lines += ["", f"If you were mentioned: your repository's name imitates {PROJECT}, so it's listed here "
+                      "to keep visitors from mistaking it for the official one. A listing isn't an accusation. "
+                      "If that's not what you intended, renaming the repository takes it off the list."]
         post(f"/repos/{ISSUE_REPO}/issues/{tracker['number']}/comments", {"body": "\n".join(lines)})
 
 

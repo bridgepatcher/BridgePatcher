@@ -164,7 +164,11 @@ and aren't rewritten to match them.
   (kext updates, browser user agent updates, checksums, credit updates), with no human
   starting or steering that particular change, are authored and committed by
   `github-actions[bot]` and need no human author, committer or `Co-Authored-By:`
-  trailer. AI-generated fixes from CI (auto-fix PRs) are not covered: they write new
+  trailer. The same goes for issues, issue comments and issue edits that a fully automated
+  check opens or makes on its own (for example the typosquat, impersonation and lookalike
+  watches, their tracker issues, and rename requests or license notices on other
+  repositories): they're posted under the workflow's own name (`github-actions[bot]`, or the
+  bot token the workflow is configured with), with no human named. AI-generated fixes from CI (auto-fix PRs) are not covered: they write new
   code, so the human who takes one over is accountable for it like any other AI-written
   change. The human is accountable one step earlier: the workflow code itself
   (`.github/workflows/`, `.github/scripts/`) is an ordinary change and follows every rule
