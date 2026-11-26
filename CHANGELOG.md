@@ -1,4 +1,8 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.4 - 4.0.0 alpha 20.4.4
+This release:
+- fixes an issue where on T2 Macs, CryptexFixup gets injected. This kext is for 4th gen Intel CPUs and older
+
 ## 4.0.0.2000004.3 - 4.0.0 alpha 20.4.3
 This release:
 - on T2 Macs, OpenCorePkg is being migrated from our fork to Accidanthera's mainstream project. Our own fork was written completely using Claude Code, and while it had bugs that Accidanthera fixed, now it's the opposite - our own fork had bugs whereas Accidanthera's mainstream OpenCorePkg never had it. So now even T2 Macs will use OpenCore 1.0.8.
