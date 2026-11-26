@@ -461,3 +461,16 @@ SimpleHDAAudio = {
     "iMac19,1": 7,  # Untested - same codec family as iMac19,2
     "iMac19,2": 7,  # Reported working: github.com/orgs/bridgepatcher/discussions/315
 }
+
+# Macs without a T2 chip that get dart=0 (VT-d/DART DMA remapping off) in their boot-args.
+# Needed for Wi-Fi and Bluetooth on macOS 26 Tahoe; only models tested and confirmed to need it.
+# Never add T2 Macs here: build.py scrubs dart=0 from T2 configs.
+DartDisabled = [
+    "iMac18,1",
+    "iMac18,2",
+    "iMac18,3",
+    "MacBookPro14,1",
+    "MacBookPro14,2",
+    "MacBookPro14,3",
+    "MacBookAir6,2",
+]

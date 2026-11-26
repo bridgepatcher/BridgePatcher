@@ -264,6 +264,11 @@ class BuildOpenCore:
             # macOS Sequoia support for Lilu plugins (Dortania)
             self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] += " -lilubetaall"
 
+            # Wi-Fi and Bluetooth on macOS Tahoe need VT-d/DART disabled on these Macs
+            if self.model in model_array.DartDisabled:
+                logging.info("- Adding dart=0 to boot-args")
+                self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] += " dart=0"
+
         # Call support functions
         for function in [
             firmware.BuildFirmware,
