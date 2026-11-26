@@ -1,4 +1,22 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.5 - 4.0.0 alpha 20.4.5
+This release:
+- fixes a vulnerability where BridgePatcher kept running in the background after its last window was closed, once a macOS installer had been downloaded successfully (or failed its checksum check). While it kept running, it never checked for updates again, and the background update check skipped every run because the app seemed to be open. Closing the last window now quits the app again.
+
+Impact: until the user quit the app with Cmd+Q, logged out or restarted the Mac, BridgePatcher never learned about new releases, so an attacker could keep a Mac on an older build with a known vulnerability.
+
+- fixes a vulnerability where BridgePatcher only checked for updates periodically while the main menu was on screen. Left open on any other window (Settings, finished root patching, the installer flow, or when it was started straight into root patching), it never checked again until it was restarted. It now keeps checking on those windows too. A found update isn't installed underneath a build or root patching: BridgePatcher shows a notification, and the main menu offers or installs the update as soon as you're back there, like it does on its own periodic check.
+
+Impact: an attacker could keep a Mac on an older build with a known vulnerability simply by getting the user to leave BridgePatcher open on a window other than the main menu.
+
+- fixes a vulnerability where the background update check (the update-check LaunchAgent) skipped its run whenever any BridgePatcher process was running, including ones that never check for updates, such as the automatic root patcher waiting for an answer to its dialog. It now only skips while a BridgePatcher window is open, which checks for updates on its own.
+
+Impact: a BridgePatcher process left waiting in the background kept every background update check skipped until the Mac was restarted, so an attacker could keep the Mac on an older build with a known vulnerability.
+
+- fixes a vulnerability where the background update check could go a long time without running on Macs that are often asleep, because its 6-hour timer doesn't usually count the time the Mac sleeps. It now runs at fixed times every 6 hours, and once after the Mac wakes up if one of them was missed.
+
+Impact: on a Mac that is often asleep, the background update check rarely ran apart from the one at login, so the Mac could stay on an older build with a known vulnerability until it was restarted.
+
 ## 4.0.0.2000004.4 - 4.0.0 alpha 20.4.4
 This release:
 - fixes an issue where on T2 Macs, CryptexFixup gets injected. This kext is for 4th gen Intel CPUs and older

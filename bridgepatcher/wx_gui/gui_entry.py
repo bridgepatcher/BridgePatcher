@@ -3,13 +3,17 @@ gui_entry.py: Entry point for the wxPython GUI
 """
 
 import wx
+import wx.adv
 import sys
+import time
 import logging
+import threading
 
 from Cocoa import NSApp, NSApplication
 
 from .. import constants
 from ..sys_patch.patchsets import HardwarePatchsetDetection
+from ..support import updates, network_handler, utilities
 
 
 from ..wx_gui import (
@@ -51,12 +55,94 @@ class PatcherApp(wx.App):
         self.constants: constants.Constants = global_constants
         super().__init__(*args, **kwargs)
 
+        # The main menu checks for updates at startup and every update_check_interval
+        # (gui_main_menu.py _on_update_check_timer()), but its timer goes away with the
+        # main menu, which is destroyed whenever another frame is shown. The
+        # update-check LaunchAgent skips while the patcher runs, so an app left open on
+        # any other frame (settings, patching done, an entry point without a main menu)
+        # never checked again until it was quit or the Mac restarted.
+        # This timer belongs to the app instead and only steps in while no main menu
+        # is shown. See _on_update_check_timer().
+        self.update_check_timer = wx.PyTimer(self._on_update_check_timer)
+        self.update_check_timer.Start(self.constants.update_check_retry_interval * 1000)
+        # Tells the update-check LaunchAgent that this process checks on its own
+        utilities.hold_gui_lock()
+
+
+    def _main_menu_shown(self) -> bool:
+        """
+        Whether a main menu (which checks on its own) or the app updater is on screen
+        """
+        return any(isinstance(window, (gui_main_menu.MainFrame, gui_update.UpdateFrame)) and window.IsShown() for window in wx.GetTopLevelWindows())
+
+
+    def _on_update_check_timer(self) -> None:
+        """
+        Check for updates while no main menu is shown
+
+        Only checks: an update may not be installed underneath a build, root
+        patching or a dialog, so it is left to the main menu, which checks again
+        right away once it is back (next_update_check_time is reset). Until then
+        the user gets a notification.
+        """
+        if gui_support.is_app_exiting() or self._main_menu_shown():
+            return
+        if not updates.update_check_interval_passed(self.constants):
+            return
+        thread = getattr(self.constants, "update_thread", None)
+        if thread is not None and thread.is_alive():
+            return
+        thread = threading.Thread(target=self._check_for_updates, daemon=True)
+        thread.start()
+        # Joined at quit together with the main menu's check, see OnExit()
+        self.constants.update_thread = thread
+
+
+    def _check_for_updates(self) -> None:
+        if self.constants.update_check_offline is True:
+            if not network_handler.NetworkUtilities(self.constants.update_releases_api_url).verify_network_connection():
+                return
+            logging.info("Network is back, checking for updates again")
+        logging.info("Update check interval has passed, checking for updates (main menu not shown)")
+        self.constants.next_update_check_time = time.time() + self.constants.update_check_interval
+
+        checker = updates.CheckBinaryUpdates(self.constants)
+        try:
+            update_dict = checker.check_binary_updates()
+        except Exception as e:
+            logging.error(f"Update check failed: {e}")
+            logging.exception("Stack Trace:")
+            return
+        self.constants.update_check_offline = checker.network_failed
+
+        if not update_dict or not updates.is_newer_build(update_dict, self.constants.patcher_version):
+            return
+
+        logging.info(f"Newer version detected: {update_dict['Version']}, offering it once the main menu is back")
+        # The main menu checks again on its next tick and offers or installs the
+        # update exactly like its own periodic check does
+        self.constants.next_update_check_time = 0.0
+        if not gui_support.is_app_exiting():
+            wx.CallAfter(self._notify_update, str(update_dict["Version"]))
+
+
+    def _notify_update(self, remote_version: str) -> None:
+        if gui_support.is_app_exiting():
+            return
+        # Non-modal on purpose: this may show up in the middle of patching
+        notification = wx.adv.NotificationMessage(
+            f"{self.constants.patcher_name} update available",
+            f"Version {remote_version} is available. Return to the main menu to install it.",
+        )
+        notification.Show()
+
 
     def OnExit(self) -> int:
         # Signal first: any background thread checking is_app_exiting()
         # (e.g. gui_main_menu's update check) should bail out rather than
         # touch a frame that's being torn down.
         gui_support.mark_app_exiting()
+        self.update_check_timer.Stop()
 
         # Startup kicks off a background thread (payload unpacking) before
         # any window even exists, so it never checks is_app_exiting().

@@ -430,6 +430,40 @@ def snooze_has_expired() -> bool:
         return False
 
 
+def update_check_interval_passed(global_constants: constants.Constants) -> bool:
+    """
+    Whether the automatic update check of a running app is due again:
+    constants.update_check_interval seconds after the last one, or right away
+    while the last check couldn't reach GitHub
+
+    Wall-clock time on purpose: time.monotonic() may not advance while the Mac
+    sleeps, so a laptop that is mostly asleep would rarely check again.
+    """
+    if global_constants.update_check_offline is True:
+        return True
+    now = time.time()
+    # The clock was set back: don't let that postpone the next check
+    if now < global_constants.next_update_check_time - global_constants.update_check_interval:
+        return True
+    return now >= global_constants.next_update_check_time
+
+
+def is_newer_build(update_dict: dict, local_version: str) -> bool:
+    """
+    Whether an update found by check_binary_updates() is really newer than the
+    running build. A channel switch always counts: versions of different
+    repositories are not comparable, check_binary_updates() already made sure
+    it's a different build. Unparsable versions don't count.
+    """
+    if update_dict.get("ChannelSwitch", False):
+        return True
+    try:
+        return version.parse(str(update_dict["Version"])) > version.parse(str(local_version))
+    except version.InvalidVersion:
+        logging.error(f"Unparsable version (Local: {local_version}, Remote: {update_dict['Version']})")
+        return False
+
+
 def clear_snooze() -> None:
     """
     Forget an expired snooze once the mandatory update has been installed, so

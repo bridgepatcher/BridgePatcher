@@ -14,6 +14,7 @@ import binascii
 import plistlib
 import subprocess
 import ctypes
+import fcntl
 import py_sip_xnu
 
 from pathlib import Path
@@ -875,3 +876,61 @@ def get_admin_permission(action: str = "/usr/bin/whoami", args: list =None, reas
 
     finally:
         security.AuthorizationFree(auth_ref, _kAuthorizationFlagDefaults)
+
+
+# Held (shared) by every running GUI, see hold_gui_lock() and gui_running()
+_gui_lock_file = None
+
+
+def _gui_lock_path() -> Path:
+    # Per user, so another user's open patcher doesn't stop this user's background checks
+    return Path.home() / "Library" / "Caches" / constants.Constants().bundle_identifier / "gui.lock"
+
+
+def _open_gui_lock() -> int:
+    path = _gui_lock_path()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+
+
+def hold_gui_lock() -> None:
+    """
+    Mark this process as a running GUI until it exits
+
+    Every GUI runs its own periodic update check (gui_entry.py PatcherApp), so the
+    update-check LaunchAgent may skip while one runs. Replaces matching process
+    command lines, which also counted processes that never check for updates
+    (an auto patcher waiting on its dialog, a stuck background job).
+    """
+    global _gui_lock_file
+    if _gui_lock_file is not None:
+        return
+    try:
+        _gui_lock_file = _open_gui_lock()
+        fcntl.flock(_gui_lock_file, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except OSError as e:
+        # Only costs the background check being skipped: it then opens the patcher
+        # a second time when it finds an update
+        logging.error(f"Failed to take the GUI lock: {e}")
+
+
+def gui_running() -> bool:
+    """
+    Whether a GUI of this patcher (with its own update checks) is running for this user
+    """
+    try:
+        lock_file = _open_gui_lock()
+    except OSError as e:
+        logging.error(f"Failed to open the GUI lock: {e}")
+        return False
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError as e:
+        logging.error(f"Failed to check the GUI lock: {e}")
+        return False
+    finally:
+        # Closing also releases the lock if we got it
+        os.close(lock_file)
+    return False

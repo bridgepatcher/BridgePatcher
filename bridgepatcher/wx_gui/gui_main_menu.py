@@ -68,6 +68,7 @@ class MainFrame(wx.Frame):
         # _check_updates_handler()). Without this timer an app that was opened before
         # a release never learned about it, so a user could be kept on a vulnerable
         # build simply by leaving the window open. See _on_update_check_timer().
+        # While no main menu is shown, gui_entry.py PatcherApp checks instead.
         # wx.PyTimer, not wx.Timer(self) + EVT_TIMER: a timer with an owner sends its
         # event to that owner, and once this frame was destroyed (every move to another
         # frame) that is freed memory. _on_destroy() didn't stop the timer then, so a
@@ -469,17 +470,11 @@ class MainFrame(wx.Frame):
         Whether the automatic update check should run (again): once per session,
         again every constants.update_check_interval seconds while the app stays open,
         and right away while the last check couldn't reach GitHub
-
-        Wall-clock time on purpose: time.monotonic() may not advance while the Mac
-        sleeps, so a laptop that is mostly asleep would rarely check again.
+        (see updates.update_check_interval_passed())
         """
-        if self.constants.has_checked_updates is False or self.constants.update_check_offline is True:
+        if self.constants.has_checked_updates is False:
             return True
-        now = time.time()
-        # The clock was set back: don't let that postpone the next check
-        if now < self.constants.next_update_check_time - self.constants.update_check_interval:
-            return True
-        return now >= self.constants.next_update_check_time
+        return updates.update_check_interval_passed(self.constants)
 
     def _main_menu_idle(self) -> bool:
         """
