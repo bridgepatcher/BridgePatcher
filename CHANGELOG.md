@@ -1,6 +1,8 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
 ## 4.0.0.2000004.5 - 4.0.0 alpha 20.4.5
 This release:
+- fixes an issue where AppleALC was injected also on T2 Macs, although the audio is natively supported on T2 Macs
+- fixes a bug where the AMFIPass injection was commented out for T2 Macs instead of deleted (no real world impact, just cleaning dead code)
 - fixes a vulnerability where BridgePatcher kept running in the background after its last window was closed, once a macOS installer had been downloaded successfully (or failed its checksum check). While it kept running, it never checked for updates again, and the background update check skipped every run because the app seemed to be open. Closing the last window now quits the app again.
 
 Impact: until the user quit the app with Cmd+Q, logged out or restarted the Mac, BridgePatcher never learned about new releases, so an attacker could keep a Mac on an older build with a known vulnerability.
