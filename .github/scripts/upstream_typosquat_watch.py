@@ -180,7 +180,7 @@ def evaluate_repo(full, owner_sq, root, up_owner, extended=False):
         return None  # hidden from the public: listed under "no longer reachable" until it's pruned
     return {"reasons": cell("; ".join(reasons + signals), 160),
             "owner": gh_account(repo["owner"]["login"]),
-            # Mentioned once in the new-entries comment (see to_mention()); organizations aren't,
+            # Mentioned in the repository table (see to_mention()); organizations aren't,
             # since an organization's name doesn't notify anyone
             "login": repo["owner"]["login"] if repo["owner"].get("type") == "User" else "",
             "status": repo_status(repo)}
@@ -869,6 +869,13 @@ def merge(store, found):
     return new
 
 
+def mentioned(state, e):
+    """" (by @login)" after a repository whose owner to_mention() picked: the mention sits in the
+    table itself, like in the BridgePatcher tracker issue, instead of in a separate comment."""
+    login = e.get("login") or ""
+    return f" (by @{login})" if LOGIN_RE.fullmatch(login) and login.lower() in state.get("mentioned", {}) else ""
+
+
 def render(state, seen):
     # Taken down (🔴) less than TAKEDOWN_DAYS ago: still listed, with its status
     listed = lambda kind, k, e: k in seen[kind] or taken_down(e)
@@ -946,8 +953,12 @@ def render(state, seen):
     if repos:
         out += ["| Repository | Status | Belongs to | Why it's listed | First seen | Last seen |",
                 "|---|---|---|---|---|---|"]
-        out += [f"| `{r}` | {e.get('status', '—')} | {e.get('owner', '—')} | {e['reasons']} | {e['first_seen']} "
-                f"| {e['last_seen']} |" for r, e in sorted(repos.items())]
+        out += [f"| `{r}`{mentioned(state, e)} | {e.get('status', '—')} | {e.get('owner', '—')} | {e['reasons']} "
+                f"| {e['first_seen']} | {e['last_seen']} |" for r, e in sorted(repos.items())]
+        if any(mentioned(state, e) for e in repos.values()):
+            out += ["", f"If you were mentioned: your repository's name imitates {PROJECT}, so it's listed here "
+                    "to keep visitors from mistaking it for the official one. A listing isn't an accusation. "
+                    "If that's not what you intended, renaming the repository takes it off the list."]
     else:
         out.append("None found right now.")
     if spam:
@@ -1102,7 +1113,8 @@ def main():
     state["parked"] = describe_parked(state["watch"])
     refresh_gone(state, seen)
     removed = prune_taken_down(state, seen)
-    mention = {} if DRY_RUN or not tracker else to_mention(state, new_repos, sorted(seen["repos"]))
+    if tracker and not DRY_RUN:
+        to_mention(state, new_repos, sorted(seen["repos"]))  # before render(): mentions go in the table
     body = render(state, seen)
     if len(body) > 65000:
         print("::warning::Warning issue is close to GitHub's size limit; consider lowering FORGET_DAYS.")
@@ -1142,24 +1154,14 @@ def main():
         status, _, _ = request("PATCH", f"/repos/{ISSUE_REPO}/issues/{tracker['number']}", {"body": body})
         if status >= 300:
             raise SystemExit(f"Could not update the warning issue (HTTP {status})")
-    older = [r for r in mention if r not in new_repos]
-    if new_sites or new_repos or new_other or back or older:
-        lines = []
-        if new_sites or new_repos or new_other or back:
-            lines = ["**New entries found today:**", ""]
-            lines += [f"- website `{h}`" for h in new_sites]
-            lines += [f"- `{k}` is back online after being taken down" for k in back]
-            lines += [f"- misleading article on `{h}`" for h in new_other]
-            lines += [f"- repository `{r}`" + (f" (cc @{mention[r]})" if r in mention else "") for r in new_repos]
-            lines += ["", "The list above has been updated."]
-        if older:
-            lines += ([""] if lines else []) + ["**Already on the list:**", ""]
-            lines += [f"- repository `{r}`, listed since {state['repos'][r].get('first_seen', '?')} "
-                      f"(cc @{mention[r]})" for r in older]
-        if mention:
-            lines += ["", f"If you were mentioned: your repository's name imitates {PROJECT}, so it's listed here "
-                      "to keep visitors from mistaking it for the official one. A listing isn't an accusation. "
-                      "If that's not what you intended, renaming the repository takes it off the list."]
+    # Owners are mentioned in the repository table (see mentioned()), not in this comment
+    if new_sites or new_repos or new_other or back:
+        lines = ["**New entries found today:**", ""]
+        lines += [f"- website `{h}`" for h in new_sites]
+        lines += [f"- `{k}` is back online after being taken down" for k in back]
+        lines += [f"- misleading article on `{h}`" for h in new_other]
+        lines += [f"- repository `{r}`" for r in new_repos]
+        lines += ["", "The list above has been updated."]
         post(f"/repos/{ISSUE_REPO}/issues/{tracker['number']}/comments", {"body": "\n".join(lines)})
 
 
