@@ -34,7 +34,6 @@ from . import (
     network_handler,
 )
 
-from packaging import version
 
 
 
@@ -195,16 +194,10 @@ class arguments:
             return
 
         remote_version_str = str(update_dict["Version"])
-        if not update_dict.get("ChannelSwitch", False):
-            try:
-                if version.parse(remote_version_str) <= version.parse(self.constants.patcher_version):
-                    logging.info(
-                        f"- Already up to date (Local: {self.constants.patcher_version}, Remote: {remote_version_str})")
-                    return
-            except version.InvalidVersion:
-                logging.error(
-                    f"- Unparsable version (Local: {self.constants.patcher_version}, Remote: {remote_version_str}), not opening the patcher")
-                return
+        if not updates.is_newer_build(update_dict, self.constants.patcher_version):
+            logging.info(
+                f"- Not opening the patcher (Local: {self.constants.patcher_version}, Remote: {remote_version_str})")
+            return
 
         logging.info(f"- Found new version: {remote_version_str}, opening the patcher")
         gui_entry.EntryPoint(self.constants).start()
