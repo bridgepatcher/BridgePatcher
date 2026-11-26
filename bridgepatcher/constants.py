@@ -241,7 +241,7 @@ class Constants:
         self.has_checked_updates:       bool = False  # Determine if check for updates has been run
         self.next_update_check_time:    float = 0.0  # time.time() when the open app checks for updates again, see update_check_interval
         self.update_check_offline:      bool = False  # The last update check couldn't reach GitHub, retried as soon as the network is back
-        self.update_check_interval:     int = 21600  # Seconds between automatic update checks while the app stays open, same as the update-check LaunchAgent's StartInterval
+        self.update_check_interval:     int = 21600  # Seconds between automatic update checks while the app stays open, same as the update-check LaunchAgent's schedule (every 6 hours, StartCalendarInterval)
         self.update_check_retry_interval: int = 60  # Seconds between retries of an update check that is waiting for the network or for the main menu to be idle
         self.root_patcher_succeeded:    bool = False  # Determine if root patcher succeeded
         self.start_build_install:       bool = False  # Determine if build install should be started

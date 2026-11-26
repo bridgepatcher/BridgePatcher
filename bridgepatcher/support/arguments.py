@@ -157,7 +157,7 @@ class arguments:
 
     def _check_updates_handler(self) -> None:
         """
-        Background update check, started every few hours by the update-check LaunchAgent
+        Background update check, started every 6 hours (and once after waking from sleep, if a run was missed) by the update-check LaunchAgent
 
         Runs the same check as the app's startup check (snooze, update channel,
         project and endpoint health included) without opening any window. Only if
