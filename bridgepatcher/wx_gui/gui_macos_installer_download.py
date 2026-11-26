@@ -349,8 +349,14 @@ class macOSInstallerDownloadFrame(wx.Frame):
                 download_icon=self.constants.icons_path[self._macos_version_to_icon(selected_installer["InstallAssistant"]["XNUMajor"])]
             )
 
+            # Only needed while the download frame replaces the closed modal. Left off
+            # (it used to be restored only for a failed download), closing the last
+            # window no longer quits the app: the process stays alive without a main
+            # menu, so neither the app's own update timer nor the update-check
+            # LaunchAgent (which skips while the patcher runs) checks again.
+            wx.GetApp().SetExitOnFrameDelete(True)
+
             if download_obj.download_complete is False:
-                wx.GetApp().SetExitOnFrameDelete(True)
                 self.on_return_to_main_menu()
                 return
 

@@ -34,7 +34,6 @@ from . import (
     network_handler,
 )
 
-from packaging import version
 
 
 
@@ -144,8 +143,15 @@ class arguments:
 
     def _other_instance_running(self) -> bool:
         """
-        Whether another copy of the patcher is running (GUI, auto patcher, OS caching, ...)
+        Whether a patcher GUI is running, which checks for updates on its own
+        (gui_entry.py PatcherApp, gui_main_menu.py)
+
+        Background copies (auto patcher, OS caching) don't count: they don't check
+        periodically, and an auto patcher waiting on its dialog used to keep these
+        checks skipped until the next restart.
         """
+        if utilities.gui_running():
+            return True
         try:
             results = subprocess.run(["/bin/ps", "-axo", "pid=,command="], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
         except Exception:
@@ -156,15 +162,15 @@ class arguments:
             pid, _, command = line.strip().partition(" ")
             if not pid.isdigit() or int(pid) == own_pid:
                 continue
-            # Either name: right after an update from before the rename, a copy of
-            # the old bundle may still be running
-            if any(f"{_bundle}/Contents/MacOS/" in command for _bundle in (constants.APP_BUNDLE_NAME, constants.LEGACY_APP_BUNDLE_NAME)):
+            # Right after an update from before the rename, a copy of the old bundle
+            # may still be running. It predates the GUI lock, so match it by name.
+            if f"{constants.LEGACY_APP_BUNDLE_NAME}/Contents/MacOS/" in command:
                 return True
         return False
 
     def _check_updates_handler(self) -> None:
         """
-        Background update check, started every few hours by the update-check LaunchAgent
+        Background update check, started every 6 hours (and once after waking from sleep, if a run was missed) by the update-check LaunchAgent
 
         Runs the same check as the app's startup check (snooze, update channel,
         project and endpoint health included) without opening any window. Only if
@@ -208,16 +214,10 @@ class arguments:
             return
 
         remote_version_str = str(update_dict["Version"])
-        if not update_dict.get("ChannelSwitch", False):
-            try:
-                if version.parse(remote_version_str) <= version.parse(self.constants.patcher_version):
-                    logging.info(
-                        f"- Already up to date (Local: {self.constants.patcher_version}, Remote: {remote_version_str})")
-                    return
-            except version.InvalidVersion:
-                logging.error(
-                    f"- Unparsable version (Local: {self.constants.patcher_version}, Remote: {remote_version_str}), not opening the patcher")
-                return
+        if not updates.is_newer_build(update_dict, self.constants.patcher_version):
+            logging.info(
+                f"- Not opening the patcher (Local: {self.constants.patcher_version}, Remote: {remote_version_str})")
+            return
 
         logging.info(f"- Found new version: {remote_version_str}, opening the patcher")
         gui_entry.EntryPoint(self.constants).start()
