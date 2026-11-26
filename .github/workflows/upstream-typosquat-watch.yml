@@ -141,8 +141,8 @@ jobs:
           FARM_ALLOWLIST: "reddit.com youtube.com youtu.be x.com twitter.com insanelymac.com tonymacx86.com macrumors.com stackexchange.com stackoverflow.com apple.com wikipedia.org discord.com discord.gg gitlab.com sourceforge.net"
           # Entries not seen for this many days are removed from the list
           FORGET_DAYS: "365"
-          # Entries taken down (🔴) this many days in a row are removed from the list
-          TAKEDOWN_DAYS: "2"
+          # Entries taken down (🔴) this many days in a row move to the handled section
+          TAKEDOWN_DAYS: "1"
           OFFICIAL_SOURCES: |
             - **OpenCore Legacy Patcher** by Dortania: https://github.com/dortania/OpenCore-Legacy-Patcher and https://dortania.github.io/OpenCore-Legacy-Patcher/
             - **BridgePatcher** (formerly OpenCore Legacy Patcher T2, not affiliated with Dortania): https://github.com/bridgepatcher/BridgePatcher and https://bridgepatcher.github.io/ . Anything else still called "OpenCore Legacy Patcher T2" or "OCLP-T2" is not official.
