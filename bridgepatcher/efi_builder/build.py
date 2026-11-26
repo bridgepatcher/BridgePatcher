@@ -1,9 +1,5 @@
 """
 build.py: Class for generating OpenCore Configurations tailored for Macs
-
-One builder for every Mac. Macs without a T2 chip get Dortania's behaviour (OpenCore 1.0.8,
-Dortania's per-model USB maps in usb_map.py), BridgePatcher's T2 handling only runs behind
-T2 checks (constants.opencore_build_for_t2, utilities.is_t2_mac()).
 """
 
 import copy
@@ -57,7 +53,7 @@ def rmtree_handler(func, path, exc: BaseException) -> None:
 
     except Exception as e:
         logging.error(f"Function Error: {e}")
-        logging.exception("Stack Trace:") # This prints the full technical error
+        logging.exception("Stack Trace:")
         logging.info("Please try again later.")
         sys.exit(3)
 
@@ -90,7 +86,7 @@ class BuildOpenCore:
             self._build_opencore()
         except Exception as e:
             logging.error(f"Function Error: {e}")
-            logging.exception("Stack Trace:") # This prints the full technical error
+            logging.exception("Stack Trace:")
             logging.info("Please try again later.")
             sys.exit(3)
 
