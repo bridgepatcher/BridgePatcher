@@ -13,7 +13,7 @@ from Cocoa import NSApp, NSApplication
 
 from .. import constants
 from ..sys_patch.patchsets import HardwarePatchsetDetection
-from ..support import updates, network_handler
+from ..support import updates, network_handler, utilities
 
 
 from ..wx_gui import (
@@ -65,6 +65,8 @@ class PatcherApp(wx.App):
         # is shown. See _on_update_check_timer().
         self.update_check_timer = wx.PyTimer(self._on_update_check_timer)
         self.update_check_timer.Start(self.constants.update_check_retry_interval * 1000)
+        # Tells the update-check LaunchAgent that this process checks on its own
+        utilities.hold_gui_lock()
 
 
     def _main_menu_shown(self) -> bool:

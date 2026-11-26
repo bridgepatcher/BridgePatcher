@@ -130,8 +130,15 @@ class arguments:
 
     def _other_instance_running(self) -> bool:
         """
-        Whether another copy of the patcher is running (GUI, auto patcher, OS caching, ...)
+        Whether a patcher GUI is running, which checks for updates on its own
+        (gui_entry.py PatcherApp, gui_main_menu.py)
+
+        Background copies (auto patcher, OS caching) don't count: they don't check
+        periodically, and an auto patcher waiting on its dialog used to keep these
+        checks skipped until the next restart.
         """
+        if utilities.gui_running():
+            return True
         try:
             results = subprocess.run(["/bin/ps", "-axo", "pid=,command="], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
         except Exception:
@@ -142,9 +149,9 @@ class arguments:
             pid, _, command = line.strip().partition(" ")
             if not pid.isdigit() or int(pid) == own_pid:
                 continue
-            # Either name: right after an update from before the rename, a copy of
-            # the old bundle may still be running
-            if any(f"{_bundle}/Contents/MacOS/" in command for _bundle in (constants.APP_BUNDLE_NAME, constants.LEGACY_APP_BUNDLE_NAME)):
+            # Right after an update from before the rename, a copy of the old bundle
+            # may still be running. It predates the GUI lock, so match it by name.
+            if f"{constants.LEGACY_APP_BUNDLE_NAME}/Contents/MacOS/" in command:
                 return True
         return False
 
