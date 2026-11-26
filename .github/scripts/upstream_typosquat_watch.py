@@ -990,6 +990,9 @@ def render(state, seen):
 BP_LABEL = "lookalike-tracker"
 BP_MARKER = "<!-- bridgepatcher-tracker -->"
 BP_STATE_RE = re.compile(r"<!-- tracker-state:([A-Za-z0-9+/=]*) -->")
+# Owners of repositories listed before mentions existed (or while the BridgePatcher tracker issue
+# couldn't be read) are mentioned too, at most this many per run, oldest listing first
+MENTION_BACKLOG = int(os.environ.get("MENTION_BACKLOG", "5"))
 LOGIN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}")
 
 
@@ -1020,22 +1023,30 @@ def bridgepatcher_mentions():
     return logins
 
 
-def to_mention(state, new_repos):
-    """{repo: login} for the owners of new repositories to mention once: user accounts only,
+def to_mention(state, new_repos, listed=()):
+    """{repo: login} for the owners of new repositories, and of up to MENTION_BACKLOG repositories
+    in listed (already on the list) whose owner was never mentioned, to mention once: user accounts only,
     never one mentioned before by this watch, in the BridgePatcher tracker issue, or a maintainer.
     Spam repositories and websites are never mentioned. Records the logins in state["mentioned"]."""
-    if not new_repos:
+    done = state.setdefault("mentioned", {})
+    backlog = sorted((r for r in listed if r not in new_repos and state["repos"].get(r, {}).get("login")
+                      and state["repos"][r]["login"].lower() not in done),
+                     key=lambda r: state["repos"][r].get("first_seen", ""))
+    if not new_repos and not backlog:
         return {}
     skip = bridgepatcher_mentions()
     if skip is None:
         print("::notice::Couldn't read the BridgePatcher tracker issue, so nobody is mentioned this run.")
         return {}
-    done = state.setdefault("mentioned", {})
     skip |= set(done) | {m.lstrip("@").lower() for m in MENTIONS} | ALLOW_OWNERS
-    out = {}
-    for r in new_repos:
+    out, old = {}, 0
+    for r in list(new_repos) + backlog:
         login = state["repos"][r].get("login") or ""
+        if r not in new_repos:
+            if old >= MENTION_BACKLOG:
+                break
         if LOGIN_RE.fullmatch(login) and login.lower() not in skip:
+            old += r not in new_repos
             out[r] = login
             skip.add(login.lower())
             done[login.lower()] = TODAY.isoformat()
@@ -1091,7 +1102,7 @@ def main():
     state["parked"] = describe_parked(state["watch"])
     refresh_gone(state, seen)
     removed = prune_taken_down(state, seen)
-    mention = {} if DRY_RUN or not tracker else to_mention(state, new_repos)
+    mention = {} if DRY_RUN or not tracker else to_mention(state, new_repos, sorted(seen["repos"]))
     body = render(state, seen)
     if len(body) > 65000:
         print("::warning::Warning issue is close to GitHub's size limit; consider lowering FORGET_DAYS.")
@@ -1131,13 +1142,20 @@ def main():
         status, _, _ = request("PATCH", f"/repos/{ISSUE_REPO}/issues/{tracker['number']}", {"body": body})
         if status >= 300:
             raise SystemExit(f"Could not update the warning issue (HTTP {status})")
-    if new_sites or new_repos or new_other or back:
-        lines = ["**New entries found today:**", ""]
-        lines += [f"- website `{h}`" for h in new_sites]
-        lines += [f"- `{k}` is back online after being taken down" for k in back]
-        lines += [f"- misleading article on `{h}`" for h in new_other]
-        lines += [f"- repository `{r}`" + (f" (cc @{mention[r]})" if r in mention else "") for r in new_repos]
-        lines += ["", "The list above has been updated."]
+    older = [r for r in mention if r not in new_repos]
+    if new_sites or new_repos or new_other or back or older:
+        lines = []
+        if new_sites or new_repos or new_other or back:
+            lines = ["**New entries found today:**", ""]
+            lines += [f"- website `{h}`" for h in new_sites]
+            lines += [f"- `{k}` is back online after being taken down" for k in back]
+            lines += [f"- misleading article on `{h}`" for h in new_other]
+            lines += [f"- repository `{r}`" + (f" (cc @{mention[r]})" if r in mention else "") for r in new_repos]
+            lines += ["", "The list above has been updated."]
+        if older:
+            lines += ([""] if lines else []) + ["**Already on the list:**", ""]
+            lines += [f"- repository `{r}`, listed since {state['repos'][r].get('first_seen', '?')} "
+                      f"(cc @{mention[r]})" for r in older]
         if mention:
             lines += ["", f"If you were mentioned: your repository's name imitates {PROJECT}, so it's listed here "
                       "to keep visitors from mistaking it for the official one. A listing isn't an accusation. "
