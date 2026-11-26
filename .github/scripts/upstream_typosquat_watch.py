@@ -180,6 +180,9 @@ def evaluate_repo(full, owner_sq, root, up_owner, extended=False):
         return None  # hidden from the public: listed under "no longer reachable" until it's pruned
     return {"reasons": cell("; ".join(reasons + signals), 160),
             "owner": gh_account(repo["owner"]["login"]),
+            # Mentioned once in the new-entries comment (see to_mention()); organizations aren't,
+            # since an organization's name doesn't notify anyone
+            "login": repo["owner"]["login"] if repo["owner"].get("type") == "User" else "",
             "status": repo_status(repo)}
 
 
@@ -983,6 +986,62 @@ def render(state, seen):
     return "\n".join(out)
 
 
+# The BridgePatcher tracker issue (bridgepatcher_tracker.py), in the same repository
+BP_LABEL = "lookalike-tracker"
+BP_MARKER = "<!-- bridgepatcher-tracker -->"
+BP_STATE_RE = re.compile(r"<!-- tracker-state:([A-Za-z0-9+/=]*) -->")
+LOGIN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}")
+
+
+def bridgepatcher_mentions():
+    """Lowercase logins already mentioned in the BridgePatcher tracker issue (the people behind
+    the copies listed or handled there, and the owners of those repositories), so nobody is
+    mentioned in both issues. None if the issue couldn't be read: then nobody is mentioned."""
+    path = f"/repos/{ISSUE_REPO}/issues?labels={BP_LABEL}&state=all&per_page=100"
+    status, _, _ = request("GET", path)
+    if status >= 300:
+        return None
+    logins = set()
+    for issue in paginate(path):
+        body = issue.get("body") or ""
+        if BP_MARKER not in body or "pull_request" in issue:
+            continue
+        logins |= {m.lower() for m in re.findall(r"@([A-Za-z0-9][A-Za-z0-9-]{0,38})", body)}
+        m = BP_STATE_RE.search(body)
+        try:
+            bp = json.loads(base64.b64decode(m.group(1))) if m else {}
+        except ValueError:
+            return None
+        entries = [e for k in ("repos", "sites", "articles") for e in (bp.get(k) or {}).values()]
+        entries += [d.get("entry") or {} for d in (bp.get("dismissed") or {}).values()]
+        keys = [key for section in ("repos", "dismissed") for key in (bp.get(section) or {})]
+        logins |= {p.lower() for e in entries for p in e.get("people") or []}
+        logins |= {k.split("/")[0].lower() for k in keys if "/" in k}
+    return logins
+
+
+def to_mention(state, new_repos):
+    """{repo: login} for the owners of new repositories to mention once: user accounts only,
+    never one mentioned before by this watch, in the BridgePatcher tracker issue, or a maintainer.
+    Spam repositories and websites are never mentioned. Records the logins in state["mentioned"]."""
+    if not new_repos:
+        return {}
+    skip = bridgepatcher_mentions()
+    if skip is None:
+        print("::notice::Couldn't read the BridgePatcher tracker issue, so nobody is mentioned this run.")
+        return {}
+    done = state.setdefault("mentioned", {})
+    skip |= set(done) | {m.lstrip("@").lower() for m in MENTIONS} | ALLOW_OWNERS
+    out = {}
+    for r in new_repos:
+        login = state["repos"][r].get("login") or ""
+        if LOGIN_RE.fullmatch(login) and login.lower() not in skip:
+            out[r] = login
+            skip.add(login.lower())
+            done[login.lower()] = TODAY.isoformat()
+    return out
+
+
 def find_tracker():
     path = f"/repos/{ISSUE_REPO}/issues?labels={LABEL}&state=all&per_page=100"
     status, _, _ = request("GET", path)
@@ -1032,6 +1091,7 @@ def main():
     state["parked"] = describe_parked(state["watch"])
     refresh_gone(state, seen)
     removed = prune_taken_down(state, seen)
+    mention = {} if DRY_RUN or not tracker else to_mention(state, new_repos)
     body = render(state, seen)
     if len(body) > 65000:
         print("::warning::Warning issue is close to GitHub's size limit; consider lowering FORGET_DAYS.")
@@ -1076,8 +1136,12 @@ def main():
         lines += [f"- website `{h}`" for h in new_sites]
         lines += [f"- `{k}` is back online after being taken down" for k in back]
         lines += [f"- misleading article on `{h}`" for h in new_other]
-        lines += [f"- repository `{r}`" for r in new_repos]
+        lines += [f"- repository `{r}`" + (f" (cc @{mention[r]})" if r in mention else "") for r in new_repos]
         lines += ["", "The list above has been updated."]
+        if mention:
+            lines += ["", f"If you were mentioned: your repository's name imitates {PROJECT}, so it's listed here "
+                      "to keep visitors from mistaking it for the official one. A listing isn't an accusation. "
+                      "If that's not what you intended, renaming the repository takes it off the list."]
         post(f"/repos/{ISSUE_REPO}/issues/{tracker['number']}/comments", {"body": "\n".join(lines)})
 
 
