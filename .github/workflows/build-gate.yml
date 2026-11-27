@@ -33,7 +33,10 @@
 #                  needs-credit             only the "Credit audit" issue (people removed from
 #                                           the Credits); closes itself once fixed.
 #                  malware                  malware delivery reported (e.g. by a maintainer or
-#                                           found outside this repository).
+#                                           found outside this repository). Reports about
+#                                           outside sites or repos (also labelled impersonation,
+#                                           misattributed-article, typosquat, typosquat-site,
+#                                           upstream-typosquat or lookalike-tracker) don't block.
 #                  build-blocked            a maintainer stops all builds by hand.
 #                The License Guard issue is not listed: the license job above re-checks the
 #                commit itself, which is stricter and lets fixes build.
@@ -184,7 +187,10 @@ jobs:
             const BLOCKING = [
               { label: 'attribution-violation', why: 'Attribution violation: Dortania\'s copyright, licence or credit notices were removed or rewritten' },
               { label: 'needs-credit', title: 'Credit audit: contributors removed from Credits on main', why: 'Attribution violation: people were removed from the Credits' },
-              { label: 'malware', why: 'Malware delivery reported' },
+              // Reports about outside sites or repos spreading malware share the label, but
+              // they aren't about this repository's code, so they don't block the build.
+              { label: 'malware', why: 'Malware delivery reported',
+                except: ['impersonation', 'misattributed-article', 'typosquat', 'typosquat-site', 'upstream-typosquat', 'lookalike-tracker'] },
               { label: 'build-blocked', why: 'Builds blocked by a maintainer' },
             ];
             const found = [];
@@ -193,6 +199,7 @@ jobs:
                 { owner, repo, state: 'open', labels: b.label, per_page: 100 });
               for (const i of open) {
                 if (i.pull_request || (b.title && i.title !== b.title)) continue;
+                if (b.except && i.labels.some(l => b.except.includes(typeof l === 'string' ? l : l.name))) continue;
                 found.push({ ...b, issue: i });
               }
             }
