@@ -120,9 +120,11 @@ SITE_SEARCHES = ["OpenCore Legacy Patcher", "OCLP T2"]
 # The upstream project's names, as articles write them
 OCLP_NAMES = re.compile(r"opencore[\s-]*legacy[\s-]*patcher|\boclp\b(?![\s-]*t2\b)")
 T2_CHIP = re.compile(r"\bt2(?![0-9])")  # T2, T2s, T2-equipped
-# Words that claim support or a new capability (English, Spanish, German, French, Italian, Portuguese)
+# Words that claim support or a new capability (English, Spanish, German, French, Italian, Portuguese).
+# "compatible" claims it, the noun only names a topic ("Compatibilité Mac Intel, limites puce T2" -
+# linformatique.org, 2026); "adds compatibility" still counts through "adds"
 SUPPORT_CLAIM = re.compile(
-    r"(?<!un)support|(?<!in)compatib|now (?:works|runs)|\badds?\b|\bbrings?\b|expands?|extends?|unlocks?|"
+    r"(?<!un)support|(?<!in)compatib(?!ilit|ilid)|now (?:works|runs)|\badds?\b|\bbrings?\b|expands?|extends?|unlocks?|"
     r"soport|admite|ampl[ií]a|llega|unterst[uü]tz|erweitert|bringt|prend en charge|prise en charge|"
     r"[ée]tend|ajoute|supporto|estende|aggiunge|suport|adiciona|amplia")
 # Words that negate a claim or leave T2 Macs out; a sentence containing one doesn't count
