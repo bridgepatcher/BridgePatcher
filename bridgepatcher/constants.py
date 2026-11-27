@@ -64,7 +64,7 @@ def patcher_version_display_name(patcher_version: str) -> str:
 class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
-        self.patcher_version:                 str = "4.0.0.2000004.6.0.0.1"
+        self.patcher_version:                 str = "4.0.0.2000004.6.0.0.0.1"
         self.patcher_version_label:           str = patcher_version_display_name(self.patcher_version)
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · © 2026 BridgePatcher contributors"
         self.bundle_identifier:               str = "com.bridgepatcher.bridgepatcher"
