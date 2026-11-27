@@ -17,6 +17,13 @@ workflow runs on this project (license text, the build shipping it, the README a
 their notice gets one reminder while a condition is broken (or is reopened, if it was closed
 too early), and is closed once the license conditions are met.
 
+A copy that still breaks the license LICENSE_IGNORED_DAYS (5) days after its license notice while its
+owner has put the notice aside (a "backlog", "wontfix", ... label, such a status on a GitHub Project,
+or closing it without fixing anything) is treated as malicious until the license is met: it is listed
+as ⛔ malicious, and its developers are @mentioned once on the notice and asked to take the
+repository down. So is a copy whose release claims a newer version (in its tag or title) than the
+code it ships (the constants.py at that tag), as long as it does.
+
 When a copy has issues disabled but its owner has another copy of this project with issues
 enabled (renamed or not), its requests are opened as issues on that other copy instead of commit
 comments; ones already posted as commit comments are followed up there once."""
@@ -31,7 +38,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 # The same license checks this project runs on itself (License compliance workflow), here on copies
 import check_license_compliance as compliance  # noqa: E402
@@ -60,6 +67,18 @@ THEIR_MARKER = f"<!-- typosquat-notice-from:{ORIGINAL} -->"
 LICENSE_MARKER = f"<!-- license-notice-from:{ORIGINAL} -->"
 # On the reminder posted (once) on a license notice when a copy was renamed but still breaks the license
 LICENSE_REMINDER_MARKER = f"<!-- license-reminder-from:{ORIGINAL} -->"
+# On the takedown request posted (once) on a license notice whose copy is treated as malicious
+TAKEDOWN_MARKER = f"<!-- license-takedown-from:{ORIGINAL} -->"
+# A copy still breaking the license this many days after its notice, while its owner has put the
+# notice aside (see deferred_mark()), is treated as malicious
+LICENSE_IGNORED_DAYS = int(os.environ.get("LICENSE_IGNORED_DAYS", "5"))
+# Labels and project statuses that mean "deferred / won't do" (case, spaces and punctuation ignored)
+DEFERRED_MARKS = [m for m in os.environ.get(
+    "LICENSE_DEFERRED_MARKS",
+    "backlog, icebox, on hold, later, someday, deferred, postponed, parked, wontfix, won't fix, not planned, "
+    "no fix, ignore, ignored, invalid, stale, low priority, priority low").split(",") if m.strip()]
+# Shown at the start of a tracker entry's "What we found" while its copy is treated as malicious
+IGNORED_PREFIX = "ignores the license notice: "
 
 HEADERS = {
     "Authorization": f"Bearer {TOKEN}",
@@ -969,25 +988,25 @@ def recheck_license(me, full, cand, e, shas, ours, sibling=None):
     checked on every run. While they're missing, the license notice gets one reminder (or is
     posted, if it never could be, or moved to an issue on sibling, the owner's other copy, if it
     could only be a commit comment); once they're kept, the notice is closed. Returns (the tracker
-    status, the license link)."""
+    status, the license link, whether the license is still broken)."""
     link = e.get("license", "")
     sha, _ = shared_history(full)
     sha = sha or copied_commit(full, shas)
     if not sha:
-        return f"✅ renamed to {full}", link  # none of this project's code, so its license doesn't apply
+        return f"✅ renamed to {full}", link, False  # none of this project's code, so its license doesn't apply
     findings, path = license_findings(full, cand, sha, None, renamed=True)
     if not path:
-        return f"✅ renamed to {full} (license couldn't be checked)", link
+        return f"✅ renamed to {full} (license couldn't be checked)", link, False
     if not findings:
         close_issue(me, link, full, LICENSE_MARKER, f"""Thanks for renaming the repository to **{full}**! 🎉
 
 Its name no longer imitates [{ORIGINAL}](https://github.com/{ORIGINAL}), its license file is complete, its app build ships the license and its README shows the acknowledgement, so the license conditions are met now. This notice is closed automatically.""",
                     "license notice")
-        return f"✅ renamed to {full}, license conditions met", link
+        return f"✅ renamed to {full}, license conditions met", link, False
     status = status_line(full, findings)
     if not link.startswith("http") or (sibling and "/commit/" in link):
         their_url, note = license_owner(me, full, cand, sha, None, False, ours, renamed=True, sibling=sibling)
-        return status, their_url or (link if link.startswith("http") else note)
+        return status, their_url or (link if link.startswith("http") else note), True
     issue = our_open_issue(me, link, full, LICENSE_MARKER)
     closed = None if issue else our_open_issue(me, link, full, LICENSE_MARKER, closed_too=True)
     if closed and (get(closed) or {}).get("state_reason") == "completed":
@@ -1008,7 +1027,7 @@ This notice is closed automatically once that's done.
         else:
             print(f"::warning::Couldn't reopen the license notice {link} (HTTP {status})")
         time.sleep(3)
-        return status_line(full, findings), link
+        return status_line(full, findings), link, True
     if issue and not any(LICENSE_REMINDER_MARKER in (c.get("body") or "") and (c.get("user") or {}).get("login") == me
                          for c in paginate(f"{issue}/comments?per_page=100")):
         bullet = "\n".join(f"- {f}" for f in findings)
@@ -1025,7 +1044,170 @@ This notice is closed automatically once that's done.
 {LICENSE_REMINDER_MARKER}
 """})
         time.sleep(3)
-    return status, link
+    return status, link, True
+
+
+
+# ------------------------------------------------------- ignored notices --
+
+def compact(text):
+    """Lowercase letters and digits only, so "Won't fix", "wontfix" and "wont-fix" compare equal."""
+    return re.sub(r"[^a-z0-9]+", "", fold(text).replace("'", ""))
+
+
+def deferred(name):
+    """Does a label or project status mean "deferred / won't do" (DEFERRED_MARKS)? Matches the whole
+    name or a run of its words, so "Status: Backlog" and "priority: low" count, "translator" doesn't."""
+    words = [w for w in re.split(r"[^a-z0-9]+", fold(name).replace("'", "")) if w]
+    runs = {"".join(words[i:j]) for i in range(len(words)) for j in range(i + 1, len(words) + 1)}
+    return bool(runs & {compact(m) for m in DEFERRED_MARKS})
+
+
+def project_statuses(issue_path):
+    """(field, value) of the single-select fields (Status, Priority, ...) the issue has on GitHub
+    Projects. Empty when they can't be read (the token needs the read:project scope for that)."""
+    m = re.fullmatch(r"/repos/([^/]+)/([^/]+)/issues/(\d+)", issue_path)
+    if not m:
+        return []
+    q = """query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) { issue(number: $n) {
+      projectItems(first: 20) { nodes { fieldValues(first: 20) { nodes {
+        ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2SingleSelectField { name } } }
+      } } } } } } }"""
+    status, data, _ = request("POST", "/graphql", {"query": q, "variables": {
+        "o": m.group(1), "r": m.group(2), "n": int(m.group(3))}})
+    if status >= 300 or not data or data.get("errors"):
+        return []
+    items = (((((data.get("data") or {}).get("repository") or {}).get("issue") or {})
+              .get("projectItems") or {}).get("nodes") or [])
+    return [(((v.get("field") or {}).get("name") or "Status"), v["name"])
+            for item in items for v in (((item or {}).get("fieldValues") or {}).get("nodes") or [])
+            if v and v.get("name")]
+
+
+def deferred_mark(me, link, full):
+    """How the copy's owner put our license notice (at link) aside, or None: a deferral label
+    ("backlog", "wontfix", ...), a deferral status on a GitHub Project ("Backlog", "On hold", ...),
+    or closing it themselves while the license is still broken. Returns (that, the notice's API
+    path, the day it was opened); path and day are None when it isn't our issue (commit comments)."""
+    path = our_open_issue(me, link, full, LICENSE_MARKER, closed_too=True)
+    issue = get(path) if path else None
+    if not issue:
+        return None, None, None
+    opened = (issue.get("created_at") or "")[:10] or None
+    for label in issue.get("labels") or []:
+        name = label.get("name") if isinstance(label, dict) else str(label)
+        if name and deferred(name):
+            return f"labelled `{name}`", path, opened
+    for field, value in project_statuses(path):
+        if deferred(value):
+            return f"set to `{value}` ({field}) on a GitHub Project", path, opened
+    closer = (issue.get("closed_by") or {}).get("login")
+    if issue.get("state") == "closed" and closer and closer.lower() != (me or "").lower():
+        return f"closed by {closer} ({(issue.get('state_reason') or 'closed').replace('_', ' ')})", path, opened
+    return None, path, opened
+
+
+def license_ignored(me, full, prior, link, broken):
+    """Is the copy treated as malicious for ignoring its license notice? It is when it still breaks
+    the license LICENSE_IGNORED_DAYS days (in a row) after the notice and its owner has put the
+    notice aside (see deferred_mark()). Once it is, it stays so until the license is met: taking the
+    label off again doesn't undo it. Returns (the reason or "", the day since which the license has
+    been broken, the notice's API path or None)."""
+    prior = prior or {}
+    if not broken or not me or "/issues/" not in str(link or ""):
+        return "", "", None
+    mark, path, opened = deferred_mark(me, link, full)
+    if not path:
+        return "", "", None
+    since = prior.get("license_broken_since") or opened or datetime.now(timezone.utc).date().isoformat()
+    if prior.get("license_ignored"):
+        return prior["license_ignored"], since, path
+    days = (datetime.now(timezone.utc).date() - date.fromisoformat(since)).days
+    if not mark or days < LICENSE_IGNORED_DAYS:
+        return "", since, path
+    return f"still breaks the license {days} days after the license notice, which was {mark}", since, path
+
+
+def request_takedown(me, path, full, reason, authors):
+    """Once a copy is treated as malicious: one comment on its license notice that @mentions its
+    developers and asks them to take the repository down (the notice is reopened if they closed
+    it). Never twice: an earlier one is found by its marker."""
+    if not path or any(TAKEDOWN_MARKER in (c.get("body") or "") and (c.get("user") or {}).get("login") == me
+                       for c in paginate(f"{path}/comments?per_page=100")):
+        return
+    if (get(path) or {}).get("state") == "closed":
+        request("PATCH", path, {"state": "open"})  # closed by them while the license is still broken
+    status, _ = post(f"{path}/comments", {"body": f"""{greeting(authors)}
+
+This repository {reason}.
+
+A license violation can't be put aside: until it is fixed, this repository distributes the code of [{ORIGINAL}](https://github.com/{ORIGINAL}) without meeting its license. It is now listed as **malicious** in that project's public tracker of lookalike repositories.
+
+**Please take this repository down** (Settings → General → Danger Zone → Delete this repository). If you want to keep working on the code, fork the official repository instead: https://github.com/{ORIGINAL}/fork
+
+If you fix everything this notice asks for instead, the repository is no longer treated as malicious and this notice is closed automatically.
+
+{TAKEDOWN_MARKER}
+"""})
+    time.sleep(3)
+    if status >= 300:
+        print(f"::warning::Couldn't post the takedown request on {full} (HTTP {status})")
+
+
+def version_key(text):
+    """A version named in text, as a tuple that compares like versions: "4.0.0.2000004.5",
+    "4.0.0 alpha 20.4.5", "v4.0.0a20.4.5" and "4.0.0" (a final release, newer than its alphas).
+    Lookalike characters are folded first (see fold()). None when text names no version."""
+    t = fold(text or "")
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)\.(\d{5,7})((?:\.\d+)*)", t)
+    if m:
+        alpha, sub = divmod(int(m.group(4)), {7: 100000, 6: 10000, 5: 1000}[len(m.group(4))])
+        parts = [alpha, sub] + [int(x) for x in m.group(5).split(".") if x]
+    else:
+        m = re.search(r"(\d+)\.(\d+)\.(\d+)(?:\s*-?\s*(?:alpha|a)\s*(\d+(?:\.\d+)*))?", t)
+        if not m:
+            return None
+        parts = [int(x) for x in m.group(4).split(".")] if m.group(4) else None
+    while parts and parts[-1] == 0:
+        parts.pop()
+    base = tuple(int(m.group(i)) for i in (1, 2, 3))
+    return base + ((0, *parts) if parts is not None else (1,))
+
+
+def shipped_version(full, ref):
+    """The app version in a copy's constants.py at ref (also under the package's former name), or None."""
+    for package in ("bridgepatcher", "opencore_legacy_patcher"):
+        m = re.search(r'patcher_version:\s*str\s*=\s*"([^"]+)"', file_text(full, f"{package}/constants.py", ref) or "")
+        if m:
+            return m.group(1)
+    return None
+
+
+def fake_version(full, limit=5):
+    """Does one of a copy's latest releases claim a newer version (in its tag or title) than the
+    code it ships, the constants.py at its tag? That hides how old the code really is. Returns the
+    reason or "". Releases whose code has no readable version aren't judged."""
+    for rel in (get(f"/repos/{full}/releases?per_page={limit}") or [])[:limit]:
+        if not isinstance(rel, dict) or rel.get("draft") or not rel.get("tag_name"):
+            continue
+        shipped = shipped_version(full, rel["tag_name"])
+        real = version_key(shipped)
+        for claim in (rel["tag_name"], rel.get("name") or ""):
+            said = version_key(claim)
+            if real and said and said > real:
+                return (f"its release `{rel['tag_name']}` claims version {cell_text(claim)}, but the code it "
+                        f"ships is version {version_label(shipped)}")
+    return ""
+
+
+def cell_text(text):
+    return re.sub(r"\s+", " ", str(text)).replace("`", "'").strip()[:80]
+
+
+def with_ignored(what, reason):
+    """A tracker entry's "What we found" with the ignored-notice reason at the start (or without it)."""
+    what = re.sub(rf"^{re.escape(IGNORED_PREFIX)}[^;]*; ?", "", what or "")
+    return f"{IGNORED_PREFIX}{reason}; {what}" if reason else what
 
 
 def main():
@@ -1119,6 +1301,14 @@ def main():
         # Installers count for every copy; side branches only matter when the default branch is untouched
         extra = hidden_work(full, cand, authors, check_branches=own == 0 or own is None)
         suspicious, reasons = assess(cand, owner_sq, owner, extra)
+        # Still named like this project, so a copy of its code still breaks the license (condition 4).
+        # Ignoring the license notice for LICENSE_IGNORED_DAYS days is malicious, see license_ignored()
+        ignored, broken_since, notice_path = ("", "", None) if DRY_RUN else license_ignored(
+            me, full, prior, (prior or {}).get("license", ""), broken=bool(sha))
+        # A release claiming a newer version than the code it ships is malicious too
+        spoofed = "" if DRY_RUN or not sha else fake_version(full)
+        if ignored or spoofed:
+            suspicious = True
         if named == "current":
             reasons.insert(0, f"uses this project's name ({name}) outside its fork network"
                               + (f" - it's a fork of {fork_of}" if fork_of else ""))
@@ -1126,6 +1316,12 @@ def main():
             reasons.insert(0, f"uses this project's former name ({', '.join(ALIASES)}) outside its fork network"
                               + (f" - it's a fork of {fork_of}" if fork_of else ""))
         verdict = "suspicious" if suspicious else "likely unintentional"
+        if spoofed:
+            reasons.insert(0, spoofed)
+        if ignored:
+            reasons.insert(0, IGNORED_PREFIX + ignored)
+        if ignored or spoofed:
+            verdict = "malicious"
         if not prior:
             found += 1
             summary(f"- **{full}** — {verdict}; {describe_copy(sha, own)}; "
@@ -1148,10 +1344,15 @@ def main():
             their_url, note = license_owner(me, full, cand, sha, named, suspicious, authors, sibling=sibling)
             license_link = their_url or (license_link if license_link.startswith("http") else note)
 
+        if ignored:
+            request_takedown(me, notice_path, full, ignored, their_authors(full, cand, authors, me))
+
         # 4. Entry in the tracker issue
         tracker.upsert("repos", full, {
             "name": cand["full_name"], "source": "typosquat",
             "status": "⚠️ suspicious" if suspicious else "🟢 active",
+            # ⛔ malicious while one of these holds a reason (see bridgepatcher_tracker.MALICIOUS)
+            "license_broken_since": broken_since, "license_ignored": ignored, "fake_version": spoofed,
             "what": f"{verdict}: " + "; ".join(reasons + [describe_copy(sha, own)]),
             "request": link, "license": license_link,
             # Mentioned next to the repository in the tracker issue, so they're notified there too
@@ -1171,10 +1372,17 @@ def main():
                                                           or any(looks_like(cand["name"], n) for n in [name] + ALIASES)):
                 close_request(me, e.get("request"), cand["full_name"])
                 # A new name doesn't fix the license file: keep checking it until it does
-                status, license_link = recheck_license(me, cand["full_name"], cand, e, shas, authors,
-                                                       sibling_with_issues(cand, known, shas, tracked))
-                tracker.upsert("repos", key, {"status": status, "license": license_link,
-                                              "people": their_authors(cand["full_name"], cand, authors, me)})
+                status, license_link, broken = recheck_license(me, cand["full_name"], cand, e, shas, authors,
+                                                               sibling_with_issues(cand, known, shas, tracked))
+                ignored, broken_since, notice_path = license_ignored(me, cand["full_name"], e, license_link, broken)
+                people = their_authors(cand["full_name"], cand, authors, me)
+                spoofed = fake_version(cand["full_name"])
+                if ignored:
+                    request_takedown(me, notice_path, cand["full_name"], ignored, people)
+                tracker.upsert("repos", key, {"status": status, "license": license_link, "people": people,
+                                              "what": with_ignored(e.get("what"), ignored),
+                                              "license_broken_since": broken_since, "license_ignored": ignored,
+                                              "fake_version": spoofed})
             else:
                 # Still there: keep it listed
                 tracker.upsert("repos", key, {"people": their_authors(cand["full_name"], cand, authors, me)})

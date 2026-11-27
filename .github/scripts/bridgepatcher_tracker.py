@@ -39,6 +39,13 @@ RESOLVED_DAYS = int(os.environ.get("TRACKER_RESOLVED_DAYS", "3"))
 # (they come back if they go online again)
 HANDLED_DAYS = int(os.environ.get("TRACKER_HANDLED_DAYS", "1"))
 MAINTAINERS = {"OWNER", "MEMBER", "COLLABORATOR"}
+# Fields of a repository entry that make it malicious while they hold a reason (set and cleared by
+# the watches): what each one is called in the Status column
+MALICIOUS = {
+    "license_ignored": "ignores the license notice",  # typosquat watch
+    "fake_version": "claims a newer version than its code",  # typosquat watch
+    "fake_404": "its site serves a fake 404",  # lookalike-site watch
+}
 # The per-finding issues the watches used to open: label -> marker pattern
 OLD_ISSUES = {
     "typosquat": re.compile(r"<!-- typosquat:(\S+) -->"),
@@ -52,6 +59,17 @@ COMMAND = re.compile(r"^\s*/(dismiss|undismiss)\s+`?([^\s`]+)`?\s*(.*)$", re.I |
 
 def online(status):
     return str(status or "").startswith(("🟢", "🟠"))
+
+
+def status_of(entry):
+    """An entry's Status column: ⛔ malicious while one of its MALICIOUS fields holds a reason,
+    followed by what the watch reports otherwise (unless that only said active or suspicious)."""
+    status = str(entry.get("status") or "")
+    why = [label for field, label in MALICIOUS.items() if entry.get(field)]
+    if not why or status.startswith(("🔴", "✅")):
+        return status
+    rest = "" if status.startswith(("🟢", "⚠️ suspicious")) or not status else f" · {status}"
+    return f"⛔ malicious ({'; '.join(why)}){rest}"
 
 
 def people(entry):
@@ -244,7 +262,9 @@ class Tracker:
                 continue
             was = old.get((section, key))
             if was is None:
-                news.append(f"- {section[:-1]} `{e.get('name') or key}` — {cell(e.get('status'), 60)}")
+                news.append(f"- {section[:-1]} `{e.get('name') or key}` — {cell(status_of(e), 80)}")
+            elif section == "repos" and status_of(e).startswith("⛔") and not status_of(was).startswith("⛔"):
+                news.append(f"- `{e.get('name') or key}` is now listed as malicious: {cell(status_of(e), 120)}")
             elif str(was.get("status", "")).startswith("🔴") and str(e.get("status", "")).startswith(("🟢", "🟠")):
                 news.append(f"- `{e.get('name') or key}` is now online: {cell(e.get('status'), 60)}")
         body = render(state)
@@ -311,7 +331,7 @@ def render(state):
     if repos:
         out += ["| Repository | Status | What we found | Rename request | License notice | First seen | Last seen |",
                 "|---|---|---|---|---|---|---|"]
-        out += [f"| `{e.get('name') or k}`{people(e)} | {cell(e.get('status'), 80)} | {cell(e.get('what'))} "
+        out += [f"| `{e.get('name') or k}`{people(e)} | {cell(status_of(e), 160)} | {cell(e.get('what'))} "
                 f"| {cell(e.get('request') or '—', 120)} | {cell(e.get('license') or '—', 120)} "
                 f"| {e['first_seen']} | {e['last_seen']} |"
                 for k, e in sorted(repos.items())]
@@ -349,7 +369,11 @@ def render(state):
         "Copies whose issues are enabled get a rename request automatically if they look unintentional; "
         "suspicious ones are only listed, so they can be reported (**Report repository** in their sidebar). "
         "Every copy of this project's code also gets a license violation notice, suspicious or not; renamed "
-        "copies stay listed (⚠️) until their license file keeps the copyright notices. "
+        "copies stay listed (⚠️) until their license file keeps the copyright notices. Copies that still "
+        "break the license 5 days after their notice while their owner has put it aside (backlog, wontfix, "
+        "closed without a fix, ...) are listed as ⛔ malicious and asked to take the repository down. So are "
+        "(without the request) repositories whose website serves a fake 404 and copies whose release claims "
+        "a newer version than the code it ships. "
         f"Entries deleted or made private for {HANDLED_DAYS} day{'s' if HANDLED_DAYS != 1 else ''} move to "
         "*Dismissed or handled* (and are listed again if they come back online). "
         f"Entries no watch has seen for {FORGET_DAYS} days, or resolved for {RESOLVED_DAYS} days, "
