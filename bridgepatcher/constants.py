@@ -41,8 +41,11 @@ def patcher_version_display_name(patcher_version: str) -> str:
     Readable name of a patcher version, for display only
 
     Release tags stay purely numeric so the updater can compare them, ie.:
-    - 4.0.0.2000003.8.1   -> 4.0.0 alpha 20.3.8.1 (4.0.0.2000003.8.1)
-    - 4.0.0.2000004.0.0.8 -> 4.0.0 alpha 20.4 Preview 8 (4.0.0.2000004.0.0.8)
+    - 4.0.0.2000003.8.1     -> 4.0.0 alpha 20.3.8.1 (4.0.0.2000003.8.1)
+    - 4.0.0.2000004.0.0.8   -> 4.0.0 pre-alpha 8 for alpha 20.4 (4.0.0.2000004.0.0.8)
+    - 4.0.0.2000004.6.0.0.1 -> 4.0.0 pre-alpha 1 for alpha 20.4.6 (4.0.0.2000004.6.0.0.1)
+
+    A trailing ".0.0.N" marks pre-alpha N of the alpha in front of it.
 
     The exact version is always kept in the name, so it can't hide which build
     this really is. Versions in any other format are returned unchanged.
@@ -52,11 +55,13 @@ def patcher_version_display_name(patcher_version: str) -> str:
         return patcher_version
 
     base, alpha, alpha_minor, extra = match.groups()
-    name = f"{base} alpha {int(alpha)}.{int(alpha_minor)}"
-    if extra.startswith(".0.0.") and extra.count(".") == 3:
-        name += f" Preview {extra[len('.0.0.'):]}"
+    alpha_name = f"{int(alpha)}.{int(alpha_minor)}"
+    pre_alpha = re.fullmatch(r"((?:\.\d+)*?)\.0\.0\.([1-9]\d*)", extra)
+    if pre_alpha is not None:
+        alpha_extra, pre_alpha_number = pre_alpha.groups()
+        name = f"{base} pre-alpha {pre_alpha_number} for alpha {alpha_name}{alpha_extra}"
     else:
-        name += extra
+        name = f"{base} alpha {alpha_name}{extra}"
 
     return f"{name} ({patcher_version})"
 
