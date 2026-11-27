@@ -85,7 +85,12 @@ class StartAutomaticPatching:
             return
 
         if automatic.opencore_outdated() and automatic.update_opencore():
-            self._notify_opencore_updated()
+            # A notification, not a dialog: a dialog blocked the root patch update below
+            # until the user clicked OK, so the update wasn't really automatic
+            automatic._progress(
+                f"OpenCore was updated to {self.constants.patcher_version} automatically and is used from the next restart. "
+                "You can turn this off in Settings > App."
+            )
 
         if utilities.check_seal() is False and automatic.update_root_patches() is True:
             return
@@ -139,17 +144,6 @@ class StartAutomaticPatching:
 
     def _open_root_patcher(self) -> None:
         gui_entry.EntryPoint(self.constants).start(entry=gui_entry.SupportedEntryPoints.SYS_PATCH)
-
-
-    def _notify_opencore_updated(self) -> None:
-        version_string = subprocess_wrapper.applescript_quote(self.constants.patcher_version)
-        args = [
-            "/usr/bin/osascript",
-            "-e",
-            f"""display dialog "BridgePatcher has updated OpenCore to {version_string} automatically.\n\nThe new OpenCore is used from the next restart.\n\nYou can turn this off in Settings > App > Turn Off Auto OpenCore Updates." buttons {{"OK"}} default button "OK" """
-            f'with icon POSIX file "{self.constants.app_icon_path}"',
-        ]
-        subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
 
     def _check_for_updates(self) -> bool:
