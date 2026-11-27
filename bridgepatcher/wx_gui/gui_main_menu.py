@@ -499,13 +499,13 @@ class MainFrame(wx.Frame):
             logging.error(f"Failed to start the auto patcher: {e}")
             return False
 
-        wx.MessageBox(
-            f"{self.constants.patcher_name} has been updated to {self.constants.patcher_version_label}.\n\n"
-            "OpenCore and your root patches are now updated automatically. If your root patches need an update, "
-            "you will be asked before your Mac restarts.\n\n"
-            "You can turn this off in Settings > App.",
-            "Update successful!",
-            wx.OK | wx.ICON_INFORMATION,
+        # A notification, not a dialog: the OpenCore update needs no answer, and a
+        # modal "Update successful!" box made the automatic update look like it was
+        # waiting for a click (same reasoning as start.py's OpenCore notification)
+        auto_update.AutomaticUpdates(self.constants)._progress(
+            f"{self.constants.patcher_name} was updated to {self.constants.patcher_version_label}. "
+            "OpenCore is now updated automatically, you are only asked before a restart for root patches. "
+            "You can turn this off in Settings > App."
         )
         return True
 
