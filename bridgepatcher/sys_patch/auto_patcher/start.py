@@ -45,6 +45,8 @@ class StartAutomaticPatching:
 
     def __init__(self, global_constants: constants.Constants):
         self.constants: constants.Constants = global_constants
+        # Why the automatic OpenCore update didn't happen, shown in the outdated OpenCore prompt
+        self._opencore_error: str = ""
 
 
     def start_auto_patch(self):
@@ -91,6 +93,7 @@ class StartAutomaticPatching:
                 f"OpenCore was updated to {self.constants.patcher_version} automatically and is used from the next restart. "
                 "You can turn this off in Settings > App."
             )
+        self._opencore_error = automatic.opencore_error
 
         if utilities.check_seal() is False and automatic.update_root_patches() is True:
             return
@@ -379,10 +382,16 @@ class StartAutomaticPatching:
         booted_version = subprocess_wrapper.applescript_quote(self.constants.computer.booted_patcher_version)
         installed_version = subprocess_wrapper.applescript_quote(self.constants.patcher_version)
 
+        # The automatic update (auto_update.py) was tried and didn't happen: say why,
+        # instead of looking like the ordinary manual prompt
+        failure_str = ""
+        if self._opencore_error:
+            failure_str = f"\n\nOpenCore could not be updated automatically: {subprocess_wrapper.applescript_quote(self._opencore_error)}. See the log for details."
+
         args = [
             "/usr/bin/osascript",
             "-e",
-            f"""display dialog "BridgePatcher has detected that you are booting {'a different' if self.constants.special_build else 'an outdated'} OpenCore build\n- Booted: {booted_version}\n- Installed: {installed_version}\n\nWould you like to update the OpenCore bootloader?" """
+            f"""display dialog "BridgePatcher has detected that you are booting {'a different' if self.constants.special_build else 'an outdated'} OpenCore build\n- Booted: {booted_version}\n- Installed: {installed_version}{failure_str}\n\nWould you like to update the OpenCore bootloader?" """
             f'with icon POSIX file "{self.constants.app_icon_path}"',
         ]
         output = subprocess.run(

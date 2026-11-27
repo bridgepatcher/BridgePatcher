@@ -173,6 +173,9 @@ class AutomaticUpdates:
         self._ask    = ask    or self._ask_applescript
         self._notify = notify or self._notify_applescript
         self._services = InstallAutomaticPatchingServices(self.constants)
+        # Why update_opencore() didn't install OpenCore, for the prompt the auto
+        # patcher falls back to (start.py). Empty when there was nothing to report.
+        self.opencore_error: str = ""
 
 
     # ------------------------------------------------------------------
@@ -297,6 +300,21 @@ class AutomaticUpdates:
             thread.join()
 
 
+    def _opencore_not_updated(self, reason: str, error: bool = False) -> bool:
+        """
+        Log and remember why OpenCore was not updated automatically
+
+        Returns:
+            bool: always False, update_opencore()'s result
+        """
+        if error:
+            logging.error(f"- {reason}")
+        else:
+            logging.info(f"- {reason}, not updating OpenCore automatically")
+        self.opencore_error = reason
+        return False
+
+
     def update_opencore(self) -> bool:
         """
         Build OpenCore and install it to the EFI partition it booted from
@@ -313,19 +331,15 @@ class AutomaticUpdates:
             return False
 
         if self.constants.custom_model is not None:
-            logging.info("- A custom model is set, not updating OpenCore automatically")
-            return False
+            return self._opencore_not_updated("A custom model is set")
         if self.constants.host_is_hackintosh is True:
-            logging.info("- Hackintosh detected, not updating OpenCore automatically")
-            return False
+            return self._opencore_not_updated("Hackintosh detected")
         if self.constants.launcher_script is not None:
-            logging.info("- Running from source, not updating OpenCore automatically")
-            return False
+            return self._opencore_not_updated("Running from source")
 
         partition = self.constants.booted_oc_disk
         if not partition:
-            logging.info("- Could not find the partition OpenCore booted from, not updating OpenCore automatically")
-            return False
+            return self._opencore_not_updated("Could not find the partition OpenCore booted from")
 
         # Lazy imports: efi_builder and the installer pull in most of the app, and
         # sys_patch (which imports this package) must not depend on them
@@ -334,8 +348,7 @@ class AutomaticUpdates:
         from ...wx_gui      import gui_support
 
         if not gui_support.CheckProperties(self.constants).host_can_build():
-            logging.info("- This Mac can't build OpenCore, not updating OpenCore automatically")
-            return False
+            return self._opencore_not_updated("This Mac can't build OpenCore")
 
         self._wait_for_payloads()
 
@@ -343,26 +356,24 @@ class AutomaticUpdates:
         try:
             build.BuildOpenCore(self.constants.computer.real_model, self.constants)
         except (Exception, SystemExit):
-            logging.error("- Building OpenCore failed")
+            self._opencore_not_updated("Building OpenCore failed", error=True)
             logging.exception("Stack Trace:")
             return False
 
         if not (Path(self.constants.opencore_release_folder) / "EFI" / "OC").exists():
-            logging.error("- Building OpenCore produced no EFI/OC folder")
-            return False
+            return self._opencore_not_updated("Building OpenCore produced no EFI/OC folder", error=True)
 
         try:
             installed = install.tui_disk_installation(self.constants).install_opencore(partition)
         except (Exception, SystemExit):
             # install_opencore() calls sys.exit(3) on some failures; the auto patcher
             # has more to do after this, so it must not take the process down
-            logging.error("- Installing OpenCore failed")
+            self._opencore_not_updated(f"Installing OpenCore to {partition} failed", error=True)
             logging.exception("Stack Trace:")
             return False
 
         if installed is not True:
-            logging.error("- Installing OpenCore failed")
-            return False
+            return self._opencore_not_updated(f"Installing OpenCore to {partition} failed", error=True)
 
         global_settings.GlobalEnviromentSettings().write_property(AUTO_OPENCORE_INSTALLED_KEY, self.constants.patcher_version)
         logging.info("- OpenCore updated, takes effect at the next restart")
