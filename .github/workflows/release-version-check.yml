@@ -1,0 +1,222 @@
+name: Release version check
+
+# Checks that every published release really is the version it claims to be, and takes
+# down (turns back into a draft) any release that isn't, then opens a "version-spoofing"
+# issue. A release is spoofed when:
+#   - its tag differs from `patcher_version` in bridgepatcher/constants.py at that tag,
+#   - its title names a different build version than its tag (e.g. "4.0.0.2000005 - ..."
+#     on a release whose code is 4.0.0.2000004.5),
+#   - its tag or title writes a version with lookalike characters (fullwidth or
+#     non-Latin digits) that only look like the real number, or
+#   - the code at the tag sets `patcher_version_label` to a fixed text other than the
+#     real version, so the app would show users a different version than it is.
+#
+# Taking down = making the release a draft again. That hides it from users and from the
+# updater, but keeps the tag, the files and the release text, so a maintainer can check
+# it and publish it again if it was a false alarm (or delete it if it wasn't). Nothing is
+# deleted. If the check can't read a release's version file, it's reported, never taken
+# down. If more than MAX_TAKEDOWNS releases would go in one run, none are and the issue
+# asks a maintainer to look (that many at once is more likely a bug in this check).
+#
+# The PR side (pull requests that claim a version their code doesn't have) is handled by
+# version-spoof-check.yml, which also closes such PRs when they come from a fork.
+#
+# Runs when a release is published or edited, daily, and by hand (optionally as a dry
+# run that changes nothing). No code from the release is checked out or executed:
+# everything is read through the GitHub API.
+
+on:
+  release:
+    types: [published, edited]
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (leave empty for every release)"
+        required: false
+        type: string
+      dry_run:
+        description: "Only report, take nothing down"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write   # turn releases back into drafts
+  issues: write     # report them
+
+concurrency:
+  group: release-version-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check release versions
+        uses: actions/github-script@v8
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        with:
+          script: |
+            // ---- Settings ----------------------------------------------------
+            const VERSION_FILES    = ['bridgepatcher/constants.py',
+                                      'opencore_legacy_patcher/constants.py'];  // branding: legacy - older tags
+            const LABEL            = 'version-spoofing';
+            const MARKER           = '<!-- release-version-check -->';
+            const MAX_TAKEDOWNS    = 3;   // more in one run = none are taken down
+            const PING_MAINTAINERS = ['albert-steinhof', 'gandolf243'];
+            // ------------------------------------------------------------------
+
+            const { owner, repo } = context.repo;
+            const onlyTag = (process.env.TAG || '').trim();
+            const dryRun = process.env.DRY_RUN === 'true';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            async function readFile(path, ref) {
+              try {
+                const { data } = await github.rest.repos.getContent({ owner, repo, path, ref });
+                if (Array.isArray(data) || data.type !== 'file') return null;
+                if (data.content) return Buffer.from(data.content, 'base64').toString('utf8');
+                const blob = await github.rest.git.getBlob({ owner, repo, file_sha: data.sha });
+                return Buffer.from(blob.data.content, 'base64').toString('utf8');
+              } catch (e) {
+                if (e.status === 404) return null;
+                throw e;
+              }
+            }
+
+            // Same parsing as version-spoof-check.yml
+            function readPatcherVersion(text) {
+              const lines = text.split('\n');
+              const i = lines.findIndex(l => /self\.patcher_version\s*:\s*str\s*=/.test(l));
+              if (i < 0) return null;
+              const m = lines[i].match(/=\s*["']([^"']*)["']/);
+              const labelLine = lines.find(l => /self\.patcher_version_label\s*[:=]/.test(l)) || '';
+              const label = (labelLine.match(/=\s*["']([^"']*)["']/) || [])[1] || null; // only if a literal
+              return m ? { value: m[1], line: i + 1, label } : null;
+            }
+            // Build-style versions like 4.0.0.2000004.5 (build part >= 5 digits, so IPs don't match)
+            const buildVersions = t => [...(t || '').normalize('NFKC')
+              .matchAll(/(?<![\d.])(\d+\.\d+\.\d+\.\d{5,}(?:\.\d+)*s?)(?![\d.])/g)].map(m => m[1]);
+            // Lookalike characters that turn into a version only after normalisation
+            const hasLookalikeVersion = t => ((t || '').match(/[\p{Nd}.．。]{5,}/gu) || [])
+              .some(tok => /[.．。]/.test(tok) && /[^\x00-\x7F]/.test(tok));
+            const code = s => '`' + String(s).replace(/`/g, "'") + '`';
+
+            // ---- Releases to check --------------------------------------------
+            let releases;
+            if (onlyTag) {
+              try {
+                releases = [(await github.rest.repos.getReleaseByTag({ owner, repo, tag: onlyTag })).data];
+              } catch (e) {
+                core.warning(`No published release with tag ${onlyTag}: ${e.message}`);
+                return;
+              }
+            } else {
+              releases = await github.paginate(github.rest.repos.listReleases, { owner, repo, per_page: 100 });
+            }
+            releases = releases.filter(r => !r.draft);
+
+            const spoofed = [], unreadable = [], summary = ['## Release version check', '',
+              '| Release | Code version | Result |', '| --- | --- | --- |'];
+            for (const rel of releases) {
+              const tag = rel.tag_name, title = rel.name || '';
+              let text = null, file = null;
+              try {
+                for (const f of VERSION_FILES) {
+                  text = await readFile(f, `refs/tags/${tag}`);
+                  if (text != null) { file = f; break; }
+                }
+              } catch (e) {
+                unreadable.push({ rel, why: e.message });
+                summary.push(`| ${code(tag)} | – | ⚠️ couldn't read: ${e.message} |`);
+                continue;
+              }
+              const info = text != null ? readPatcherVersion(text) : null;
+              if (!info) {
+                unreadable.push({ rel, why: 'no patcher_version found' });
+                summary.push(`| ${code(tag)} | – | ⚠️ no patcher_version found |`);
+                continue;
+              }
+              const link = `${context.serverUrl}/${owner}/${repo}/blob/${encodeURIComponent(tag)}/${file}#L${info.line}`;
+              const actual = `[${code(file)}](${link}) at this tag says ${code(info.value)}`;
+              const reasons = [];
+
+              if (tag !== info.value) {
+                reasons.push(`The tag ${code(tag)} is not the version of its code: ${actual}.`);
+              }
+              for (const v of new Set(buildVersions(title))) {
+                if (v !== info.value) reasons.push(`The release title names version ${code(v)}, but ${actual}.`);
+              }
+              for (const [where, t] of [['tag', tag], ['title', title]]) {
+                if (hasLookalikeVersion(t)) reasons.push(`The release ${where} writes a version with lookalike characters (fullwidth or non-Latin digits), which only looks like a real version number.`);
+              }
+              if (info.label && info.label !== info.value) {
+                reasons.push(`\`patcher_version_label\` is set to ${code(info.label)}, but the real \`patcher_version\` is ${code(info.value)}: the app would show users a different version than it is.`);
+              }
+
+              if (reasons.length) spoofed.push({ rel, reasons, actual: info.value });
+              summary.push(`| ${code(tag)} | ${code(info.value)} | ${reasons.length ? '❌ version spoofing' : '✅ matches'} |`);
+            }
+            summary.push('');
+
+            // ---- Take down and report ------------------------------------------
+            const hold = spoofed.length > MAX_TAKEDOWNS;
+            const takenDown = [], failed = [];
+            if (spoofed.length && !hold && !dryRun) {
+              for (const s of spoofed) {
+                try {
+                  await github.rest.repos.updateRelease({ owner, repo, release_id: s.rel.id, draft: true });
+                  takenDown.push(s);
+                  core.warning(`Took down ${s.rel.tag_name} (now a draft): ${s.reasons.join(' ')}`);
+                } catch (e) {
+                  failed.push({ ...s, why: e.message });
+                  core.error(`Couldn't take down ${s.rel.tag_name}: ${e.message}`);
+                }
+              }
+            }
+
+            if (spoofed.length && !dryRun) {
+              try {
+                await github.rest.issues.createLabel({ owner, repo, name: LABEL, color: 'b60205',
+                  description: 'A release or PR claims a version its code does not have' });
+              } catch { /* already exists */ }
+              const publishers = [...new Set(spoofed.map(s => s.rel.author && s.rel.author.login).filter(Boolean))]
+                .filter(u => !PING_MAINTAINERS.some(m => m.toLowerCase() === u.toLowerCase()));
+              const mentions = [...PING_MAINTAINERS, ...publishers].map(u => `@${u}`).join(', ');
+              const section = (s, state) => [
+                `### [${code(s.rel.tag_name)}](${s.rel.html_url}) – ${state}`,
+                `Published by @${s.rel.author ? s.rel.author.login : 'unknown'}${s.rel.name ? `, title ${code(s.rel.name)}` : ''}`,
+                '', ...s.reasons.map(r => `- ${r}`), ''];
+              const body = [MARKER, `${mentions}`, ''];
+              if (hold) {
+                body.push(`**English:** ${spoofed.length} releases claim a version their code doesn't have. That's more than the limit of ${MAX_TAKEDOWNS} for one run, so **nothing was taken down**: this many at once is more likely a bug in the check. If they really are spoofed, run the **Release version check** workflow by hand with \`dry_run\` off for each tag.`,
+                  '', `**Deutsch:** ${spoofed.length} Releases geben eine Version an, die ihr Code nicht hat. Das ist mehr als die Grenze von ${MAX_TAKEDOWNS} pro Lauf, daher wurde **nichts zurückgezogen**: So viele auf einmal deuten eher auf einen Fehler in der Prüfung hin. Falls sie wirklich gefälscht sind, den Workflow **Release version check** für jeden Tag von Hand mit ausgeschaltetem \`dry_run\` starten.`, '');
+                for (const s of spoofed) body.push(...section(s, 'not taken down'));
+              } else {
+                body.push(`**English:** These releases claim to be a different version than their code really is (version spoofing). Users and the updater would get a build that isn't the version it says, for example an older one with already fixed vulnerabilities. ${takenDown.length ? 'They were **taken down**: they are drafts again, so users and the updater no longer see them. Their tags, files and text are kept.' : ''} If this is a false alarm, fix the check and publish the release again; otherwise delete it and publish a correct release.`,
+                  '', `**Deutsch:** Diese Releases geben sich als eine andere Version aus, als ihr Code tatsächlich ist (Versions-Spoofing). Nutzer und der Updater bekämen einen Build, der nicht die angegebene Version ist, z. B. einen älteren mit bereits behobenen Sicherheitslücken. ${takenDown.length ? 'Sie wurden **zurückgezogen**: Sie sind wieder Entwürfe, Nutzer und der Updater sehen sie nicht mehr. Tags, Dateien und Text bleiben erhalten.' : ''} Falls das ein Fehlalarm ist, die Prüfung korrigieren und das Release erneut veröffentlichen; sonst löschen und ein korrektes Release veröffentlichen.`, '');
+                for (const s of takenDown) body.push(...section(s, 'taken down (draft)'));
+                for (const s of failed) body.push(...section(s, `couldn't take down: ${s.why}`));
+              }
+              body.push(`Check run: ${runUrl}`);
+              const tags = spoofed.map(s => s.rel.tag_name).join(', ');
+              const title = hold ? `Version spoofing: ${spoofed.length} releases flagged, none taken down`
+                : takenDown.length ? `Version spoofing: took down release ${takenDown.map(s => s.rel.tag_name).join(', ')}`
+                : `Version spoofing: couldn't take down release ${tags}`;
+              const issue = await github.rest.issues.create({ owner, repo, title, body: body.join('\n').slice(0, 65000), labels: [LABEL] });
+              core.info(`Opened issue #${issue.data.number}`);
+            }
+
+            for (const s of spoofed) {
+              const state = takenDown.includes(s) ? 'taken down' : dryRun ? 'dry run, not taken down' : 'not taken down';
+              summary.push(`### ${code(s.rel.tag_name)} (${state})`, ...s.reasons.map(r => `- ${r}`), '');
+            }
+            for (const u of unreadable) summary.push(`- ⚠️ ${code(u.rel.tag_name)}: couldn't check (${u.why}), not taken down`);
+            await core.summary.addRaw(summary.join('\n')).write();
+            for (const u of unreadable) core.warning(`${u.rel.tag_name}: couldn't check (${u.why})`);
+            if (hold || failed.length) core.setFailed('Version spoofing found but not (all) taken down - see the issue.');
+            else if (spoofed.length && dryRun) core.setFailed(`Dry run: ${spoofed.length} release(s) would be taken down.`);

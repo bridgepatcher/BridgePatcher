@@ -6,6 +6,10 @@ name: PR Outdated Version Check
 # a branch behind main, or a version number that goes backwards, jumps or
 # uses lookalike characters and so hides how old the code really is.
 #
+# A PR from a fork that claims a version its code doesn't have (version spoofing) is
+# closed automatically and reported in a "version-spoofing" issue. Releases that do the
+# same are taken down by release-version-check.yml.
+#
 # The comment marker and concurrency group still say "version-spoof" on purpose,
 # so existing bot comments keep being found and updated.
 #
@@ -45,6 +49,8 @@ jobs:
             const KEEP_OPEN_LABEL   = 'keep-open'; // label that stops the auto-close
             const NO_AUTO_CLOSE     = ['albert-steinhof', 'gandolf243']; // PRs by these users are never auto-closed
             const PING_MAINTAINERS  = ['albert-steinhof', 'gandolf243']; // always mentioned in the warning
+            const SPOOF_LABEL       = 'version-spoofing'; // label of the issue opened for a closed spoofing PR
+            const SPOOF_MARKER      = n => `<!-- version-spoof-pr ${n} -->`;
             // ------------------------------------------------------------------
 
             const { owner, repo } = context.repo;
@@ -117,7 +123,7 @@ jobs:
               const i = lines.findIndex(l => /self\.patcher_version\s*:\s*str\s*=/.test(l));
               if (i < 0) return null;
               const m = lines[i].match(/=\s*["']([^"']*)["']/);
-              const labelLine = lines.find(l => /self\.patcher_version_label\s*=/.test(l)) || '';
+              const labelLine = lines.find(l => /self\.patcher_version_label\s*[:=]/.test(l)) || '';
               const label = (labelLine.match(/=\s*["']([^"']*)["']/) || [])[1] || null; // only if a literal
               return m ? { value: m[1], line: i + 1, label } : null;
             }
@@ -171,20 +177,20 @@ jobs:
 
             // ---- 1) Malformed version or lookalike characters ----------------
             if (!headV) {
-              findings.push({ score: 3,
+              findings.push({ score: 3, spoof: true,
                 en: `The version string \`${headInfo.value}\` in the PR does not have the normal format (digits and dots, optionally ending in "s"). Unusual characters make it impossible to reliably tell whether this build is outdated.`,
                 de: `Die Versionsangabe \`${headInfo.value}\` im PR hat nicht das normale Format (Ziffern und Punkte, optional mit „s“ am Ende). Durch ungewöhnliche Zeichen lässt sich nicht zuverlässig erkennen, ob dieser Build veraltet ist.`,
                 link: versionLink });
             }
             for (const [where, whereDe, text] of [['PR title', 'PR-Titel', pr.title], ['branch name', 'Branch-Name', pr.head.ref]]) {
-              if (hasLookalikeVersion(text)) findings.push({ score: 3,
+              if (hasLookalikeVersion(text)) findings.push({ score: 3, spoof: true,
                 en: `The ${where} contains a version number written with lookalike characters (for example fullwidth or non-Latin digits). This can hide which version the PR is really based on and whether it is outdated.`,
                 de: `Der ${whereDe} enthält eine Versionsnummer aus ähnlich aussehenden Zeichen (z. B. breite oder nicht-lateinische Ziffern). Dadurch ist nicht klar erkennbar, auf welcher Version der PR wirklich basiert und ob sie veraltet ist.` });
             }
 
             // ---- 2) Displayed label differs from the real version ------------
             if (headInfo.label && headInfo.label !== headInfo.value) {
-              findings.push({ score: 3,
+              findings.push({ score: 3, spoof: true,
                 en: `\`patcher_version_label\` is set to \`${headInfo.label}\`, but the real \`patcher_version\` is \`${headInfo.value}\`. Users would see a different version than the one this build really is, which can hide that it is outdated.`,
                 de: `\`patcher_version_label\` ist auf \`${headInfo.label}\` gesetzt, aber die echte \`patcher_version\` ist \`${headInfo.value}\`. Nutzer würden eine andere Version sehen, als dieser Build tatsächlich ist. Dadurch kann verborgen bleiben, dass er veraltet ist.`,
                 link: versionLink });
@@ -208,7 +214,8 @@ jobs:
                 const newer = findClaims(text, headV).filter(c => compare(c, headV) > 0);
                 if (!newer.length) continue;
                 const claim = newer.reduce((a, b) => (compare(a, b) >= 0 ? a : b));
-                findings.push({ score,
+                // The description alone (score 1) is too weak to count as spoofing
+                findings.push({ score, spoof: score >= 3,
                   en: `${src[0].toUpperCase() + src.slice(1)} names version \`${claim.raw}\`, but ${actualEn}. The code in this PR is older than the version it names.`,
                   de: `${srcDe[0].toUpperCase() + srcDe.slice(1)} nennt Version \`${claim.raw}\`, aber ${actualDe}. Der Code in diesem PR ist älter als die genannte Version.` });
               }
@@ -227,7 +234,7 @@ jobs:
                   const sameUpTo = i => headV.key.slice(0, i).every((x, j) => x === baseV.key[j]);
                   const majorJump = d(0) > 1;
                   const otherJump = (sameUpTo(1) && d(1) > 1) || (sameUpTo(2) && d(2) > 1) || (sameUpTo(3) && d(3) > 1);
-                  if (majorJump || otherJump) findings.push({ score: majorJump ? 3 : 1,
+                  if (majorJump || otherJump) findings.push({ score: majorJump ? 3 : 1, spoof: majorJump,
                     en: `The version jumps from \`${baseInfo.value}\` to \`${headInfo.value}\`, skipping versions. A too-high number makes every older install treat this build as a newer update, even if its code is outdated.`,
                     de: `Die Version springt von \`${baseInfo.value}\` auf \`${headInfo.value}\` und überspringt Versionen. Eine zu hohe Nummer lässt jede ältere Installation diesen Build für ein neueres Update halten, auch wenn sein Code veraltet ist.`,
                     link: versionLink });
@@ -483,7 +490,7 @@ jobs:
               const m = c.body.match(/<!-- version-spoof-bot part (\d+) -->/);
               if (m && !existingParts.has(Number(m[1]))) existingParts.set(Number(m[1]), c);
             }
-            const list = de => findings.map(f => `- ${de ? f.de : f.en}`).join('\n');
+            const list = de => findings.map(f => `- ${f.spoof ? '🎭 ' : ''}${de ? f.de : f.en}`).join('\n');
             const short = pr.head.sha.slice(0, 7);
 
             // Posts part 1 (the main comment) plus any follow-ups, updating existing
@@ -525,17 +532,32 @@ jobs:
               }
               const exempt = NO_AUTO_CLOSE.some(u => u.toLowerCase() === pr.user.login.toLowerCase());
               if (exempt) core.info(`Auto-close skipped: @${pr.user.login} is exempt.`);
-              const autoClose = pr.state === 'open' && !exempt && behindMain !== null
-                && behindMain > AUTO_CLOSE_BEHIND && !labels.includes(KEEP_OPEN_LABEL);
+              const mayClose = pr.state === 'open' && !exempt && !labels.includes(KEEP_OPEN_LABEL);
+              // Version spoofing from a fork: the PR claims a version its code doesn't have
+              // (newer version named in title/branch/commits/changelog, a label that differs
+              // from the real version, lookalike digits, a malformed version or a major jump).
+              // Closed regardless of how far behind it is, and reported in an issue.
+              const fromFork = !pr.head.repo || pr.head.repo.full_name.toLowerCase() !== `${owner}/${repo}`.toLowerCase();
+              const spoofFindings = findings.filter(f => f.spoof);
+              const spoofClose = mayClose && fromFork && spoofFindings.length > 0;
+              const behindClose = mayClose && behindMain !== null && behindMain > AUTO_CLOSE_BEHIND;
+              const autoClose = spoofClose || behindClose;
+              const closeWhy = spoofClose ? {
+                en: `it comes from a fork and claims to be a different version than its code really is (version spoofing, see the points above marked with 🎭)`,
+                de: `er aus einem Fork kommt und sich als eine andere Version ausgibt, als sein Code tatsächlich ist (Versions-Spoofing, siehe die mit 🎭 markierten Punkte oben)`,
+              } : {
+                en: `it failed this check and its branch is ${behindMain} commits behind \`${pr.base.ref}\` (limit: ${AUTO_CLOSE_BEHIND})`,
+                de: `er diese Prüfung nicht bestanden hat und sein Branch ${behindMain} Commits hinter \`${pr.base.ref}\` liegt (Grenze: ${AUTO_CLOSE_BEHIND})`,
+              };
               const closeNote = autoClose ? [
                 '',
                 '---',
                 '',
                 `**🔒 Closed automatically / Automatisch geschlossen**`,
                 '',
-                `**English:** This PR was closed automatically because it failed this check and its branch is ${behindMain} commits behind \`${pr.base.ref}\` (limit: ${AUTO_CLOSE_BEHIND}). Please update your fork or branch to the latest version and open a new PR. If this was a mistake, a maintainer can reopen it.`,
+                `**English:** This PR was closed automatically because ${closeWhy.en}. Please update your fork or branch to the latest version${spoofClose ? ', make the version in the title, branch, commits and changelog match the code,' : ''} and open a new PR. If this was a mistake, a maintainer can reopen it.`,
                 '',
-                `**Deutsch:** Dieser PR wurde automatisch geschlossen, weil er diese Prüfung nicht bestanden hat und sein Branch ${behindMain} Commits hinter \`${pr.base.ref}\` liegt (Grenze: ${AUTO_CLOSE_BEHIND}). Bitte aktualisieren Sie Ihren Fork oder Branch auf die neueste Version und öffnen Sie einen neuen PR. Falls das ein Fehler war, kann ein Maintainer ihn wieder öffnen.`,
+                `**Deutsch:** Dieser PR wurde automatisch geschlossen, weil ${closeWhy.de}. Bitte aktualisieren Sie Ihren Fork oder Branch auf die neueste Version${spoofClose ? ', passen Sie die Version in Titel, Branch, Commits und Changelog an den Code an' : ''} und öffnen Sie einen neuen PR. Falls das ein Fehler war, kann ein Maintainer ihn wieder öffnen.`,
               ].join('\n') : '';
 
               let vuln = null;
@@ -593,8 +615,48 @@ jobs:
               if (autoClose) {
                 try {
                   await github.rest.pulls.update({ owner, repo, pull_number: pr.number, state: 'closed' });
-                  core.warning(`PR closed automatically: ${behindMain} commits behind ${pr.base.ref} (limit ${AUTO_CLOSE_BEHIND}).`);
+                  core.warning(spoofClose ? 'PR from a fork closed automatically: version spoofing.'
+                    : `PR closed automatically: ${behindMain} commits behind ${pr.base.ref} (limit ${AUTO_CLOSE_BEHIND}).`);
                 } catch (e) { core.warning(`Auto-close failed: ${e.message}`); }
+              }
+              // ---- Version-spoofing issue (one per PR, updated on new pushes) --
+              if (spoofClose) {
+                try {
+                  try {
+                    await github.rest.issues.createLabel({ owner, repo, name: SPOOF_LABEL, color: 'b60205',
+                      description: 'A release or PR claims a version its code does not have' });
+                  } catch { /* already exists */ }
+                  const marker = SPOOF_MARKER(pr.number);
+                  const openIssues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', labels: SPOOF_LABEL, per_page: 100 });
+                  const old = openIssues.find(i => !i.pull_request && i.user && i.user.login === 'github-actions[bot]' && (i.body || '').includes(marker));
+                  const spoofList = de => spoofFindings.map(f => `- ${de ? f.de : f.en}`).join('\n');
+                  const body = [
+                    marker,
+                    `${mentions}`,
+                    '',
+                    `**English:** Pull request #${pr.number} by @${pr.user.login} from the fork [\`${headOwner}/${headRepo}\`](${pr.head.repo ? pr.head.repo.html_url : ''}) claims to be a different version than its code really is. It was closed automatically. Checked commit: \`${short}\`.`,
+                    '',
+                    spoofList(false),
+                    '',
+                    `A version that looks newer than the code makes users and the updater treat an outdated build, possibly with already fixed vulnerabilities, as current. If this is a false alarm, a maintainer can reopen the PR (that adds the \`${KEEP_OPEN_LABEL}\` label) and close this issue.`,
+                    '',
+                    '---',
+                    '',
+                    `**Deutsch:** Pull Request #${pr.number} von @${pr.user.login} aus dem Fork \`${headOwner}/${headRepo}\` gibt sich als eine andere Version aus, als sein Code tatsächlich ist. Er wurde automatisch geschlossen. Geprüfter Commit: \`${short}\`.`,
+                    '',
+                    spoofList(true),
+                    '',
+                    `Eine Version, die neuer aussieht als der Code, lässt Nutzer und den Updater einen veralteten Build, womöglich mit bereits behobenen Sicherheitslücken, für aktuell halten. Falls das ein Fehlalarm ist, kann ein Maintainer den PR wieder öffnen (das setzt das Label \`${KEEP_OPEN_LABEL}\`) und dieses Issue schließen.`,
+                    '',
+                    `Check run: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+                  ].join('\n');
+                  if (old) await github.rest.issues.update({ owner, repo, issue_number: old.number, body });
+                  else {
+                    const issue = await github.rest.issues.create({ owner, repo, labels: [SPOOF_LABEL], body,
+                      title: `Version spoofing: PR #${pr.number} from ${headOwner}/${headRepo} claims a version its code doesn't have` });
+                    core.info(`Opened issue #${issue.data.number}`);
+                  }
+                } catch (e) { core.warning(`Opening the version-spoofing issue failed: ${e.message}`); }
               }
               for (const f of findings) core.warning(f.en);
               core.setFailed(`Possible use of an outdated version (score ${total}). See the PR comment.`);
