@@ -21,7 +21,9 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Release assets of copies are downloaded to check them (see RELEASE_ASSET_MAX_MB); results are
+    # kept in the tracker, so later runs only download new or changed assets
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -57,5 +59,13 @@ jobs:
           # Project statuses are only seen when TYPOSQUAT_PAT has the read:project scope.
           LICENSE_IGNORED_DAYS: "5"
           LICENSE_DEFERRED_MARKS: "backlog, icebox, on hold, later, someday, deferred, postponed, parked, wontfix, won't fix, not planned, no fix, ignore, ignored, invalid, stale, low priority, priority low"
+          # The .pkg and .zip assets of a copy's latest RELEASE_CHECKS releases are read (up to
+          # RELEASE_ASSET_MAX_MB each, at most RELEASE_ASSET_BUDGET_GB per run; the rest waits for the
+          # next run) and the app inside is checked: if it has another version than the code at the
+          # release's tag or than the release claims, or wasn't built from that code, the copy counts
+          # as malicious. Assets already checked aren't downloaded again.
+          RELEASE_CHECKS: "2"
+          RELEASE_ASSET_MAX_MB: "2048"
+          RELEASE_ASSET_BUDGET_GB: "20"
         run: python .github/scripts/typosquat_watch.py
 
