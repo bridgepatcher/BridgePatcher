@@ -1164,6 +1164,7 @@ If you fix everything this notice asks for instead, the repository is no longer 
 
 
 # Pre-release stages a version can name, oldest first; a final release comes after all of them
+PRE_ALPHA = -1
 STAGES = {"alpha": 0, "a": 0, "beta": 1, "b": 1, "rc": 2}
 FINAL = 3
 
@@ -1179,11 +1180,18 @@ def version_key(text):
         alpha, sub = divmod(int(m.group(4)), {7: 100000, 6: 10000, 5: 1000}[len(m.group(4))])
         stage, parts = STAGES["alpha"], [alpha, sub] + [int(x) for x in m.group(5).split(".") if x]
     else:
-        m = re.search(r"(\d+)\.(\d+)\.(\d+)(?:\s*-?\s*(alpha|beta|rc|a|b)\s*(\d+(?:\.\d+)*))?", t)
+        # "4.0.0 alpha 16", "4.0.0-alpha-16-20260616", "2.0.0-rc2", and pre-alphas like
+        # "4.0.0prea-1215" / "4.0.0 pre-alpha 3" (older than every alpha of that version)
+        m = re.search(r"(\d+)\.(\d+)\.(\d+)(?:[\s._-]*(pre[\s._-]*(?:alpha|a)|alpha|beta|rc|a|b)"
+                      r"(?:[\s._-]*(\d+(?:\.\d+)*))?)?", t)
         if not m:
             return None
-        stage = STAGES.get(m.group(4))
-        parts = [int(x) for x in m.group(5).split(".")] if m.group(4) else None
+        name, number = m.group(4), m.group(5)
+        if name and name.startswith("pre"):
+            stage, parts = PRE_ALPHA, [int(x) for x in (number or "").split(".") if x]
+        else:
+            stage = STAGES.get(name)
+            parts = [int(x) for x in number.split(".")] if name and number else None
     while parts and parts[-1] == 0:
         parts.pop()
     base = tuple(int(m.group(i)) for i in (1, 2, 3))
