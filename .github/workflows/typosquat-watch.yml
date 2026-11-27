@@ -51,5 +51,11 @@ jobs:
           ALLOWLIST: ""                # space-separated owner/repo names to ignore
           # Former names of the project: copies still named like these count as typosquats
           ALIASES: "OpenCore-Legacy-Patcher-T2 OCLP-T2"
+          # A copy still breaking the license this many days after its license notice, while its
+          # owner has put the notice aside (one of these labels or GitHub Project statuses, or closed
+          # it without a fix), counts as malicious: listed as such and asked to take the repo down.
+          # Project statuses are only seen when TYPOSQUAT_PAT has the read:project scope.
+          LICENSE_IGNORED_DAYS: "5"
+          LICENSE_DEFERRED_MARKS: "backlog, icebox, on hold, later, someday, deferred, postponed, parked, wontfix, won't fix, not planned, no fix, ignore, ignored, invalid, stale, low priority, priority low"
         run: python .github/scripts/typosquat_watch.py
 

@@ -1150,6 +1150,34 @@ def tracker_entry(r, tracker):
                           "what": "; ".join(parts) or "lookalike name", "report": report}
 
 
+def mark_fake_404_repos(tracker, results, checked):
+    """A repository whose website serves a fake 404 (its own "not found" page: the site is set up
+    and can switch to real content at any moment) is malicious: its tracker entry gets the reason
+    in fake_404 (see bridgepatcher_tracker.MALICIOUS), and is added if no watch lists it yet. checked:
+    the repositories whose sites this run looked at; their reason is cleared once the fake 404 is gone."""
+    fake = {}
+    for r in results:
+        if r.get("fake404") and r.get("repo"):
+            reason = (f"its site {r.get('label', r['host'])} serves its own 'not found' page "
+                      f"(HTTP {r['status']}), so it can switch to real content at any moment")
+            fake.setdefault(r["repo"].lower(), (r["repo"], reason))
+    for key, (name, reason) in sorted(fake.items()):
+        if tracker.dismissed(key):
+            continue
+        if tracker.entry("repos", key):
+            tracker.upsert("repos", key, {"fake_404": reason})
+        else:
+            tracker.upsert("repos", key, {"name": name, "source": "typosquat-site", "status": "⚠️ suspicious",
+                                          "what": reason, "fake_404": reason})
+    for key in sorted(tracker.keys("repos") & checked - set(fake)):
+        e = tracker.entry("repos", key)
+        if e.get("fake_404"):
+            info = {"fake_404": ""}
+            if e.get("source") == "typosquat-site":  # listed only for its fake 404
+                info["status"] = "✅ its site no longer serves a fake 404"
+            tracker.upsert("repos", key, info)
+
+
 def norm_watch_key(r):
     return re.sub(r"#(live|down)$", "", (r.get("key") or r["host"]).lower()).rstrip("/")
 
@@ -1272,6 +1300,8 @@ def main():
         if not DRY_RUN:
             watched = bool(set(r.get("markers") or []) & {FORMER_HOST_MARK, KNOWN_SITE_MARK, COPYCAT_MARK})
             tracker.upsert(section, key, info, revive_when_online=watched)
+    if not DRY_RUN:
+        mark_fake_404_repos(tracker, results, {repo.lower() for repo, _own in all_sites.values()})
     tracker.save()
     summary(f"\n{new} new lookalike sites or articles found ({len(results)} matching in total).")
 
