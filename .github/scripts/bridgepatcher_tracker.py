@@ -64,14 +64,14 @@ def online(status):
 
 
 def status_of(entry):
-    """An entry's Status column: ⛔ malicious while one of its MALICIOUS fields holds a reason,
+    """An entry's Status column: 🐛 malicious while one of its MALICIOUS fields holds a reason,
     followed by what the watch reports otherwise (unless that only said active or suspicious)."""
     status = str(entry.get("status") or "")
     why = [label for field, label in MALICIOUS.items() if entry.get(field)]
     if not why or status.startswith(("🔴", "✅")):
         return status
     rest = "" if status.startswith(("🟢", "⚠️ suspicious")) or not status else f" · {status}"
-    return f"⛔ malicious ({'; '.join(why)}){rest}"
+    return f"🐛 malicious ({'; '.join(why)}){rest}"
 
 
 def people(entry):
@@ -265,7 +265,7 @@ class Tracker:
             was = old.get((section, key))
             if was is None:
                 news.append(f"- {section[:-1]} `{e.get('name') or key}` — {cell(status_of(e), 80)}")
-            elif section == "repos" and status_of(e).startswith("⛔") and not status_of(was).startswith("⛔"):
+            elif section == "repos" and status_of(e).startswith("🐛") and not status_of(was).startswith("🐛"):
                 news.append(f"- `{e.get('name') or key}` is now listed as malicious: {cell(status_of(e), 120)}")
             elif str(was.get("status", "")).startswith("🔴") and str(e.get("status", "")).startswith(("🟢", "🟠")):
                 news.append(f"- `{e.get('name') or key}` is now online: {cell(e.get('status'), 60)}")
@@ -373,7 +373,7 @@ def render(state):
         "Every copy of this project's code also gets a license violation notice, suspicious or not; renamed "
         "copies stay listed (⚠️) until their license file keeps the copyright notices. Copies that still "
         "break the license 5 days after their notice while their owner has put it aside (backlog, wontfix, "
-        "closed without a fix, ...) are listed as ⛔ malicious and asked to take the repository down. So are "
+        "closed without a fix, ...) are listed as 🐛 malicious and asked to take the repository down. So are "
         "(without the request) repositories whose website serves a fake 404, copies whose release claims "
         "another version than the code it ships or whose version changes suddenly between releases, and "
         "copies whose release ships an app that isn't the one it shows (another version, or built from "

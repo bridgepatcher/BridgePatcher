@@ -20,7 +20,7 @@ too early), and is closed once the license conditions are met.
 A copy that still breaks the license LICENSE_IGNORED_DAYS (5) days after its license notice while its
 owner has put the notice aside (a "backlog", "wontfix", ... label, such a status on a GitHub Project,
 or closing it without fixing anything) is treated as malicious until the license is met: it is listed
-as ⛔ malicious, and its developers are @mentioned once on the notice and asked to take the
+as 🐛 malicious, and its developers are @mentioned once on the notice and asked to take the
 repository down. So is a copy, as long as it does one of these:
 - a release claims another version (in its tag or title) than the code it ships (the constants.py at
   that tag): a newer one, or another version line;
@@ -1553,7 +1553,7 @@ def main():
         tracker.upsert("repos", full, {
             "name": cand["full_name"], "source": "typosquat",
             "status": "⚠️ suspicious" if suspicious else "🟢 active",
-            # ⛔ malicious while one of these holds a reason (see bridgepatcher_tracker.MALICIOUS)
+            # 🐛 malicious while one of these holds a reason (see bridgepatcher_tracker.MALICIOUS)
             "license_broken_since": broken_since, "license_ignored": ignored, "fake_version": spoofed,
             "version_jump": jumped, "fake_release": faked, "release_assets": assets,
             "what": f"{verdict}: " + "; ".join(reasons + [describe_copy(sha, own)]),
