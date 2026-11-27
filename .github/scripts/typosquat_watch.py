@@ -21,8 +21,14 @@ A copy that still breaks the license LICENSE_IGNORED_DAYS (5) days after its lic
 owner has put the notice aside (a "backlog", "wontfix", ... label, such a status on a GitHub Project,
 or closing it without fixing anything) is treated as malicious until the license is met: it is listed
 as ⛔ malicious, and its developers are @mentioned once on the notice and asked to take the
-repository down. So is a copy whose release claims a newer version (in its tag or title) than the
-code it ships (the constants.py at that tag), as long as it does.
+repository down. So is a copy, as long as it does one of these:
+- a release claims another version (in its tag or title) than the code it ships (the constants.py at
+  that tag): a newer one, or another version line;
+- its version changes suddenly between releases: back ("4.0.0 alpha 10" → "2.0.0b1") or skipping
+  versions;
+- a release isn't what it ships: the app in its .pkg or .zip (see release_assets.py) has another
+  version than the code at its tag or than the release claims, or wasn't built from that code
+  (the commit Build-Project.command embeds in its Info.plist).
 
 When a copy has issues disabled but its owner has another copy of this project with issues
 enabled (renamed or not), its requests are opened as issues on that other copy instead of commit
@@ -42,6 +48,9 @@ from datetime import date, datetime, timezone
 
 # The same license checks this project runs on itself (License compliance workflow), here on copies
 import check_license_compliance as compliance  # noqa: E402
+
+# Reads the app a release asset ships, for fake_release()
+import release_assets
 
 API = "https://api.github.com"
 TOKEN = os.environ["GH_TOKEN"]
@@ -1154,24 +1163,37 @@ If you fix everything this notice asks for instead, the repository is no longer 
         print(f"::warning::Couldn't post the takedown request on {full} (HTTP {status})")
 
 
+# Pre-release stages a version can name, oldest first; a final release comes after all of them
+STAGES = {"alpha": 0, "a": 0, "beta": 1, "b": 1, "rc": 2}
+FINAL = 3
+
+
 def version_key(text):
     """A version named in text, as a tuple that compares like versions: "4.0.0.2000004.5",
-    "4.0.0 alpha 20.4.5", "v4.0.0a20.4.5" and "4.0.0" (a final release, newer than its alphas).
-    Lookalike characters are folded first (see fold()). None when text names no version."""
+    "4.0.0 alpha 20.4.5", "v4.0.0a20.4.5", "2.0.0b1", "2.0.0-rc2" and "4.0.0" (a final release,
+    newer than its alphas, betas and release candidates). Lookalike characters are folded first
+    (see fold()). None when text names no version."""
     t = fold(text or "")
     m = re.search(r"(\d+)\.(\d+)\.(\d+)\.(\d{5,7})((?:\.\d+)*)", t)
     if m:
         alpha, sub = divmod(int(m.group(4)), {7: 100000, 6: 10000, 5: 1000}[len(m.group(4))])
-        parts = [alpha, sub] + [int(x) for x in m.group(5).split(".") if x]
+        stage, parts = STAGES["alpha"], [alpha, sub] + [int(x) for x in m.group(5).split(".") if x]
     else:
-        m = re.search(r"(\d+)\.(\d+)\.(\d+)(?:\s*-?\s*(?:alpha|a)\s*(\d+(?:\.\d+)*))?", t)
+        m = re.search(r"(\d+)\.(\d+)\.(\d+)(?:\s*-?\s*(alpha|beta|rc|a|b)\s*(\d+(?:\.\d+)*))?", t)
         if not m:
             return None
-        parts = [int(x) for x in m.group(4).split(".")] if m.group(4) else None
+        stage = STAGES.get(m.group(4))
+        parts = [int(x) for x in m.group(5).split(".")] if m.group(4) else None
     while parts and parts[-1] == 0:
         parts.pop()
     base = tuple(int(m.group(i)) for i in (1, 2, 3))
-    return base + ((0, *parts) if parts is not None else (1,))
+    return base + ((stage, *parts) if parts is not None else (FINAL,))
+
+
+def other_version(said, real):
+    """Does a claimed version hide what the code really is: newer than it, or another version line
+    (major.minor.patch) altogether, e.g. "2.0.0b1" for code that is "4.0.0 alpha 10"?"""
+    return bool(said and real) and (said > real or said[:3] != real[:3])
 
 
 def shipped_version(full, ref):
@@ -1183,21 +1205,188 @@ def shipped_version(full, ref):
     return None
 
 
+def releases(full, limit):
+    """A copy's latest published releases (drafts left out), newest first."""
+    return [rel for rel in (get(f"/repos/{full}/releases?per_page={limit}") or [])[:limit]
+            if isinstance(rel, dict) and not rel.get("draft") and rel.get("tag_name")]
+
+
 def fake_version(full, limit=5):
-    """Does one of a copy's latest releases claim a newer version (in its tag or title) than the
-    code it ships, the constants.py at its tag? That hides how old the code really is. Returns the
-    reason or "". Releases whose code has no readable version aren't judged."""
-    for rel in (get(f"/repos/{full}/releases?per_page={limit}") or [])[:limit]:
-        if not isinstance(rel, dict) or rel.get("draft") or not rel.get("tag_name"):
-            continue
+    """Does one of a copy's latest releases claim another version (in its tag or title) than the
+    code it ships, the constants.py at its tag: a newer one, or another version line? That hides
+    how old the code really is. Returns the reason or "". Releases whose code has no readable
+    version aren't judged."""
+    for rel in releases(full, limit):
         shipped = shipped_version(full, rel["tag_name"])
         real = version_key(shipped)
         for claim in (rel["tag_name"], rel.get("name") or ""):
-            said = version_key(claim)
-            if real and said and said > real:
+            if other_version(version_key(claim), real):
                 return (f"its release `{rel['tag_name']}` claims version {cell_text(claim)}, but the code it "
                         f"ships is version {version_label(shipped)}")
     return ""
+
+
+def release_version(rel):
+    """(version key, text) a release names in its tag, else in its title; (None, "") if neither does."""
+    for text in (rel.get("tag_name"), rel.get("name")):
+        key = version_key(text or "")
+        if key:
+            return key, cell_text(text)
+    return None, ""
+
+
+def version_jump(full, limit=10):
+    """Does a copy's version change suddenly from one release to the next? It may move on within
+    its version (a newer alpha, beta, ... or the final release) or to the next patch, minor or major
+    version. Going back ("4.0.0 alpha 10" → "2.0.0b1") or skipping versions ("4.0.0" → "9.0.0") hides
+    how old the code is too. Every release is compared with the last full release before it, so
+    pre-releases of a newer version published before the current version's last update don't count
+    (this project does that: "alpha 20.4 Preview" before "alpha 20.3.8"). Returns the reason or ""."""
+    history = sorted(releases(full, limit), key=lambda rel: rel.get("published_at") or rel.get("created_at") or "")
+    before = None
+    for rel in history:
+        key, text = release_version(rel)
+        if not key:
+            continue
+        if before:
+            last, last_text = before
+            major, minor, patch = last[:3]
+            if key < last:
+                return f"its releases go back from version {last_text} to {text}"
+            if key[:3] not in {last[:3], (major, minor, patch + 1), (major, minor + 1, 0), (major + 1, 0, 0)}:
+                return f"its releases jump from version {last_text} to {text}"
+        if not rel.get("prerelease"):
+            before = key, text
+    return ""
+
+
+# What an app was built from, as Build-Project.command embeds it (Info.plist "Github" → "Commit URL"):
+# a commit, or for builds of a published release (build-release.yml) the release's tag
+BUILD_URL = re.compile(r"https://github\.com/([A-Za-z0-9][A-Za-z0-9-]*/[\w.-]+)/"
+                       r"(?:commit/([0-9a-f]{40})|releases/tag/([^/?#\s]+))/?")
+# Changes here don't go into the app, so a build may differ from its tag in them
+NOT_SHIPPED = (".github/", "docs/")
+# How many of a copy's latest releases have their assets checked, and how much may be downloaded
+# for that per run (our BridgePatcher.pkg is about 1 GB); assets left over are checked on the next run
+RELEASE_CHECKS = int(os.environ.get("RELEASE_CHECKS", "2"))
+ASSET_BUDGET = [int(os.environ.get("RELEASE_ASSET_BUDGET_GB", "20")) * 1024 ** 3]
+
+
+def commit_tree(full, ref):
+    """(commit sha, tree sha) of a ref in a repository, or (None, None)."""
+    c = get(f"/repos/{full}/commits/{urllib.parse.quote(ref, safe='')}")
+    if not isinstance(c, dict) or not c.get("sha"):
+        return None, None
+    return c["sha"], ((c.get("commit") or {}).get("tree") or {}).get("sha")
+
+
+def code_changes(full, a, b):
+    """The files that go into the app and differ between two commits of a repository (both ways
+    from where they split), or None when the repository doesn't have both."""
+    files = set()
+    for base, head in ((a, b), (b, a)):
+        data = get(f"/repos/{full}/compare/{base}...{head}")
+        if not isinstance(data, dict):
+            return None
+        listed = data.get("files") or []
+        if len(listed) >= 300:  # the API lists at most 300 files
+            return ["more than 300 files"]
+        files |= {f.get("filename", "") for f in listed}
+    return sorted(f for f in files if f and not f.startswith(NOT_SHIPPED) and not f.lower().endswith(".md"))
+
+
+def built_from(full, info, tag, sha, tree):
+    """Why the app of a release (info: its Info.plist) wasn't built from the code at the release's
+    tag (sha, tree: that commit and its tree), or "". Builds without a GitHub commit or release URL
+    (built outside a git checkout) can't be told and aren't judged."""
+    github = info.get("Github") if isinstance(info.get("Github"), dict) else {}
+    m = BUILD_URL.fullmatch(str(github.get("Commit URL") or "").strip())
+    if not m:
+        return ""
+    repo, built, built_tag = m.groups()
+    if built_tag:
+        built_tag = urllib.parse.unquote(built_tag)
+        if repo.lower() == full.lower() and built_tag == tag:
+            return ""
+        what = f"release `{cell_text(built_tag)}` of {repo}"
+        built_sha, built_tree = commit_tree(repo, built_tag)
+    else:
+        if built == sha:
+            return ""
+        what = f"commit `{built[:12]}` of {repo}"
+        built_sha, built_tree = commit_tree(repo, built)
+    if not built_sha:
+        return f"it says it was built from {what}, which doesn't exist publicly"
+    if built_tree and built_tree == tree:
+        return ""  # another commit, but exactly the same files
+    changed = code_changes(full, built_sha, sha)
+    if changed is None:
+        return f"it was built from {what}, which isn't in this repository"
+    if changed:
+        more = f" and {len(changed) - 3} more" if len(changed) > 3 else ""
+        return (f"it was built from {what}, whose code differs from `{cell_text(tag)}` "
+                f"({', '.join(cell_text(f) for f in changed[:3])}{more})")
+    return ""
+
+
+def check_asset(full, rel, asset, sha, tree):
+    """Is a release asset what the release says it is? The app inside has to have the version of
+    the code at the release's tag, no other version than the release claims, and be built from that
+    code. Returns the reason, "" when it is, None when the asset holds no app, or False when it
+    couldn't be read (tried again on the next run)."""
+    tag, name = rel["tag_name"], asset.get("name") or ""
+    digest = str(asset.get("digest") or "")
+    try:
+        info = release_assets.app_info(asset.get("browser_download_url") or "", name,
+                                       digest.removeprefix("sha256:") if digest.startswith("sha256:") else None)
+    except (OSError, ValueError, EOFError, release_assets.TooBig) as e:
+        print(f"::warning::Couldn't read {name} of {full}'s release {tag}: {e}")
+        return False
+    if not isinstance(info, dict):
+        return None
+    app = str(info.get("CFBundleShortVersionString") or "")
+    shipped = shipped_version(full, tag)
+    where = f"its release `{cell_text(tag)}` ships `{cell_text(name)}`"
+    if version_key(app) and version_key(shipped) and version_key(app) != version_key(shipped):
+        return (f"{where} with app version {version_label(cell_text(app))}, but the code at that tag is "
+                f"version {version_label(shipped)}")
+    for claim in (tag, rel.get("name") or ""):
+        if other_version(version_key(claim), version_key(app)):
+            return f"{where} with app version {version_label(cell_text(app))}, but claims version {cell_text(claim)}"
+    reason = built_from(full, info, tag, sha, tree)
+    return f"{where}, but {reason}" if reason else ""
+
+
+def fake_release(full, checked=None, limit=RELEASE_CHECKS):
+    """Is the release a copy posts really the release it ships? The .pkg and .zip assets of its latest
+    releases are read until one holds the app, which is checked (see check_asset()); the installer
+    comes before uninstallers and asset packages. checked: the results of earlier runs (asset key ->
+    reason, None for an asset without an app), so an unchanged asset isn't downloaded again. Returns
+    (reason or "", this run's results)."""
+    checked, results, reason = checked or {}, {}, ""
+    for rel in releases(full, limit):
+        assets = [a for a in rel.get("assets") or [] if release_assets.supported(a.get("name") or "")]
+        assets.sort(key=lambda a: (bool(re.search(r"uninstall|autopkg|assets", a.get("name") or "", re.IGNORECASE)),
+                                   a.get("name") or ""))
+        sha, tree = commit_tree(full, rel["tag_name"]) if assets else (None, None)
+        for asset in assets if sha else []:
+            key = f"{asset.get('id')}:{asset.get('digest') or asset.get('updated_at')}:{sha[:12]}"
+            if key in checked:
+                found = checked[key]
+            elif (asset.get("size") or 0) > min(release_assets.MAX_ASSET_BYTES, ASSET_BUDGET[0]):
+                if (asset.get("size") or 0) <= release_assets.MAX_ASSET_BYTES:
+                    print(f"  download budget used up, {full} {asset.get('name')} is checked on the next run")
+                break
+            else:
+                ASSET_BUDGET[0] -= asset.get("size") or 0
+                found = check_asset(full, rel, asset, sha, tree)
+                if found is False:
+                    continue
+            results[key] = found
+            if found is not None:
+                reason = reason or found
+                break  # the app was in this asset
+    return reason, results
 
 
 def cell_text(text):
@@ -1305,9 +1494,13 @@ def main():
         # Ignoring the license notice for LICENSE_IGNORED_DAYS days is malicious, see license_ignored()
         ignored, broken_since, notice_path = ("", "", None) if DRY_RUN else license_ignored(
             me, full, prior, (prior or {}).get("license", ""), broken=bool(sha))
-        # A release claiming a newer version than the code it ships is malicious too
+        # So are releases that hide what they ship: claiming another version than their code, a
+        # sudden version change between releases, or an app that isn't the one the release shows
         spoofed = "" if DRY_RUN or not sha else fake_version(full)
-        if ignored or spoofed:
+        jumped = "" if DRY_RUN or not sha else version_jump(full)
+        faked, assets = ("", {}) if DRY_RUN or not sha else fake_release(full, (prior or {}).get("release_assets"))
+        malicious = ignored or spoofed or jumped or faked
+        if malicious:
             suspicious = True
         if named == "current":
             reasons.insert(0, f"uses this project's name ({name}) outside its fork network"
@@ -1316,11 +1509,12 @@ def main():
             reasons.insert(0, f"uses this project's former name ({', '.join(ALIASES)}) outside its fork network"
                               + (f" - it's a fork of {fork_of}" if fork_of else ""))
         verdict = "suspicious" if suspicious else "likely unintentional"
-        if spoofed:
-            reasons.insert(0, spoofed)
+        for reason in (faked, jumped, spoofed):
+            if reason:
+                reasons.insert(0, reason)
         if ignored:
             reasons.insert(0, IGNORED_PREFIX + ignored)
-        if ignored or spoofed:
+        if malicious:
             verdict = "malicious"
         if not prior:
             found += 1
@@ -1353,6 +1547,7 @@ def main():
             "status": "⚠️ suspicious" if suspicious else "🟢 active",
             # ⛔ malicious while one of these holds a reason (see bridgepatcher_tracker.MALICIOUS)
             "license_broken_since": broken_since, "license_ignored": ignored, "fake_version": spoofed,
+            "version_jump": jumped, "fake_release": faked, "release_assets": assets,
             "what": f"{verdict}: " + "; ".join(reasons + [describe_copy(sha, own)]),
             "request": link, "license": license_link,
             # Mentioned next to the repository in the tracker issue, so they're notified there too
@@ -1377,12 +1572,15 @@ def main():
                 ignored, broken_since, notice_path = license_ignored(me, cand["full_name"], e, license_link, broken)
                 people = their_authors(cand["full_name"], cand, authors, me)
                 spoofed = fake_version(cand["full_name"])
+                jumped = version_jump(cand["full_name"])
+                faked, assets = fake_release(cand["full_name"], e.get("release_assets"))
                 if ignored:
                     request_takedown(me, notice_path, cand["full_name"], ignored, people)
                 tracker.upsert("repos", key, {"status": status, "license": license_link, "people": people,
                                               "what": with_ignored(e.get("what"), ignored),
                                               "license_broken_since": broken_since, "license_ignored": ignored,
-                                              "fake_version": spoofed})
+                                              "fake_version": spoofed, "version_jump": jumped,
+                                              "fake_release": faked, "release_assets": assets})
             else:
                 # Still there: keep it listed
                 tracker.upsert("repos", key, {"people": their_authors(cand["full_name"], cand, authors, me)})

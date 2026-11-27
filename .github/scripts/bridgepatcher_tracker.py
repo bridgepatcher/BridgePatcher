@@ -43,7 +43,9 @@ MAINTAINERS = {"OWNER", "MEMBER", "COLLABORATOR"}
 # the watches): what each one is called in the Status column
 MALICIOUS = {
     "license_ignored": "ignores the license notice",  # typosquat watch
-    "fake_version": "claims a newer version than its code",  # typosquat watch
+    "fake_version": "claims another version than its code",  # typosquat watch
+    "version_jump": "sudden version change",  # typosquat watch
+    "fake_release": "its release ships something else than it shows",  # typosquat watch
     "fake_404": "its site serves a fake 404",  # lookalike-site watch
 }
 # The per-finding issues the watches used to open: label -> marker pattern
@@ -372,8 +374,10 @@ def render(state):
         "copies stay listed (⚠️) until their license file keeps the copyright notices. Copies that still "
         "break the license 5 days after their notice while their owner has put it aside (backlog, wontfix, "
         "closed without a fix, ...) are listed as ⛔ malicious and asked to take the repository down. So are "
-        "(without the request) repositories whose website serves a fake 404 and copies whose release claims "
-        "a newer version than the code it ships. "
+        "(without the request) repositories whose website serves a fake 404, copies whose release claims "
+        "another version than the code it ships or whose version changes suddenly between releases, and "
+        "copies whose release ships an app that isn't the one it shows (another version, or built from "
+        "other code than its tag). "
         f"Entries deleted or made private for {HANDLED_DAYS} day{'s' if HANDLED_DAYS != 1 else ''} move to "
         "*Dismissed or handled* (and are listed again if they come back online). "
         f"Entries no watch has seen for {FORGET_DAYS} days, or resolved for {RESOLVED_DAYS} days, "
