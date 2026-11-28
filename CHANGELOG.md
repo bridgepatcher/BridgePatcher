@@ -1,7 +1,7 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
 ## 4.0.0.2000004.6 - 4.0.0 alpha 20.4.6
 This release:
-- extends automatic updates also to OpenCore and root patches. These can be easily disabled via Settings > Turn Off Automatic OpenCore/Root Patches updates
+- extends automatic updates also to OpenCore and root patches. Automatic updates for OpenCore/Root Patching can be easily disabled via Settings > Turn Off Automatic OpenCore/Root Patches updates
 
 ## 4.0.0.2000004.5 - 4.0.0 alpha 20.4.5
 This release:
