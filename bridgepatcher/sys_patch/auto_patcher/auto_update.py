@@ -338,9 +338,20 @@ class AutomaticUpdates:
         except Exception as e:
             logging.info(f"  - {partition}: could not read its OpenCore config: {e}")
         finally:
-            if mounted_here and not found:
+            # install_opencore() mounts the partition it installs to on its own
+            if mounted_here:
                 subprocess_wrapper.run_as_root(["/usr/sbin/diskutil", "umount", partition], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return found
+
+
+    def _efi_partitions(self, whole_disk: str) -> list:
+        try:
+            disk_list = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "list", "-plist", whole_disk], stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout)
+            partitions = disk_list["AllDisksAndPartitions"][0].get("Partitions", [])
+        except Exception as e:
+            logging.info(f"  - Could not list the partitions of {whole_disk}: {e}")
+            return []
+        return [entry["DeviceIdentifier"] for entry in partitions if entry.get("Content") == "EFI" and entry.get("DeviceIdentifier")]
 
 
     def _find_booted_opencore_partition(self) -> Optional[str]:
@@ -349,36 +360,46 @@ class AutomaticUpdates:
 
         OpenCore doesn't always expose boot-path to macOS (not on every T2 Mac), so
         constants.booted_oc_disk can be unknown even though our OpenCore is booted.
-        Look on the disk(s) the booted macOS is installed on, which is where
-        OpenCore sits when it boots macOS from an external drive, and only accept
-        an EFI partition whose OpenCore was built by the booted build. Nothing is
-        guessed: no match means no automatic update.
+        Check the EFI partitions of every physical disk, the macOS disk first
+        (OpenCore may as well sit on an external drive while macOS is on the
+        internal one), and only accept an EFI partition whose OpenCore was built by
+        the booted build. Nothing is guessed: no match, or more than one, means no
+        automatic update.
         """
         if not self.constants.computer.booted_patcher_version:
             logging.info("- The booted OpenCore reports no BridgePatcher version, not looking for its partition")
             return None
 
+        whole_disks = []
         macos_disk = utilities.get_disk_path()
-        physical_stores = utilities.find_apfs_physical_volume(macos_disk)
-        logging.info(f"- OpenCore didn't expose its boot path, looking for it on the macOS disk ({macos_disk}, physical stores: {physical_stores or 'none found'})")
-        for store in physical_stores:
+        for store in utilities.find_apfs_physical_volume(macos_disk):
             whole_disk = self._diskutil_info(store).get("ParentWholeDisk")
-            if not whole_disk:
-                logging.info(f"  - Could not find the disk {store} belongs to")
-                continue
-            try:
-                disk_list = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "list", "-plist", whole_disk], stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout)
-                partitions = disk_list["AllDisksAndPartitions"][0].get("Partitions", [])
-            except Exception as e:
-                logging.info(f"  - Could not list the partitions of {whole_disk}: {e}")
-                continue
-            efi_partitions = [entry["DeviceIdentifier"] for entry in partitions if entry.get("Content") == "EFI" and entry.get("DeviceIdentifier")]
+            if whole_disk and whole_disk not in whole_disks:
+                whole_disks.append(whole_disk)
+        try:
+            all_disks = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "list", "-plist"], stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout).get("WholeDisks", [])
+        except Exception as e:
+            logging.info(f"  - Could not list the disks: {e}")
+            all_disks = []
+        for whole_disk in all_disks:
+            # Disk images and APFS containers are "Virtual" and have no EFI partition of ours
+            if whole_disk not in whole_disks and self._diskutil_info(whole_disk).get("VirtualOrPhysical") != "Virtual":
+                whole_disks.append(whole_disk)
+
+        logging.info(f"- OpenCore didn't expose its boot path, looking for it (macOS on {macos_disk}, disks: {whole_disks or 'none found'})")
+        found = []
+        for whole_disk in whole_disks:
+            efi_partitions = self._efi_partitions(whole_disk)
             logging.info(f"  - EFI partitions on {whole_disk}: {efi_partitions or 'none'}")
-            for partition in efi_partitions:
-                if self._partition_has_booted_opencore(partition):
-                    logging.info(f"- Found the booted OpenCore on {partition}")
-                    return partition
-        logging.info(f"- No EFI partition holds the booted OpenCore ({self.constants.computer.booted_patcher_version})")
+            found += [partition for partition in efi_partitions if self._partition_has_booted_opencore(partition)]
+
+        if len(found) == 1:
+            logging.info(f"- Found the booted OpenCore on {found[0]}")
+            return found[0]
+        if found:
+            logging.info(f"- Several EFI partitions hold an OpenCore of the booted build ({', '.join(found)}), can't tell which one booted")
+        else:
+            logging.info(f"- No EFI partition holds the booted OpenCore ({self.constants.computer.booted_patcher_version})")
         return None
 
 
