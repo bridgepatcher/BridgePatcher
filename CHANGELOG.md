@@ -1,4 +1,10 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.6 - 4.0.0 alpha 20.4.6
+This release:
+- fixes a bug where OpenCore wasn't updated automatically after updating BridgePatcher when OpenCore doesn't tell macOS which partition it booted from (its `boot-path` NVRAM variable isn't visible on some T2 Macs), for example with OpenCore on an external SSD while macOS runs from the internal drive. BridgePatcher fell back to the "you are booting an outdated OpenCore build" prompt and the disk picker, so OpenCore still had to be updated by hand. It now looks for the booted OpenCore on the EFI partitions of all physical disks and only uses a partition whose OpenCore was built by the booted BridgePatcher build or a newer one (if you installed OpenCore again without restarting). If no partition or more than one matches, nothing is updated automatically. Partitions mounted only to check them are unmounted again
+- when OpenCore can't be updated automatically, the "outdated OpenCore build" prompt now says why (for example that the partition OpenCore booted from wasn't found, or that building or installing OpenCore failed), instead of looking like the ordinary manual prompt
+- after updating BridgePatcher, the "Update successful!" dialog is replaced by a notification, so the automatic OpenCore update no longer waits for a click. You are still asked before your Mac restarts if your root patches need an update
+
 ## 4.0.0.2000004.5 - 4.0.0 alpha 20.4.5
 This release:
 - fixes a 0 day vulnerability that got exploited in the wild where an attacker who was spoofing the version inside Releases in their fork could open a malicious PR
