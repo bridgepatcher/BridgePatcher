@@ -1,4 +1,8 @@
 # BridgePatcher changelog / BridgePatcher-Änderungsprotokoll
+## 4.0.0.2000004.6 - 4.0.0 alpha 20.4.6
+This release:
+- extends automatic updates also to OpenCore and root patches. Automatic updates for OpenCore/Root Patching can be easily disabled via Settings > Turn Off Automatic OpenCore/Root Patches updates
+
 ## 4.0.0.2000004.5 - 4.0.0 alpha 20.4.5
 This release:
 - fixes a 0 day vulnerability that got exploited in the wild where an attacker who was spoofing the version inside Releases in their fork could open a malicious PR

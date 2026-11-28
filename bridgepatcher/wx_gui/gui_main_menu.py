@@ -418,6 +418,14 @@ class MainFrame(wx.Frame):
         if "--update_installed" in sys.argv and self.constants.has_checked_updates is False and gui_support.CheckProperties(self.constants).host_can_build():
             self.constants.has_checked_updates = True
             self.constants.next_update_check_time = time.time() + self.constants.update_check_interval
+
+            # Both automatic options on (Settings > App, the default): the auto patcher
+            # updates OpenCore and the root patches on its own (auto_update.py), so
+            # there is nothing to ask here. Turning off either one brings back the
+            # guided flow below.
+            if self._start_automatic_updates() is True:
+                return
+
             pop_up = wx.MessageDialog(
                 self,
                 f"{self.constants.patcher_name} has been updated to the latest available version: {self.constants.patcher_version_label}\n\nWould you like to update OpenCore and your root volume patches?",
@@ -464,6 +472,42 @@ class MainFrame(wx.Frame):
         # then (the app keeps destroying and recreating MainFrame as the user
         # navigates), but constants persists for the whole process lifetime.
         self.constants.update_thread = self.update_thread
+
+    def _start_automatic_updates(self) -> bool:
+        """
+        Hand the post-update OpenCore and root patch updates over to the auto patcher
+
+        Returns:
+            bool: True if the auto patcher was started (don't ask the user here)
+        """
+        # Lazy import: sys_patch pulls in the root patcher, the menu doesn't need it otherwise
+        from ..sys_patch.auto_patcher import auto_update
+
+        if not (auto_update.auto_root_patch_updates_enabled() and auto_update.auto_opencore_updates_enabled()):
+            logging.info("Automatic OpenCore/root patch updates turned off, asking instead")
+            return False
+        if self.constants.launcher_script is not None:
+            # The boot daemon runs the installed app, which is not what runs from source
+            logging.info("Running from source, asking instead of updating automatically")
+            return False
+
+        logging.info("Starting automatic OpenCore and root patch updates")
+        try:
+            import subprocess
+            subprocess.Popen([sys.executable, "--auto_patch"], start_new_session=True)
+        except Exception as e:
+            logging.error(f"Failed to start the auto patcher: {e}")
+            return False
+
+        # A notification, not a dialog: the OpenCore update needs no answer, and a
+        # modal "Update successful!" box made the automatic update look like it was
+        # waiting for a click (same reasoning as start.py's OpenCore notification)
+        auto_update.AutomaticUpdates(self.constants)._progress(
+            f"{self.constants.patcher_name} was updated to {self.constants.patcher_version_label}. "
+            "OpenCore is now updated automatically, you are only asked before a restart for root patches. "
+            "You can turn this off in Settings > App."
+        )
+        return True
 
     def _automatic_check_due(self) -> bool:
         """

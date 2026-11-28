@@ -285,6 +285,24 @@ class BuildFrame(wx.Frame):
             self.on_return_to_main_menu()
         elif self.install:
             self.on_install()
+        else:
+            # Plain "Build and Install OpenCore" (main menu): like upstream, offer the
+            # install right away. Without this the build was left in the temporary
+            # build folder with both buttons disabled, so OpenCore was never installed.
+            self.install_button.Enable()
+            dialog = wx.MessageDialog(
+                parent=self,
+                message="Would you like to install OpenCore now?",
+                caption="Finished building your OpenCore configuration!",
+                style=wx.YES_NO | wx.ICON_QUESTION
+            )
+            dialog.SetYesNoLabels("Install to disk", "View build log")
+            response = dialog.ShowModal()
+            dialog.Destroy()
+            if response == wx.ID_YES:
+                self.on_install()
+            else:
+                self.return_button.Enable()
 
 
     def _build(self) -> None:

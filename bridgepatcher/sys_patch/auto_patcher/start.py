@@ -32,6 +32,10 @@ from ..patchsets import (
     HardwarePatchsetDetection,
     HardwarePatchsetValidation
 )
+from .auto_update import (
+    AutomaticUpdates,
+    AUTO_OPENCORE_INSTALLED_KEY,
+)
 
 
 class StartAutomaticPatching:
@@ -41,6 +45,8 @@ class StartAutomaticPatching:
 
     def __init__(self, global_constants: constants.Constants):
         self.constants: constants.Constants = global_constants
+        # Why the automatic OpenCore update didn't happen, shown in the outdated OpenCore prompt
+        self._opencore_error: str = ""
 
 
     def start_auto_patch(self):
@@ -58,6 +64,10 @@ class StartAutomaticPatching:
 
         If all these tests pass, start Root Patcher
 
+        After an update of BridgePatcher itself, OpenCore and the root patches are
+        brought up to date automatically (see auto_update.py), unless turned off in
+        Settings > App.
+
         """
 
         logging.info("- Starting Automatic Patching")
@@ -65,7 +75,27 @@ class StartAutomaticPatching:
             logging.info("- Auto Patch option is not supported on TUI, please use GUI")
             return
 
+        automatic = AutomaticUpdates(self.constants)
+
+        # Report what the automatic root patch update did at boot. While one is in
+        # progress (or just failed and was reported), offering root patching on top
+        # of it would only get in its way.
+        if automatic.handle_previous_run(open_root_patcher=self._open_root_patcher) is True:
+            return
+
         if self._check_for_updates() is True:
+            return
+
+        if automatic.opencore_outdated() and automatic.update_opencore():
+            # A notification, not a dialog: a dialog blocked the root patch update below
+            # until the user clicked OK, so the update wasn't really automatic
+            automatic._progress(
+                f"OpenCore was updated to {self.constants.patcher_version} automatically and is used from the next restart. "
+                "You can turn this off in Settings > App."
+            )
+        self._opencore_error = automatic.opencore_error
+
+        if utilities.check_seal() is False and automatic.update_root_patches() is True:
             return
 
         if utilities.check_seal() is True:
@@ -113,6 +143,10 @@ class StartAutomaticPatching:
 
         if self._determine_if_versions_match():
             self._determine_if_boot_matches()
+
+
+    def _open_root_patcher(self) -> None:
+        gui_entry.EntryPoint(self.constants).start(entry=gui_entry.SupportedEntryPoints.SYS_PATCH)
 
 
     def _check_for_updates(self) -> bool:
@@ -324,6 +358,11 @@ class StartAutomaticPatching:
             logging.info("- Versions match")
             return True
 
+        # Installed automatically already (auto_update.py), the restart that boots it is pending
+        if global_settings.GlobalEnviromentSettings().read_property(AUTO_OPENCORE_INSTALLED_KEY) == self.constants.patcher_version:
+            logging.info("- OpenCore of this build was installed automatically, waiting for a restart")
+            return True
+
         if self.constants.special_build is True:
             # Version doesn't match and we're on a special build
             # Special builds don't have good ways to compare versions
@@ -343,10 +382,16 @@ class StartAutomaticPatching:
         booted_version = subprocess_wrapper.applescript_quote(self.constants.computer.booted_patcher_version)
         installed_version = subprocess_wrapper.applescript_quote(self.constants.patcher_version)
 
+        # The automatic update (auto_update.py) was tried and didn't happen: say why,
+        # instead of looking like the ordinary manual prompt
+        failure_str = ""
+        if self._opencore_error:
+            failure_str = f"\n\nOpenCore could not be updated automatically: {subprocess_wrapper.applescript_quote(self._opencore_error)}. See the log for details."
+
         args = [
             "/usr/bin/osascript",
             "-e",
-            f"""display dialog "BridgePatcher has detected that you are booting {'a different' if self.constants.special_build else 'an outdated'} OpenCore build\n- Booted: {booted_version}\n- Installed: {installed_version}\n\nWould you like to update the OpenCore bootloader?" """
+            f"""display dialog "BridgePatcher has detected that you are booting {'a different' if self.constants.special_build else 'an outdated'} OpenCore build\n- Booted: {booted_version}\n- Installed: {installed_version}{failure_str}\n\nWould you like to update the OpenCore bootloader?" """
             f'with icon POSIX file "{self.constants.app_icon_path}"',
         ]
         output = subprocess.run(
