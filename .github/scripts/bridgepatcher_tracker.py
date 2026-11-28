@@ -47,6 +47,7 @@ MALICIOUS = {
     "version_jump": "sudden version change",  # typosquat watch
     "fake_release": "its release ships something else than it shows",  # typosquat watch
     "fake_404": "its site serves a fake 404",  # lookalike-site watch
+    "unreleased_version": "passes off an unreleased version as official",  # upstream typosquat watch
 }
 # The per-finding issues the watches used to open: label -> marker pattern
 OLD_ISSUES = {

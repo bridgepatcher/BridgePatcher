@@ -27,7 +27,10 @@ os.environ["ORIGINAL_REPO"] = UPSTREAM
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import typosquat_sites as ts  # noqa: E402
-from typosquat_watch import assess, contains_name, get, looks_like, paginate, post, request, summary, variants  # noqa: E402
+from bridgepatcher_tracker import status_of  # noqa: E402
+from typosquat_watch import (assess, cell_text, contains_name, fake_release, fake_version, get, looks_like,  # noqa: E402
+                             paginate, post, release_version, releases, request, summary, variants, version_jump,
+                             version_key)
 
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() == "true"
 REPO_NAMES = os.environ.get("REPO_NAMES", UPSTREAM.split("/")[1]).split()
@@ -139,9 +142,83 @@ def impersonation_words(name):
     return sorted(set(re.split(r"[-_. ]+", name.lower())) & (IMPERSONATION_WORDS - own))
 
 
-def evaluate_repo(full, owner_sq, root, up_owner, extended=False):
+@functools.cache
+def official_versions(repo):
+    """Every version a project has published: (version key, how it's named, date) for each release
+    and each tag without one (release candidates are sometimes only tagged), so a lookalike's
+    release can be compared with what was officially out on the day it was published."""
+    out = []
+    for rel in paginate(f"/repos/{repo}/releases?per_page=100"):
+        if isinstance(rel, dict) and not rel.get("draft"):
+            key, text = release_version(rel)
+            if key:
+                out.append((key, text, (rel.get("published_at") or rel.get("created_at") or "")[:10]))
+    known = {k for k, _, _ in out}
+    for tag in paginate(f"/repos/{repo}/tags?per_page=100"):
+        key = version_key(tag.get("name") or "")
+        if not key or key in known:
+            continue
+        commit = get(f"/repos/{repo}/commits/{(tag.get('commit') or {}).get('sha', '')}") or {}
+        date = (((commit.get("commit") or {}).get("committer") or {}).get("date") or "")[:10]
+        if date:
+            out.append((key, cell_text(tag["name"]), date))
+            known.add(key)
+    return tuple(out)
+
+
+def unreleased_version(full, limit=5):
+    """Does one of a lookalike's latest releases claim a version that wasn't officially out on the day
+    it was published, e.g. "3.0.0" from a development snapshot months before upstream's first 3.0.0
+    release candidate? That passes an unfinished build off as an official release. Versions are
+    compared with upstream's and this project's releases and tags (copies of BridgePatcher's own
+    versions are the BridgePatcher watch's business). Returns the reason or ""."""
+    official, ours = official_versions(UPSTREAM), official_versions(ISSUE_REPO)
+    if not official:
+        return ""  # couldn't read the official versions: don't judge
+    for rel in releases(full, limit):
+        claim, text = release_version(rel)
+        when = (rel.get("published_at") or rel.get("created_at") or "")[:10]
+        if not claim or not when or any(k >= claim and d <= when for k, _, d in official):
+            continue
+        if any(k[:3] == claim[:3] and k >= claim and d <= when for k, _, d in ours):
+            continue  # a version of BridgePatcher's own (a copy of it, see typosquat_watch.py)
+        before = [(k, t) for k, t, d in official if d <= when]
+        latest = f"; the latest official version then was {max(before)[1]}" if before else ""
+        same = sorted((d, k, t) for k, t, d in official if k[:3] == claim[:3])
+        final = [(d, t) for d, k, t in same if k >= claim]
+        if final:
+            out = f"; {final[0][1]} only came out on {final[0][0]}"
+        elif same:
+            out = (f"; its first pre-release ({same[0][2]}) only came out on {same[0][0]}, and "
+                   f"{text} still isn't released")
+        else:
+            out = f"; {UPSTREAM} hasn't released it to this day"
+        return (f"its release `{cell_text(rel['tag_name'])}` ({when}) presents itself as version {text}, "
+                f"which wasn't officially released then{latest}{out}")
+    return ""
+
+
+# Fields of a repository entry that make it malicious while they hold a reason
+MALICIOUS_FIELDS = ("unreleased_version", "fake_version", "version_jump", "fake_release")
+
+
+def is_malicious(entry):
+    return any(entry.get(k) for k in MALICIOUS_FIELDS)
+
+
+def malicious_releases(full, prior):
+    """The reasons a lookalike's releases count as malicious (see bridgepatcher_tracker.MALICIOUS):
+    an unreleased version passed off as official, another version than its code, a sudden version
+    change, or an app that isn't the one the release shows. Empty strings clear an earlier reason."""
+    faked, assets = ("", {}) if DRY_RUN else fake_release(full, (prior or {}).get("release_assets"))
+    return {"unreleased_version": unreleased_version(full), "fake_version": fake_version(full),
+            "version_jump": version_jump(full), "fake_release": faked, "release_assets": assets}
+
+
+def evaluate_repo(full, owner_sq, root, up_owner, extended=False, prior=None):
     """extended: the name only contains upstream's name (with extra words) instead of being
-    upstream's name or a typo of it, so it takes stronger evidence to be listed."""
+    upstream's name or a typo of it, so it takes stronger evidence to be listed.
+    prior: the repository's entry from earlier runs (results of release checks are reused)."""
     repo = get(f"/repos/{full}")
     if not repo:
         return None
@@ -178,7 +255,10 @@ def evaluate_repo(full, owner_sq, root, up_owner, extended=False):
         reasons.append("name presents it as the real release (" + ", ".join(impersonation_words(repo["name"])) + ")")
     if public_offline(full, asset_urls):
         return None  # hidden from the public: listed under "no longer reachable" until it's pruned
-    return {"reasons": cell("; ".join(reasons + signals), 160),
+    bad = malicious_releases(full, prior) if assets else dict.fromkeys(MALICIOUS_FIELDS, "")
+    why = [bad[k] for k in MALICIOUS_FIELDS if bad.get(k)]
+    return {**bad,
+            "reasons": cell("; ".join(why + reasons + signals), 400 if why else 160),
             "owner": gh_account(repo["owner"]["login"]),
             # Mentioned in the repository table (see to_mention()); organizations aren't,
             # since an organization's name doesn't notify anyone
@@ -416,7 +496,8 @@ def site_status(key):
     return "🔴 down (not reachable)"
 
 
-def scan_repos():
+def scan_repos(known):
+    """known: the repository entries from earlier runs."""
     up_owner = UPSTREAM.split("/")[0]
     root = ((get(f"/repos/{UPSTREAM}") or {}).get("full_name") or UPSTREAM).lower()
     exact = {n.lower() for n in REPO_NAMES}
@@ -455,7 +536,7 @@ def scan_repos():
     print(f"{len(candidates)} repository candidates")
     found = {}
     for full, (owner_sq, extended) in sorted(candidates.items()):
-        info = evaluate_repo(full, owner_sq, root, up_owner, extended)
+        info = evaluate_repo(full, owner_sq, root, up_owner, extended, known.get(full))
         if info:
             found[full] = info
     return found
@@ -953,12 +1034,20 @@ def render(state, seen):
     if repos:
         out += ["| Repository | Status | Belongs to | Why it's listed | First seen | Last seen |",
                 "|---|---|---|---|---|---|"]
-        out += [f"| `{r}`{mentioned(state, e)} | {e.get('status', '—')} | {e.get('owner', '—')} | {e['reasons']} "
+        out += [f"| `{r}`{mentioned(state, e)} | {status_of(e) or '—'} | {e.get('owner', '—')} | {e['reasons']} "
                 f"| {e['first_seen']} | {e['last_seen']} |" for r, e in sorted(repos.items())]
+        if any(is_malicious(e) for e in repos.values()):
+            out += ["", ("🐛 *Malicious*: its releases hide what they really are. They pass off an unreleased "
+                         f"development snapshot as an official {PROJECT} version, claim another version than their "
+                         "code, change version suddenly, or ship another app than the release shows. Don't install them.")]
         if any(mentioned(state, e) for e in repos.values()):
             out += ["", f"If you were mentioned: your repository's name imitates {PROJECT}, so it's listed here "
                     "to keep visitors from mistaking it for the official one. A listing isn't an accusation. "
                     "If that's not what you intended, renaming the repository takes it off the list."]
+            if any(mentioned(state, e) and is_malicious(e) for e in repos.values()):
+                out += ["", ("If your repository is marked 🐛 malicious: please delete it. Its releases present "
+                             f"themselves as something they aren't, which puts people installing {PROJECT} at risk. "
+                             "Renaming it doesn't change that.")]
     else:
         out.append("None found right now.")
     if spam:
@@ -987,7 +1076,10 @@ def render(state, seen):
         "reachable* automatically, and are listed again if they come back. "
         "Repositories still using BridgePatcher's former name are always listed, forks included. "
         "Other repositories are only listed if they aren't forks "
-        "and offer their own downloads or show other impersonation signals. A listing means the name "
+        "and offer their own downloads or show other impersonation signals. Their releases are compared "
+        "with the official releases and tags and with their own code: one that claims a version that wasn't "
+        "officially out when it was published, another version than its code, a sudden version change or "
+        "another app than it shows is marked 🐛 malicious. Otherwise a listing means the name "
         "imitates the project; it isn't proof that the content is malicious. Names are shown as code on "
         "purpose, so they aren't clickable.</sub>",
         "",
@@ -1091,7 +1183,7 @@ def main():
         return
     state = load_state(tracker["body"] if tracker else "")
 
-    found_sites, found_repos = scan_sites(state["watch"]), scan_repos()
+    found_sites, found_repos = scan_sites(state["watch"]), scan_repos(state["repos"])
     found_spam = scan_spam(set(found_repos))
     seen = {"sites": set(found_sites), "repos": set(found_repos), "spam": set(found_spam)}
     found_sites.update(scan_copycat_sites(found_repos))
@@ -1109,6 +1201,8 @@ def main():
     state["other"] = scan_other_sites(old_other, {r.lower() for r in found_repos})
     new_other = [h for h, e in state["other"].items() if e.get("auto") and h not in old_other]
     new_sites = merge(state["sites"], found_sites)
+    now_malicious = sorted(r for r, e in found_repos.items()
+                           if is_malicious(e) and not is_malicious(state["repos"].get(r) or {}))
     new_repos = merge(state["repos"], found_repos)
     state["parked"] = describe_parked(state["watch"])
     refresh_gone(state, seen)
@@ -1123,6 +1217,8 @@ def main():
         summary(f"- new site: `{h}` — {state['sites'][h]['title']}")
     for r in new_repos:
         summary(f"- new repository: `{r}` — {state['repos'][r]['reasons']}")
+    for r in now_malicious:
+        summary(f"- **now malicious**: `{r}` — {status_of(state['repos'][r])}; open an issue and report it to GitHub")
     for r in new_spam:
         summary(f"- new spam repository: `{r}` — {state['spam'][r]['reasons']}")
     for h in new_other:
@@ -1155,8 +1251,9 @@ def main():
         if status >= 300:
             raise SystemExit(f"Could not update the warning issue (HTTP {status})")
     # Owners are mentioned in the repository table (see mentioned()), not in this comment
-    if new_sites or new_repos or new_other or back:
+    if new_sites or new_repos or new_other or back or now_malicious:
         lines = ["**New entries found today:**", ""]
+        lines += [f"- repository `{r}` is now listed as 🐛 malicious" for r in now_malicious]
         lines += [f"- website `{h}`" for h in new_sites]
         lines += [f"- `{k}` is back online after being taken down" for k in back]
         lines += [f"- misleading article on `{h}`" for h in new_other]
