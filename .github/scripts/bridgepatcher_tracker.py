@@ -42,6 +42,7 @@ MAINTAINERS = {"OWNER", "MEMBER", "COLLABORATOR"}
 # Fields of a repository entry that make it malicious while they hold a reason (set and cleared by
 # the watches): what each one is called in the Status column
 MALICIOUS = {
+    "malware": "malware found in its code or release",  # typosquat watches (lookalike_malware.py)
     "license_ignored": "ignores the license notice",  # typosquat watch
     "fake_version": "claims another version than its code",  # typosquat watch
     "version_jump": "sudden version change",  # typosquat watch
@@ -375,7 +376,8 @@ def render(state):
         "copies stay listed (⚠️) until their license file keeps the copyright notices. Copies that still "
         "break the license 5 days after their notice while their owner has put it aside (backlog, wontfix, "
         "closed without a fix, ...) are listed as 🐛 malicious and asked to take the repository down. So are "
-        "(without the request) repositories whose website serves a fake 404, copies whose release claims "
+        "(without the request) repositories whose code or latest release contains malware (ClamAV and this "
+        "project's own malware checks), repositories whose website serves a fake 404, copies whose release claims "
         "another version than the code it ships or whose version changes suddenly between releases, and "
         "copies whose release ships an app that isn't the one it shows (another version, or built from "
         "other code than its tag). "

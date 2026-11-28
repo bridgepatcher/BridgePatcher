@@ -21,9 +21,10 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    # Release assets of copies are downloaded to check them (see RELEASE_ASSET_MAX_MB); results are
-    # kept in the tracker, so later runs only download new or changed assets
-    timeout-minutes: 90
+    # Release assets of copies are downloaded to check them (see RELEASE_ASSET_MAX_MB) and copies are
+    # scanned for malware (see MALWARE_SCANS_PER_RUN); results are kept in the tracker, so later runs
+    # only download and scan what's new or changed
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -67,5 +68,15 @@ jobs:
           RELEASE_CHECKS: "2"
           RELEASE_ASSET_MAX_MB: "2048"
           RELEASE_ASSET_BUDGET_GB: "20"
+          # Malware scan (lookalike_malware.py): the default branch and the assets of the latest
+          # MALWARE_RELEASES release(s) of each listed repository go through ClamAV and this project's own
+          # malware checks (installers unpacked first). Malware there marks it as malicious. At most
+          # MALWARE_SCANS_PER_RUN repositories are scanned per run (MALWARE_ASSET_BUDGET_GB downloaded);
+          # a scan is reused until the repository or its release changes, or for MALWARE_RESCAN_DAYS days
+          # (ClamAV learns new signatures every day).
+          MALWARE_SCANS_PER_RUN: "5"
+          MALWARE_RELEASES: "1"
+          MALWARE_ASSET_BUDGET_GB: "8"
+          MALWARE_RESCAN_DAYS: "7"
         run: python .github/scripts/typosquat_watch.py
 

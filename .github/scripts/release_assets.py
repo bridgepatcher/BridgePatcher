@@ -13,7 +13,11 @@ Supported assets:
         the app's Info.plist near the end of its payload)
   .zip  a zipped app, downloaded into a private temp dir
 Other assets (.dmg, ...) return None: they aren't judged. Either way the whole asset is read and its
-SHA-256 checked against the digest GitHub reports for it before its Info.plist is returned."""
+SHA-256 checked against the digest GitHub reports for it before its Info.plist is returned.
+
+unpack_pkg() is the one exception to "nothing is extracted": for the malware scan of lookalike
+repositories (lookalike_malware.py) it writes a package's files into a private folder, as data only,
+so the scanners can read them."""
 
 import functools
 import gzip
@@ -203,7 +207,7 @@ def payload_stream(raw):
 # -------------------------------------------------------------------- cpio --
 
 def cpio_entries(s):
-    """(name, size, stream positioned at its data) for each entry of an odc or newc cpio stream.
+    """(name, size, stream positioned at its data, mode) for each entry of an odc or newc cpio stream.
     The caller reads or skips exactly size bytes before asking for the next entry."""
     while True:
         magic = s.read(6)
@@ -211,14 +215,14 @@ def cpio_entries(s):
             h = s.read(70)
             if len(h) < 70:
                 return
-            namesize, size = int(h[53:59], 8), int(h[59:70], 8)
+            mode, namesize, size = int(h[12:18], 8), int(h[53:59], 8), int(h[59:70], 8)
             name = s.read(namesize).rstrip(b"\0").decode("utf-8", "replace")
             pad = 0
         elif magic in (b"070701", b"070702"):
             h = s.read(104)
             if len(h) < 104:
                 return
-            size, namesize = int(h[48:56], 16), int(h[88:96], 16)
+            mode, size, namesize = int(h[8:16], 16), int(h[48:56], 16), int(h[88:96], 16)
             name = s.read(namesize).rstrip(b"\0").decode("utf-8", "replace")
             s.skip((4 - (110 + namesize) % 4) % 4)
             pad = (4 - size % 4) % 4
@@ -226,7 +230,7 @@ def cpio_entries(s):
             return
         if name == "TRAILER!!!":
             return
-        yield name, size, s
+        yield name, size, s, mode
         s.skip(pad)
 
 
@@ -284,7 +288,7 @@ def search_payload(raw, encoding, found):
     Adds what it finds to found; True once it found the main app."""
     if "gzip" in encoding:
         raw = Stream(inflate(iter(functools.partial(raw.read, CHUNK), b""), 15))
-    for entry, size, s in cpio_entries(payload_stream(raw)):
+    for entry, size, s, _mode in cpio_entries(payload_stream(raw)):
         if APP_PLIST.match(entry) and size <= MAX_PLIST_BYTES and entry.count(".app/") == 1:
             plist = parse_plist(s.read(size))
             found.append((entry.count("/"), plist))
@@ -324,6 +328,78 @@ def from_zip(path):
                 with z.open(info) as member:
                     found.append((info.filename.count("/"), parse_plist(member.read(MAX_PLIST_BYTES + 1))))
     return best(found)
+
+
+# ----------------------------------------------------------------- unpack --
+# For the malware scan of lookalike repositories (lookalike_malware.py): a flat package's files are
+# written to a folder so the scanners can read them. Nothing is run; only regular files are written
+# (symlinks become small files holding their target), always inside the folder.
+
+S_IFMT, S_IFREG, S_IFLNK = 0o170000, 0o100000, 0o120000
+
+
+def safe_join(folder, name):
+    """folder/name, or None when name would leave the folder (absolute paths are taken as relative)."""
+    parts = [p for p in name.replace("\\", "/").split("/") if p not in ("", ".")]
+    if not parts or ".." in parts:
+        return None
+    return os.path.join(folder, *parts)
+
+
+def write_file(path, chunks):
+    """Write chunks to a new file at path (never through a symlink or over an existing file).
+    False when the file can't be created there; chunks are left unread then."""
+    try:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except OSError:
+        return False
+    with os.fdopen(fd, "wb") as f:
+        for block in chunks:
+            f.write(block)
+    return True
+
+
+def unpack_cpio(s, folder):
+    """Write the regular files (and symlinks, as text) of a cpio stream into folder."""
+    for name, size, entry, mode in cpio_entries(s):
+        target = safe_join(folder, name)
+        if mode & S_IFMT not in (S_IFREG, S_IFLNK) or target is None or not write_file(target, part(entry, size)):
+            entry.skip(size)
+
+
+def unpack_pkg(url, folder, expected_sha256=None):
+    """Download a flat package (https://github.com/... only) and write its files into folder: the
+    contents of every Payload and Scripts archive under "<component>/Payload.contents/" (or
+    Scripts.contents), the other files of the package (Distribution, PackageInfo, ...) as they are.
+    Raises when it can't be read (too big, not a valid package, checksum mismatch, ...)."""
+    source = Hashed(url)
+    try:
+        stream = Stream(iter(source))
+        files = xar_files(stream)
+        at = stream.consumed()
+        for name, offset, length, encoding in sorted(files, key=lambda f: f[1]):
+            if offset < at:
+                continue  # overlaps what was read already
+            stream.skip(offset - at)
+            raw = Stream(part(stream, length))
+            data = Stream(inflate(iter(functools.partial(raw.read, CHUNK), b""), 15)) if "gzip" in encoding else raw
+            if os.path.basename(name) in ("Payload", "Scripts"):
+                target = safe_join(folder, name + ".contents")
+                if target:
+                    unpack_cpio(payload_stream(data), target)
+            else:
+                target = safe_join(folder, name)
+                if target:
+                    write_file(target, iter(functools.partial(data.read, CHUNK), b""))
+            raw.skip(MAX_UNPACKED_BYTES)  # the rest of this file
+            at = offset + length
+        stream.skip(MAX_UNPACKED_BYTES)  # read to the end, so the whole asset is hashed
+        source.verify(expected_sha256)
+    except (zlib.error, lzma.LZMAError, gzip.BadGzipFile, ET.ParseError, struct.error, ValueError) as e:
+        raise ValueError(f"not a readable .pkg ({e})") from e
+    finally:
+        source.close()
 
 
 def supported(name):

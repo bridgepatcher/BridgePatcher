@@ -19,6 +19,7 @@ on:
       - .github/scripts/upstream_typosquat_watch.py
       - .github/scripts/typosquat_sites.py
       - .github/scripts/typosquat_watch.py
+      - .github/scripts/lookalike_malware.py
   workflow_dispatch:
     inputs:
       dry_run:
@@ -139,6 +140,17 @@ jobs:
           SEARCH_QUERIES: "\"OpenCore Legacy Patcher\" download|\"OpenCore Legacy Patcher\" download pkg Tahoe|\"OpenCore-Patcher.pkg\" download|OCLP download unsupported Mac"
           SEARCH_RESULTS: "20"
           FARM_ALLOWLIST: "reddit.com youtube.com youtu.be x.com twitter.com insanelymac.com tonymacx86.com macrumors.com stackexchange.com stackoverflow.com apple.com wikipedia.org discord.com discord.gg gitlab.com sourceforge.net"
+          # --- Malware scan (lookalike_malware.py) ---
+          # The default branch and the assets of the latest MALWARE_RELEASES release(s) of each listed
+          # repository go through ClamAV and this project's own malware checks (installers unpacked
+          # first). Malware there marks it as malicious. At most
+          # MALWARE_SCANS_PER_RUN repositories are scanned per run (MALWARE_ASSET_BUDGET_GB downloaded);
+          # a scan is reused until the repository or its release changes, or for MALWARE_RESCAN_DAYS days
+          # (ClamAV learns new signatures every day).
+          MALWARE_SCANS_PER_RUN: "5"
+          MALWARE_RELEASES: "1"
+          MALWARE_ASSET_BUDGET_GB: "8"
+          MALWARE_RESCAN_DAYS: "7"
           # Entries not seen for this many days are removed from the list
           FORGET_DAYS: "365"
           # Entries taken down (🔴) this many days in a row move to the handled section

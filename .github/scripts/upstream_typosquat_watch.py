@@ -26,6 +26,7 @@ ISSUE_REPO = os.environ["ISSUE_REPO"]
 os.environ["ORIGINAL_REPO"] = UPSTREAM
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lookalike_malware  # noqa: E402
 import typosquat_sites as ts  # noqa: E402
 from bridgepatcher_tracker import status_of  # noqa: E402
 from typosquat_watch import (assess, cell_text, contains_name, fake_release, fake_version, get, looks_like,  # noqa: E402
@@ -199,7 +200,7 @@ def unreleased_version(full, limit=5):
 
 
 # Fields of a repository entry that make it malicious while they hold a reason
-MALICIOUS_FIELDS = ("unreleased_version", "fake_version", "version_jump", "fake_release")
+MALICIOUS_FIELDS = ("malware", "unreleased_version", "fake_version", "version_jump", "fake_release")
 
 
 def is_malicious(entry):
@@ -213,6 +214,15 @@ def malicious_releases(full, prior):
     faked, assets = ("", {}) if DRY_RUN else fake_release(full, (prior or {}).get("release_assets"))
     return {"unreleased_version": unreleased_version(full), "fake_version": fake_version(full),
             "version_jump": version_jump(full), "fake_release": faked, "release_assets": assets}
+
+
+def malware(full, prior):
+    """Malware scan of a listed repository's code and latest release (see lookalike_malware.py)."""
+    if DRY_RUN:
+        return {}
+    reason, record = lookalike_malware.scan(full, releases(full, lookalike_malware.RELEASES),
+                                            (prior or {}).get("malware_scan"))
+    return {"malware": reason, "malware_scan": record}
 
 
 def evaluate_repo(full, owner_sq, root, up_owner, extended=False, prior=None):
@@ -256,6 +266,7 @@ def evaluate_repo(full, owner_sq, root, up_owner, extended=False, prior=None):
     if public_offline(full, asset_urls):
         return None  # hidden from the public: listed under "no longer reachable" until it's pruned
     bad = malicious_releases(full, prior) if assets else dict.fromkeys(MALICIOUS_FIELDS, "")
+    bad.update(malware(full, prior))
     why = [bad[k] for k in MALICIOUS_FIELDS if bad.get(k)]
     return {**bad,
             "reasons": cell("; ".join(why + reasons + signals), 400 if why else 160),
@@ -1037,16 +1048,17 @@ def render(state, seen):
         out += [f"| `{r}`{mentioned(state, e)} | {status_of(e) or '—'} | {e.get('owner', '—')} | {e['reasons']} "
                 f"| {e['first_seen']} | {e['last_seen']} |" for r, e in sorted(repos.items())]
         if any(is_malicious(e) for e in repos.values()):
-            out += ["", ("🐛 *Malicious*: its releases hide what they really are. They pass off an unreleased "
-                         f"development snapshot as an official {PROJECT} version, claim another version than their "
-                         "code, change version suddenly, or ship another app than the release shows. Don't install them.")]
+            out += ["", ("🐛 *Malicious*: malware was found in its code or latest release, or its releases hide "
+                         f"what they really are: they pass off an unreleased development snapshot as an official {PROJECT} "
+                         "version, claim another version than their code, change version suddenly, or ship another app "
+                         "than the release shows. Don't install them.")]
         if any(mentioned(state, e) for e in repos.values()):
             out += ["", f"If you were mentioned: your repository's name imitates {PROJECT}, so it's listed here "
                     "to keep visitors from mistaking it for the official one. A listing isn't an accusation. "
                     "If that's not what you intended, renaming the repository takes it off the list."]
             if any(mentioned(state, e) and is_malicious(e) for e in repos.values()):
-                out += ["", ("If your repository is marked 🐛 malicious: please delete it. Its releases present "
-                             f"themselves as something they aren't, which puts people installing {PROJECT} at risk. "
+                out += ["", ("If your repository is marked 🐛 malicious: please delete it. It contains malware, or its "
+                             f"releases present themselves as something they aren't, which puts people installing {PROJECT} at risk. "
                              "Renaming it doesn't change that.")]
     else:
         out.append("None found right now.")
@@ -1079,7 +1091,8 @@ def render(state, seen):
         "and offer their own downloads or show other impersonation signals. Their releases are compared "
         "with the official releases and tags and with their own code: one that claims a version that wasn't "
         "officially out when it was published, another version than its code, a sudden version change or "
-        "another app than it shows is marked 🐛 malicious. Otherwise a listing means the name "
+        "another app than it shows is marked 🐛 malicious, and so is one whose code or latest release contains "
+        "malware (ClamAV and this project's own malware checks). Otherwise a listing means the name "
         "imitates the project; it isn't proof that the content is malicious. Names are shown as code on "
         "purpose, so they aren't clickable.</sub>",
         "",

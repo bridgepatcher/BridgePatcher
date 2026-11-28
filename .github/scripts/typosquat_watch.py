@@ -49,6 +49,9 @@ from datetime import date, datetime, timezone
 # The same license checks this project runs on itself (License compliance workflow), here on copies
 import check_license_compliance as compliance  # noqa: E402
 
+# Malware scan of copies' code and releases
+import lookalike_malware
+
 # Reads the app a release asset ships, for fake_release()
 import release_assets
 
@@ -1507,7 +1510,10 @@ def main():
         spoofed = "" if DRY_RUN or not sha else fake_version(full)
         jumped = "" if DRY_RUN or not sha else version_jump(full)
         faked, assets = ("", {}) if DRY_RUN or not sha else fake_release(full, (prior or {}).get("release_assets"))
-        malicious = ignored or spoofed or jumped or faked
+        # And copies with malware in their code or latest release (see lookalike_malware.py)
+        infected, scan_record = ("", None) if DRY_RUN else lookalike_malware.scan(
+            full, releases(full, lookalike_malware.RELEASES), (prior or {}).get("malware_scan"))
+        malicious = ignored or spoofed or jumped or faked or infected
         if malicious:
             suspicious = True
         if named == "current":
@@ -1517,7 +1523,7 @@ def main():
             reasons.insert(0, f"uses this project's former name ({', '.join(ALIASES)}) outside its fork network"
                               + (f" - it's a fork of {fork_of}" if fork_of else ""))
         verdict = "suspicious" if suspicious else "likely unintentional"
-        for reason in (faked, jumped, spoofed):
+        for reason in (faked, jumped, spoofed, infected):
             if reason:
                 reasons.insert(0, reason)
         if ignored:
@@ -1556,6 +1562,7 @@ def main():
             # 🐛 malicious while one of these holds a reason (see bridgepatcher_tracker.MALICIOUS)
             "license_broken_since": broken_since, "license_ignored": ignored, "fake_version": spoofed,
             "version_jump": jumped, "fake_release": faked, "release_assets": assets,
+            "malware": infected, "malware_scan": scan_record,
             "what": f"{verdict}: " + "; ".join(reasons + [describe_copy(sha, own)]),
             "request": link, "license": license_link,
             # Mentioned next to the repository in the tracker issue, so they're notified there too
