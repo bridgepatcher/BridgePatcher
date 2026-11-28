@@ -1096,8 +1096,8 @@ def tracker_entry(r, tracker):
         elif r.get("kind") == "malvertising":
             what = f"article about the project on a page with risky ads: “{r['title']}”"
         else:
-            what = (f"presents this fork's T2 support as news about Dortania's OpenCore Legacy Patcher, without "
-                    f"naming BridgePatcher: “{r['title']}”")
+            what = (f"presents BridgePatcher's T2 support as news about Dortania's OpenCore Legacy Patcher, "
+                    f"without naming BridgePatcher: “{r['title']}”")
         hosts = [h for h, _u, _t in r.get("editions", [])]
         what += f" ({r['url']})"
         if hosts:
