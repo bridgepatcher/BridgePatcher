@@ -300,6 +300,81 @@ class AutomaticUpdates:
             thread.join()
 
 
+    def _diskutil_info(self, identifier: str) -> dict:
+        try:
+            return plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "info", "-plist", identifier], stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout)
+        except Exception:
+            return {}
+
+
+    def _partition_has_booted_opencore(self, partition: str) -> bool:
+        """
+        Whether an EFI partition holds the OpenCore that is booted right now: its
+        config.plist was built by the build the booted OpenCore reports in NVRAM
+        (efi_builder/build.py _set_revision(): "Build-Version" = "<version> - <date>")
+        """
+        booted_version = self.constants.computer.booted_patcher_version
+        mount_point = self._diskutil_info(partition).get("MountPoint")
+        mounted_here = False
+        if not mount_point:
+            result = subprocess_wrapper.run_as_root(["/usr/sbin/diskutil", "mount", partition], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if result.returncode != 0:
+                logging.info(f"  - Could not mount {partition}")
+                return False
+            mounted_here = True
+            mount_point = self._diskutil_info(partition).get("MountPoint")
+
+        found = False
+        try:
+            if mount_point:
+                config = plistlib.loads((Path(mount_point) / "EFI" / "OC" / "config.plist").read_bytes())
+                build_version = str(config.get("#Revision", {}).get("Build-Version", ""))
+                found = build_version.split(" - ")[0].strip() == booted_version
+                logging.info(f"  - {partition}: OpenCore built by {build_version or 'an unknown build'}")
+        except FileNotFoundError:
+            logging.info(f"  - {partition}: no OpenCore")
+        except Exception as e:
+            logging.info(f"  - {partition}: could not read its OpenCore config: {e}")
+        finally:
+            if mounted_here and not found:
+                subprocess_wrapper.run_as_root(["/usr/sbin/diskutil", "umount", partition], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return found
+
+
+    def _find_booted_opencore_partition(self) -> Optional[str]:
+        """
+        Find the EFI partition OpenCore booted from without OpenCore's boot-path
+
+        OpenCore doesn't always expose boot-path to macOS (not on every T2 Mac), so
+        constants.booted_oc_disk can be unknown even though our OpenCore is booted.
+        Look on the disk(s) the booted macOS is installed on, which is where
+        OpenCore sits when it boots macOS from an external drive, and only accept
+        an EFI partition whose OpenCore was built by the booted build. Nothing is
+        guessed: no match means no automatic update.
+        """
+        if not self.constants.computer.booted_patcher_version:
+            return None
+
+        logging.info("- OpenCore didn't expose its boot path, looking for it on the macOS disk")
+        for store in utilities.find_apfs_physical_volume(utilities.get_disk_path()):
+            whole_disk = self._diskutil_info(store).get("ParentWholeDisk")
+            if not whole_disk:
+                continue
+            try:
+                disk_list = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "list", "-plist", whole_disk], stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout)
+                partitions = disk_list["AllDisksAndPartitions"][0].get("Partitions", [])
+            except Exception as e:
+                logging.info(f"  - Could not list the partitions of {whole_disk}: {e}")
+                continue
+            for entry in partitions:
+                if entry.get("Content") != "EFI" or not entry.get("DeviceIdentifier"):
+                    continue
+                if self._partition_has_booted_opencore(entry["DeviceIdentifier"]):
+                    logging.info(f"- Found the booted OpenCore on {entry['DeviceIdentifier']}")
+                    return entry["DeviceIdentifier"]
+        return None
+
+
     def _opencore_not_updated(self, reason: str, error: bool = False) -> bool:
         """
         Log and remember why OpenCore was not updated automatically
@@ -337,10 +412,6 @@ class AutomaticUpdates:
         if self.constants.launcher_script is not None:
             return self._opencore_not_updated("Running from source")
 
-        partition = self.constants.booted_oc_disk
-        if not partition:
-            return self._opencore_not_updated("Could not find the partition OpenCore booted from")
-
         # Lazy imports: efi_builder and the installer pull in most of the app, and
         # sys_patch (which imports this package) must not depend on them
         from ...efi_builder import build
@@ -349,6 +420,15 @@ class AutomaticUpdates:
 
         if not gui_support.CheckProperties(self.constants).host_can_build():
             return self._opencore_not_updated("This Mac can't build OpenCore")
+
+        partition = self.constants.booted_oc_disk
+        if not partition:
+            partition = self._find_booted_opencore_partition()
+            if partition:
+                # Also for the boot drive check the auto patcher runs afterwards (start.py)
+                self.constants.booted_oc_disk = partition
+        if not partition:
+            return self._opencore_not_updated("Could not find the partition OpenCore booted from")
 
         self._wait_for_payloads()
 
