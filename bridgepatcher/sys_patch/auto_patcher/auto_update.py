@@ -331,6 +331,8 @@ class AutomaticUpdates:
                 build_version = str(config.get("#Revision", {}).get("Build-Version", ""))
                 found = build_version.split(" - ")[0].strip() == booted_version
                 logging.info(f"  - {partition}: OpenCore built by {build_version or 'an unknown build'}")
+            else:
+                logging.info(f"  - {partition}: no mount point after mounting it")
         except FileNotFoundError:
             logging.info(f"  - {partition}: no OpenCore")
         except Exception as e:
@@ -353,12 +355,16 @@ class AutomaticUpdates:
         guessed: no match means no automatic update.
         """
         if not self.constants.computer.booted_patcher_version:
+            logging.info("- The booted OpenCore reports no BridgePatcher version, not looking for its partition")
             return None
 
-        logging.info("- OpenCore didn't expose its boot path, looking for it on the macOS disk")
-        for store in utilities.find_apfs_physical_volume(utilities.get_disk_path()):
+        macos_disk = utilities.get_disk_path()
+        physical_stores = utilities.find_apfs_physical_volume(macos_disk)
+        logging.info(f"- OpenCore didn't expose its boot path, looking for it on the macOS disk ({macos_disk}, physical stores: {physical_stores or 'none found'})")
+        for store in physical_stores:
             whole_disk = self._diskutil_info(store).get("ParentWholeDisk")
             if not whole_disk:
+                logging.info(f"  - Could not find the disk {store} belongs to")
                 continue
             try:
                 disk_list = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "list", "-plist", whole_disk], stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout)
@@ -366,12 +372,13 @@ class AutomaticUpdates:
             except Exception as e:
                 logging.info(f"  - Could not list the partitions of {whole_disk}: {e}")
                 continue
-            for entry in partitions:
-                if entry.get("Content") != "EFI" or not entry.get("DeviceIdentifier"):
-                    continue
-                if self._partition_has_booted_opencore(entry["DeviceIdentifier"]):
-                    logging.info(f"- Found the booted OpenCore on {entry['DeviceIdentifier']}")
-                    return entry["DeviceIdentifier"]
+            efi_partitions = [entry["DeviceIdentifier"] for entry in partitions if entry.get("Content") == "EFI" and entry.get("DeviceIdentifier")]
+            logging.info(f"  - EFI partitions on {whole_disk}: {efi_partitions or 'none'}")
+            for partition in efi_partitions:
+                if self._partition_has_booted_opencore(partition):
+                    logging.info(f"- Found the booted OpenCore on {partition}")
+                    return partition
+        logging.info(f"- No EFI partition holds the booted OpenCore ({self.constants.computer.booted_patcher_version})")
         return None
 
 
