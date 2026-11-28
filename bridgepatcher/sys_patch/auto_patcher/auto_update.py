@@ -311,7 +311,8 @@ class AutomaticUpdates:
         """
         Whether an EFI partition holds the OpenCore that is booted right now: its
         config.plist was built by the build the booted OpenCore reports in NVRAM
-        (efi_builder/build.py _set_revision(): "Build-Version" = "<version> - <date>")
+        (efi_builder/build.py _set_revision(): "Build-Version" = "<version> - <date>"),
+        or by a newer one, when OpenCore was updated there since the last restart
         """
         booted_version = self.constants.computer.booted_patcher_version
         mount_point = self._diskutil_info(partition).get("MountPoint")
@@ -329,7 +330,10 @@ class AutomaticUpdates:
             if mount_point:
                 config = plistlib.loads((Path(mount_point) / "EFI" / "OC" / "config.plist").read_bytes())
                 build_version = str(config.get("#Revision", {}).get("Build-Version", ""))
-                found = build_version.split(" - ")[0].strip() == booted_version
+                built_version = build_version.split(" - ")[0].strip()
+                built_parsed = _parse_version(built_version)
+                booted_parsed = _parse_version(booted_version)
+                found = built_version == booted_version or (built_parsed is not None and booted_parsed is not None and built_parsed >= booted_parsed)
                 logging.info(f"  - {partition}: OpenCore built by {build_version or 'an unknown build'}")
             else:
                 logging.info(f"  - {partition}: no mount point after mounting it")
@@ -363,7 +367,7 @@ class AutomaticUpdates:
         Check the EFI partitions of every physical disk, the macOS disk first
         (OpenCore may as well sit on an external drive while macOS is on the
         internal one), and only accept an EFI partition whose OpenCore was built by
-        the booted build. Nothing is guessed: no match, or more than one, means no
+        the booted build or a newer one (updated since the last restart). Nothing is guessed: no match, or more than one, means no
         automatic update.
         """
         if not self.constants.computer.booted_patcher_version:
@@ -397,9 +401,9 @@ class AutomaticUpdates:
             logging.info(f"- Found the booted OpenCore on {found[0]}")
             return found[0]
         if found:
-            logging.info(f"- Several EFI partitions hold an OpenCore of the booted build ({', '.join(found)}), can't tell which one booted")
+            logging.info(f"- Several EFI partitions hold an OpenCore of the booted build or newer ({', '.join(found)}), can't tell which one booted")
         else:
-            logging.info(f"- No EFI partition holds the booted OpenCore ({self.constants.computer.booted_patcher_version})")
+            logging.info(f"- No EFI partition holds the booted OpenCore ({self.constants.computer.booted_patcher_version}) or a newer one")
         return None
 
 
